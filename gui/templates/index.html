@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+     <title>Gyrokinetic database alpha</title>
+    <style>
+      body {
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        margin: 24px;
+        color: #1f2933;
+      }
+      :root {
+        --sticky-panel-height: 0px;
+      }
+      .sticky-panel {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: #ffffff;
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+      header {
+        margin-bottom: 16px;
+      }
+      .top-logo {
+        position: fixed;
+        top: 0;
+        right: 24px;
+      }
+      .top-left {
+        padding-right: 184px;
+      }
+      .logo {
+        max-height: 144px;
+        width: auto;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .panel-hidden {
+        display: none;
+      }
+      select,
+      input[type="text"] {
+        padding: 6px 8px;
+        font-size: 14px;
+      }
+      table {
+        border-collapse: collapse;
+        width: max-content;
+        table-layout: fixed;
+      }
+      th,
+      td {
+        border: 1px solid #d9e2ec;
+        padding: 6px 8px;
+        text-align: left;
+        font-size: 13px;
+        vertical-align: top;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 120px;
+      }
+      th {
+        background: #f0f4f8;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      .cell-truncate {
+        max-width: 240px;
+      }
+      .table-wrapper {
+        overflow: auto;
+        max-width: 100%;
+        max-height: calc(100vh - var(--sticky-panel-height) - 32px);
+        border: 1px solid #d9e2ec;
+        border-radius: 8px;
+      }
+      .panel-grid {
+        display: block;
+      }
+      .panel {
+        background: #ffffff;
+        border-radius: 8px;
+        padding: 12px;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+      }
+      .panel-tabbed {
+        border-top-left-radius: 0;
+      }
+      .panel-title {
+        margin: 0 0 12px;
+        font-size: 16px;
+      }
+      .tab-bar {
+        display: flex;
+        gap: 4px;
+        margin-bottom: -1px;
+      }
+      .tab {
+        border: 1px solid #d9e2ec;
+        background: #ffffff;
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        padding: 8px 16px;
+        font-size: 13px;
+        cursor: pointer;
+        position: relative;
+        top: 0;
+      }
+      .tab.active {
+        background: #e6f0ff;
+        border-color: #a7c4ff;
+        font-weight: 600;
+        box-shadow: 0 -1px 0 #ffffff, 0 -2px 0 #e6f0ff;
+      }
+      .chart-wrap {
+        border: 1px solid #d9e2ec;
+        border-radius: 8px;
+        padding: 12px;
+        background: #ffffff;
+      }
+      .chart-wrap.borderless {
+        border: none;
+      }
+      .chart-title {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+      .chart-empty {
+        color: #52606d;
+        font-size: 13px;
+      }
+      .schema-image {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        margin: 0 auto;
+      }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      .panel-hidden {
+        display: none;
+      }
+      .panel-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 0;
+      }
+      .panel-tab {
+        border: 1px solid #d9e2ec;
+        background: #ffffff;
+        border-bottom: none;
+        border-radius: 8px 8px 0 0;
+        padding: 8px 16px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .panel-tab.active {
+        background: #e6f0ff;
+        border-color: #a7c4ff;
+        font-weight: 600;
+      }
+      .error {
+        color: #a61b1b;
+        background: #fff5f5;
+        padding: 8px 10px;
+        border: 1px solid #f5c6c6;
+      }
+      .notice {
+        color: #1a365d;
+        background: #ebf8ff;
+        padding: 8px 10px;
+        border: 1px solid #bee3f8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="sticky-panel">
+      <header>
+        <h2> </h2>
+      </header>
+
+      {% if error %}
+        <div class="error">{{ error }}</div>
+      {% endif %}
+
+      <div class="top-section">
+        <div class="top-left">
+          <form method="get">
+            <div class="row">
+              <label for="db">DB path</label>
+              <input id="db" name="db" type="text" size="60" value="{{ db_path }}" />
+            </div>
+          </form>
+        </div>
+        <div class="top-logo">
+          <img class="logo" src="{{ url_for('static', filename='Slide1.png') }}" alt="Logo" />
+        </div>
+      </div>
+      <div class="tab-bar">
+        <button class="tab{% if selected_panel == 'statistics' %} active{% endif %}" type="button" data-tab="statistics">
+          Statistics
+        </button>
+        <button class="tab{% if selected_panel == 'tables' %} active{% endif %}" type="button" data-tab="tables">
+          Tables
+        </button>
+        <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
+          Action
+        </button>
+        <button class="tab{% if selected_panel == 'schema' %} active{% endif %}" type="button" data-tab="schema">
+          Schema
+        </button>
+      </div>
+    </div>
+
+    <div class="panel-grid">
+      <section class="panel panel-tabbed{% if selected_panel != 'tables' %} panel-hidden{% endif %}" data-panel="tables">
+        {% if selected_table %}
+          <form method="get">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="tables" />
+            <div class="row">
+              <label for="table">Table</label>
+              <select id="table" name="table" onchange="this.form.submit()">
+                {% for table in tables %}
+                  <option value="{{ table }}" {% if table == selected_table %}selected{% endif %}>
+                    {{ table }}
+                  </option>
+                {% endfor %}
+              </select>
+              <label for="only_active">Active</label>
+              <input
+                id="only_active"
+                name="only_active"
+                type="checkbox"
+                value="1"
+                {% if only_active %}checked{% endif %}
+                onchange="this.form.submit()"
+              />
+              <noscript><button type="submit">View</button></noscript>
+            </div>
+          </form>
+          <div class="table-wrapper">
+            <table>
+            <thead>
+              <tr>
+                {% for column in columns %}
+                  <th>{{ column }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+                <tr>
+                  {% for column in columns %}
+                    <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
+                      {{ row[column]|default('', true) }}
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+              {% if rows|length == 0 %}
+                <tr>
+                  <td colspan="{{ columns|length }}">No rows</td>
+                </tr>
+              {% endif %}
+            </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div>No table selected.</div>
+        {% endif %}
+      </section>
+      <section class="panel panel-tabbed{% if selected_panel != 'statistics' %} panel-hidden{% endif %}" data-panel="statistics">
+        <div class="chart-wrap borderless" style="margin-bottom:16px;">
+          <form method="get">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="table" value="{{ selected_table }}" />
+            <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
+            <input type="hidden" name="y_col" value="{{ stats_y_col }}" />
+            <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
+            <input type="hidden" name="y2_col" value="{{ stats_y2_col }}" />
+            <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
+            <input type="hidden" name="y3_col" value="{{ stats_y3_col }}" />
+            <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
+            <input type="hidden" name="y4_col" value="{{ stats_y4_col }}" />
+            <div class="row">
+              <label for="origin_id">Data origin</label>
+              <select id="origin_id" name="origin_id" onchange="this.form.submit()">
+                <option value="" {% if selected_origin_id is none %}selected{% endif %}>
+                  All
+                </option>
+                {% for origin_id, origin_name in data_origins %}
+                  <option value="{{ origin_id }}" {% if selected_origin_id == origin_id %}selected{% endif %}>
+                    {{ origin_id }} - {{ origin_name }}
+                  </option>
+                {% endfor %}
+              </select>
+              <noscript><button type="submit">Filter</button></noscript>
+            </div>
+          </form>
+        </div>
+        <div class="stats-grid">
+        <div class="chart-wrap">
+          <form method="get">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="table" value="{{ selected_table }}" />
+            <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
+            <input type="hidden" name="y2_col" value="{{ stats_y2_col }}" />
+            <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
+            <input type="hidden" name="y3_col" value="{{ stats_y3_col }}" />
+            <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
+            <input type="hidden" name="y4_col" value="{{ stats_y4_col }}" />
+            <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
+            <div class="row">
+              <label for="x_col">X-axis</label>
+              <select id="x_col" name="x_col" onchange="this.form.submit()">
+                {% for column in stats_columns %}
+                  <option value="{{ column }}" {% if column == stats_x_col %}selected{% endif %}>
+                    {{ column }}
+                  </option>
+                {% endfor %}
+              </select>
+              <label for="y_col">Y-axis</label>
+              <select id="y_col" name="y_col" onchange="this.form.submit()">
+                {% for column in stats_columns %}
+                  <option value="{{ column }}" {% if column == stats_y_col %}selected{% endif %}>
+                    {{ column }}
+                  </option>
+                {% endfor %}
+              </select>
+              <noscript><button type="submit">Update Figure 1</button></noscript>
+            </div>
+          </form>
+          <div class="chart-title">{{ stats_x_col }} vs {{ stats_y_col }}</div>
+          <div id="stats-chart"></div>
+          <div id="stats-empty" class="chart-empty" style="display:none;">
+            No data available.
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <form method="get">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="table" value="{{ selected_table }}" />
+            <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
+            <input type="hidden" name="y_col" value="{{ stats_y_col }}" />
+            <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
+            <input type="hidden" name="y3_col" value="{{ stats_y3_col }}" />
+            <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
+            <input type="hidden" name="y4_col" value="{{ stats_y4_col }}" />
+            <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
+            <div class="row">
+              <label for="x2_col">X-axis</label>
+              <select id="x2_col" name="x2_col" onchange="this.form.submit()">
+                {% for column in stats_columns %}
+                  <option value="{{ column }}" {% if column == stats_x2_col %}selected{% endif %}>
+                    {{ column }}
+                  </option>
+                {% endfor %}
+              </select>
+              <label for="y2_col">Y-axis</label>
+              <select id="y2_col" name="y2_col" onchange="this.form.submit()">
+                {% for column in stats_columns %}
+                  <option value="{{ column }}" {% if column == stats_y2_col %}selected{% endif %}>
+                    {{ column }}
+                  </option>
+                {% endfor %}
+              </select>
+              <noscript><button type="submit">Update Figure 2</button></noscript>
+            </div>
+          </form>
+          <div class="chart-title">{{ stats_x2_col }} vs {{ stats_y2_col }}</div>
+          <div id="stats-chart-2"></div>
+          <div id="stats-empty-2" class="chart-empty" style="display:none;">
+            No data available.
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <form method="get">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="table" value="{{ selected_table }}" />
+            <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
+            <input type="hidden" name="y_col" value="{{ stats_y_col }}" />
+            <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
+            <input type="hidden" name="y2_col" value="{{ stats_y2_col }}" />
+            <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
+            <input type="hidden" name="y4_col" value="{{ stats_y4_col }}" />
+            <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
+            <div class="row">
+              <label for="x3_col">X-axis</label>
+              <select id="x3_col" name="x3_col" onchange="this.form.submit()">
+                {% for column in stats_columns %}
+                  <option value="{{ column }}" {% if column == stats_x3_col %}selected{% endif %}>
+                    {{ column }}
+                  </option>
+                {% endfor %}
+              </select>
+              <label for="y3_col">Y-axis</label>
+              <select id="y3_col" name="y3_col" onchange="this.form.submit()">
+                {% for column in stats_columns %}
+                  <option value="{{ column }}" {% if column == stats_y3_col %}selected{% endif %}>
+                    {{ column }}
+                  </option>
+                {% endfor %}
+              </select>
+              <noscript><button type="submit">Update Figure 3</button></noscript>
+            </div>
+          </form>
+          <div class="chart-title">{{ stats_x3_col }} vs {{ stats_y3_col }}</div>
+          <div id="stats-chart-3"></div>
+          <div id="stats-empty-3" class="chart-empty" style="display:none;">
+            No data available.
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <form method="get">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="table" value="{{ selected_table }}" />
+            <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
+            <input type="hidden" name="y_col" value="{{ stats_y_col }}" />
+            <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
+            <input type="hidden" name="y2_col" value="{{ stats_y2_col }}" />
+            <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
+            <input type="hidden" name="y3_col" value="{{ stats_y3_col }}" />
+            <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
+            <div class="row">
+              <label for="x4_col">X-axis</label>
+              <select id="x4_col" name="x4_col" onchange="this.form.submit()">
+                {% for column in stats_columns %}
+                  <option value="{{ column }}" {% if column == stats_x4_col %}selected{% endif %}>
+                    {{ column }}
+                  </option>
+                {% endfor %}
+              </select>
+              <label for="y4_col">Y-axis</label>
+              <select id="y4_col" name="y4_col" onchange="this.form.submit()">
+                {% for column in stats_columns %}
+                  <option value="{{ column }}" {% if column == stats_y4_col %}selected{% endif %}>
+                    {{ column }}
+                  </option>
+                {% endfor %}
+              </select>
+              <noscript><button type="submit">Update Figure 4</button></noscript>
+            </div>
+          </form>
+          <div class="chart-title">{{ stats_x4_col }} vs {{ stats_y4_col }}</div>
+          <div id="stats-chart-4"></div>
+          <div id="stats-empty-4" class="chart-empty" style="display:none;">
+            No data available.
+          </div>
+        </div>
+        </div>
+      </section>
+      <section class="panel panel-tabbed{% if selected_panel != 'action' %} panel-hidden{% endif %}" data-panel="action">
+        <div class="chart-wrap">
+          <div class="chart-title">Actions</div>
+          {% if action_status and action_status.message %}
+            <div class="notice">{{ action_status.message }}</div>
+          {% endif %}
+          <div class="row">
+            <span>Mate Kinetic EFIT</span>
+            {% if actions.get("populate_mate") %}
+              <form method="post" action="/action/populate_mate">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("populate_mate").label }}
+                </button>
+              </form>
+            {% endif %}
+            {% if actions.get("create_inputs_mate") %}
+              <form method="post" action="/action/create_inputs_mate">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("create_inputs_mate").label }}
+                </button>
+              </form>
+            {% endif %}
+          </div>
+          <div class="row">
+            <span>Alexei Transp 09</span>
+            {% if actions.get("populate_alexei") %}
+              <form method="post" action="/action/populate_alexei">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("populate_alexei").label }}
+                </button>
+              </form>
+            {% endif %}
+            {% if actions.get("create_inputs_transp") %}
+              <form method="post" action="/action/create_inputs_transp">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("create_inputs_transp").label }}
+                </button>
+              </form>
+            {% endif %}
+          </div>
+          <div class="chart-empty">
+            <ol>
+              <li>First step: populating the database with equilibria and filter which ones are valid to process.</li>
+              <li>Second step: generating local gyrokinetic inputs for these cases at various radial location.</li>
+              <li>Third step: launching the job on remote supercomputer.</li>
+              <li>Fourth step: collecting back the data.</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+      <section class="panel panel-tabbed{% if selected_panel != 'schema' %} panel-hidden{% endif %}" data-panel="schema">
+        <div class="chart-wrap borderless">
+          <div class="chart-title">Schema</div>
+          <img class="schema-image" src="{{ url_for('docs_file', filename='schema_light.png') }}" alt="Database schema" />
+        </div>
+      </section>
+    </div>
+  </body>
+  <script>
+    const updateStickyOffset = () => {
+      const panel = document.querySelector(".sticky-panel");
+      if (!panel) {
+        return;
+      }
+      document.documentElement.style.setProperty(
+        "--sticky-panel-height",
+        `${panel.offsetHeight}px`
+      );
+    };
+    window.addEventListener("load", () => {
+      updateStickyOffset();
+    });
+    window.addEventListener("resize", updateStickyOffset);
+    const statsPoints = {{ stats_points|tojson }};
+    const statsPoints2 = {{ stats_points_2|tojson }};
+    const statsPoints3 = {{ stats_points_3|tojson }};
+    const statsPoints4 = {{ stats_points_4|tojson }};
+    const renderStatsChart = (chartId, emptyId, points, xLabelText, yLabelText) => {
+      const chart = document.querySelector(chartId);
+      const empty = document.querySelector(emptyId);
+      if (!chart || !empty) {
+        return;
+      }
+      chart.innerHTML = "";
+      if (!points || points.length === 0) {
+        empty.style.display = "block";
+        return;
+      }
+      empty.style.display = "none";
+      const width = 640;
+      const height = 360;
+      const pad = 40;
+      const xs = points.map((p) => p.x);
+      const ys = points.map((p) => p.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const scaleX = (x) => {
+        if (maxX === minX) return width / 2;
+        return pad + ((x - minX) / (maxX - minX)) * (width - 2 * pad);
+      };
+      const scaleY = (y) => {
+        if (maxY === minY) return height / 2;
+        return height - pad - ((y - minY) / (maxY - minY)) * (height - 2 * pad);
+      };
+      const ns = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(ns, "svg");
+      svg.setAttribute("width", width);
+      svg.setAttribute("height", height);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.style.display = "block";
+      svg.style.maxWidth = "100%";
+      svg.style.height = "auto";
+
+      const axis = document.createElementNS(ns, "line");
+      axis.setAttribute("x1", pad);
+      axis.setAttribute("y1", height - pad);
+      axis.setAttribute("x2", width - pad);
+      axis.setAttribute("y2", height - pad);
+      axis.setAttribute("stroke", "#9fb3c8");
+      svg.appendChild(axis);
+
+      const axisY = document.createElementNS(ns, "line");
+      axisY.setAttribute("x1", pad);
+      axisY.setAttribute("y1", pad);
+      axisY.setAttribute("x2", pad);
+      axisY.setAttribute("y2", height - pad);
+      axisY.setAttribute("stroke", "#9fb3c8");
+      svg.appendChild(axisY);
+
+      const ticks = 5;
+      for (let i = 0; i <= ticks; i++) {
+        const t = i / ticks;
+        const x = pad + t * (width - 2 * pad);
+        const y = height - pad;
+        const tick = document.createElementNS(ns, "line");
+        tick.setAttribute("x1", x);
+        tick.setAttribute("y1", y);
+        tick.setAttribute("x2", x);
+        tick.setAttribute("y2", y + 6);
+        tick.setAttribute("stroke", "#9fb3c8");
+        svg.appendChild(tick);
+
+        const label = document.createElementNS(ns, "text");
+        const value = (minX + t * (maxX - minX)).toFixed(2);
+        label.textContent = value;
+        label.setAttribute("x", x);
+        label.setAttribute("y", y + 18);
+        label.setAttribute("text-anchor", "middle");
+        label.setAttribute("fill", "#52606d");
+        label.setAttribute("font-size", "11");
+        svg.appendChild(label);
+      }
+
+      for (let i = 0; i <= ticks; i++) {
+        const t = i / ticks;
+        const y = height - pad - t * (height - 2 * pad);
+        const x = pad;
+        const tick = document.createElementNS(ns, "line");
+        tick.setAttribute("x1", x);
+        tick.setAttribute("y1", y);
+        tick.setAttribute("x2", x - 6);
+        tick.setAttribute("y2", y);
+        tick.setAttribute("stroke", "#9fb3c8");
+        svg.appendChild(tick);
+
+        const label = document.createElementNS(ns, "text");
+        const value = (minY + t * (maxY - minY)).toFixed(2);
+        label.textContent = value;
+        label.setAttribute("x", x - 10);
+        label.setAttribute("y", y + 4);
+        label.setAttribute("text-anchor", "end");
+        label.setAttribute("fill", "#52606d");
+        label.setAttribute("font-size", "11");
+        svg.appendChild(label);
+      }
+
+      const xLabel = document.createElementNS(ns, "text");
+      xLabel.textContent = xLabelText;
+      xLabel.setAttribute("x", width / 2);
+      xLabel.setAttribute("y", height - 4);
+      xLabel.setAttribute("text-anchor", "middle");
+      xLabel.setAttribute("fill", "#1f2933");
+      xLabel.setAttribute("font-size", "12");
+      svg.appendChild(xLabel);
+
+      const yLabel = document.createElementNS(ns, "text");
+      yLabel.textContent = yLabelText;
+      yLabel.setAttribute("x", 12);
+      yLabel.setAttribute("y", height / 2);
+      yLabel.setAttribute("text-anchor", "middle");
+      yLabel.setAttribute("fill", "#1f2933");
+      yLabel.setAttribute("font-size", "12");
+      yLabel.setAttribute("transform", `rotate(-90 12 ${height / 2})`);
+      svg.appendChild(yLabel);
+
+      points.forEach((p) => {
+        const c = document.createElementNS(ns, "circle");
+        c.setAttribute("cx", scaleX(p.x));
+        c.setAttribute("cy", scaleY(p.y));
+        c.setAttribute("r", "3");
+        c.setAttribute("fill", p.color || "#1f77b4");
+        svg.appendChild(c);
+      });
+
+      chart.appendChild(svg);
+    };
+    window.addEventListener("load", () => {
+      renderStatsChart(
+        "#stats-chart",
+        "#stats-empty",
+        statsPoints,
+        "{{ stats_x_col }}",
+        "{{ stats_y_col }}"
+      );
+      renderStatsChart(
+        "#stats-chart-2",
+        "#stats-empty-2",
+        statsPoints2,
+        "{{ stats_x2_col }}",
+        "{{ stats_y2_col }}"
+      );
+      renderStatsChart(
+        "#stats-chart-3",
+        "#stats-empty-3",
+        statsPoints3,
+        "{{ stats_x3_col }}",
+        "{{ stats_y3_col }}"
+      );
+      renderStatsChart(
+        "#stats-chart-4",
+        "#stats-empty-4",
+        statsPoints4,
+        "{{ stats_x4_col }}",
+        "{{ stats_y4_col }}"
+      );
+    });
+    const setActiveTab = (name) => {
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.tab === name);
+      });
+      document.querySelectorAll("[data-panel]").forEach((panel) => {
+        panel.classList.toggle("panel-hidden", panel.dataset.panel !== name);
+      });
+    };
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        setActiveTab(tab.dataset.tab);
+        updateStickyOffset();
+      });
+    });
+  </script>
+</html>

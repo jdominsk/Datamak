@@ -1,0 +1,81 @@
+debug = false
+
+[Dimensions]
+ntheta = 64
+nperiod = 1
+ny = 80
+nx = 350
+nhermite = 8
+nlaguerre = 4
+nspecies = 1
+
+[Domain]
+boundary = "linked"
+y0 = 28.2
+
+[Physics]
+beta = 0.0016431636878043103
+nonlinear_mode = true
+ExBshear = true
+ExBshearphase = true
+g_exb = 0.0
+fphi = 1.0
+fapar = 1.0
+fbpar = 1.0
+
+[Time]
+t_max = 200.0
+cfl = 0.8
+scheme = "rk4"
+dt = 0.05
+
+[Initialization]
+ikpar_init = 0
+init_field = "density"
+init_amp = 0.001
+
+[Geometry]
+geo_option = "miller"
+rhoc = 0.4903697232458373
+Rmaj = 5.631839630165588
+R_geo = 5.631839630165588
+qinp = 1.8780450528847161
+shat = 0.7776214332964551
+shift = -0.07319996243015091
+akappa = 1.1404862109242904
+akappri = 0.0384529186731776
+tri = -0.014207210781578064
+tripri = 0.22210176443956417
+betaprim = -0.001915051473702589
+
+[species]
+z = [ -1.0, 1.0,]
+mass = [ 0.0002724437107605002, 1.0,]
+dens = [ 1.0, 1.0,]
+temp = [ 1.0, 0.5730103311797287,]
+tprim = [ 3.0537286408991386, 1.9407700180405296,]
+fprim = [ 0.8270306230504612, 0.8270306230504612,]
+vnewk = [ 0.07328848047768065, 0.0027888838827688925,]
+type = [ "electron", "ion",]
+
+[Boltzmann]
+add_Boltzmann_species = true
+Boltzmann_type = "electrons"
+tau_fac = 1.0
+
+[Dissipation]
+hyper = true
+D_hyper = 0.05
+p_hyper = 2
+
+[Restart]
+restart = false
+save_for_restart = true
+
+[Diagnostics]
+nwrite = 100
+free_energy = true
+fluxes = true
+fixed_amplitude = true
+fields = true
+moments = true

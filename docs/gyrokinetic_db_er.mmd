@@ -1,0 +1,122 @@
+erDiagram
+  data_equil {
+    INT id PK
+    INT data_origin_id FK
+    STRING folder_path
+    STRING pfile
+    STRING pfile_content
+    STRING gfile
+    STRING gfile_content
+    STRING transpfile
+    STRING shot_number
+    FLOAT time
+    INT active
+    STRING creation_date
+  }
+
+  data_origin {
+    INT id PK
+    STRING name
+    STRING origin
+    STRING copy
+    STRING creation_date
+  }
+
+  gk_code {
+    INT id PK
+    STRING name
+    STRING version
+    STRING creation_date
+  }
+
+  gk_study {
+    INT id PK
+    INT data_equil_id FK
+    INT gk_code_id FK
+    STRING comment
+    STRING creation_date
+  }
+
+  gk_input {
+    INT id PK
+    INT simu_id FK
+    STRING file_name
+    STRING file_path
+    STRING content
+    FLOAT psin
+    INT is_linear
+    INT is_adiabatic_electron
+    STRING status
+    STRING comment
+
+    STRING geo_option
+    FLOAT rhoc
+    FLOAT Rmaj
+    FLOAT R_geo
+    FLOAT qinp
+    FLOAT shat
+    FLOAT shift
+    FLOAT akappa
+    FLOAT akappri
+    FLOAT tri
+    FLOAT tripri
+    FLOAT betaprim
+
+    FLOAT electron_z
+    FLOAT electron_mass
+    FLOAT electron_dens
+    FLOAT electron_temp
+    FLOAT electron_temp_ev
+    FLOAT electron_tprim
+    FLOAT electron_fprim
+    FLOAT electron_vnewk
+
+    FLOAT ion_z
+    FLOAT ion_mass
+    FLOAT ion_dens
+    FLOAT ion_temp
+    FLOAT ion_temp_ev
+    FLOAT ion_tprim
+    FLOAT ion_fprim
+    FLOAT ion_vnewk
+
+    STRING creation_date
+  }
+
+  gk_linear_run {
+    INT id PK
+    INT simu_id FK
+    FLOAT ky
+    FLOAT gamma
+    FLOAT omega
+    STRING units
+    INT mode
+    STRING remote_host
+    STRING remote_path
+    STRING status
+    STRING creation_date
+  }
+
+  gk_nonlinear_run {
+    INT id PK
+    INT simu_id FK
+    FLOAT t_min
+    FLOAT t_max
+    FLOAT q_i_avg
+    FLOAT q_e_avg
+    FLOAT pflux_i_avg
+    FLOAT pflux_e_avg
+    FLOAT phi2_avg
+    STRING remote_host
+    STRING remote_path
+    STRING status
+    STRING creation_date
+  }
+
+  data_origin ||--o{ data_equil : "has many"
+  data_equil  ||--o{ gk_study   : "used by"
+  gk_code     ||--o{ gk_study   : "runs with"
+
+  gk_study    ||--o{ gk_input        : "has"
+  gk_study    ||--o{ gk_linear_run   : "has"
+  gk_study    ||--o{ gk_nonlinear_run: "has"

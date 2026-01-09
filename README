@@ -1,0 +1,3 @@
+Create a virtual environement and then 
+python -m pip install -e /Users/jdominsk/Documents/Codes/pyrokinetics/pyrokinetics
+....

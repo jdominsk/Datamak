@@ -16,7 +16,7 @@ y0 = 28.2
 [Physics]
 beta = 0.0016431636878043103
 nonlinear_mode = false
-ExBshear = true
+ExBshear = false
 ExBshearphase = true
 g_exb = 0.0
 fphi = 1.0

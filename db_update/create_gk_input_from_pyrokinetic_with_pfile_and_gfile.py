@@ -333,6 +333,22 @@ def adjust_gx_input_for_adiabatic(content: str) -> tuple:
     return ("\n".join(lines) + ("\n" if content.endswith("\n") else "")), True
 
 
+def drop_gx_nkx_nky(content: str) -> tuple:
+    lines = content.splitlines()
+    cleaned = []
+    changed = False
+    pattern = re.compile(r"^\s*(nkx|nky)\s*=")
+    for line in lines:
+        if pattern.match(line):
+            changed = True
+            continue
+        cleaned.append(line)
+    if not changed:
+        return content, False
+    updated = "\n".join(cleaned) + ("\n" if content.endswith("\n") else "")
+    return updated, True
+
+
 def parse_geometry_fields(content: str) -> dict:
     lines = content.splitlines()
     start = None
@@ -798,6 +814,11 @@ def main() -> None:
                                 local_evs = extract_local_temps_ev(pyro)
                                 pyro.write_gk_file(file_name=filepath, gk_code=gk_code)
                                 content = read_file(filepath)
+                                content, dropped = drop_gx_nkx_nky(content)
+                                if dropped:
+                                    with open(filepath, "w", encoding="utf-8") as handle:
+                                        handle.write(content)
+                                    comment_parts.append("removed nkx/nky from Dimensions")
                                 if is_adiabatic_electron == 1:
                                     content, adjusted = adjust_gx_input_for_adiabatic(content)
                                     if adjusted:

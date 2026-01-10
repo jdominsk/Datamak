@@ -171,6 +171,10 @@
         border-color: #a7c4ff;
         font-weight: 600;
       }
+      .panel-note {
+        color: #52606d;
+        font-size: 13px;
+      }
       .error {
         color: #a61b1b;
         background: #fff5f5;
@@ -214,6 +218,9 @@
         </button>
         <button class="tab{% if selected_panel == 'tables' %} active{% endif %}" type="button" data-tab="tables">
           Tables
+        </button>
+        <button class="tab{% if selected_panel == 'batch' %} active{% endif %}" type="button" data-tab="batch">
+          Batch db
         </button>
         <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
           Action
@@ -261,15 +268,25 @@
               </tr>
             </thead>
             <tbody>
-              {% for row in rows %}
+                {% for row in rows %}
                 <tr>
                   {% for column in columns %}
                     <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
-                      {{ row[column]|default('', true) }}
+                      {% if selected_table == 'gk_input' and column == 'status' and row[column] == 'WAIT' %}
+                        <form method="post" action="/update_status">
+                          <input type="hidden" name="db" value="{{ db_path }}" />
+                          <input type="hidden" name="table" value="{{ selected_table }}" />
+                          <input type="hidden" name="panel" value="tables" />
+                          <input type="hidden" name="row_id" value="{{ row['id'] }}" />
+                          <button type="submit">WAIT</button>
+                        </form>
+                      {% else %}
+                        {{ row[column]|default('', true) }}
+                      {% endif %}
                     </td>
                   {% endfor %}
                 </tr>
-              {% endfor %}
+                {% endfor %}
               {% if rows|length == 0 %}
                 <tr>
                   <td colspan="{{ columns|length }}">No rows</td>
@@ -280,6 +297,56 @@
           </div>
         {% else %}
           <div>No table selected.</div>
+        {% endif %}
+      </section>
+      <section class="panel panel-tabbed{% if selected_panel != 'batch' %} panel-hidden{% endif %}" data-panel="batch">
+        <form method="get">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <input type="hidden" name="panel" value="batch" />
+          <div class="row">
+            <label for="batch_db">Batch database</label>
+            <select id="batch_db" name="batch_db" onchange="this.form.submit()">
+              {% for batch_db in batch_dbs %}
+                <option value="{{ batch_db }}" {% if batch_db == selected_batch_db %}selected{% endif %}>
+                  {{ batch_db }}
+                </option>
+              {% endfor %}
+            </select>
+            <noscript><button type="submit">View</button></noscript>
+          </div>
+        </form>
+        {% if batch_dbs|length == 0 %}
+          <div class="panel-note">No batch databases found in the batch folder.</div>
+        {% elif batch_error %}
+          <div class="error">{{ batch_error }}</div>
+        {% else %}
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  {% for column in batch_columns %}
+                    <th>{{ column }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in batch_rows %}
+                  <tr>
+                    {% for column in batch_columns %}
+                      <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
+                        {{ row[column]|default('', true) }}
+                      </td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+                {% if batch_rows|length == 0 %}
+                  <tr>
+                    <td colspan="{{ batch_columns|length }}">No rows</td>
+                  </tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
         {% endif %}
       </section>
       <section class="panel panel-tabbed{% if selected_panel != 'statistics' %} panel-hidden{% endif %}" data-panel="statistics">
@@ -511,6 +578,18 @@
                 <input type="hidden" name="panel" value="action" />
                 <button type="submit">
                   {{ actions.get("create_inputs_transp").label }}
+                </button>
+              </form>
+            {% endif %}
+          </div>
+          <div class="row">
+            <span>Batch</span>
+            {% if actions.get("create_batch_db") %}
+              <form method="post" action="/action/create_batch_db">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("create_batch_db").label }}
                 </button>
               </form>
             {% endif %}

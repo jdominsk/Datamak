@@ -14,14 +14,14 @@ boundary = "linked"
 y0 = 28.2
 
 [Physics]
-beta = 0.0016431636878043103
+beta = 0.0
 nonlinear_mode = true
-ExBshear = true
+ExBshear = false
 ExBshearphase = true
 g_exb = 0.0
 fphi = 1.0
-fapar = 1.0
-fbpar = 1.0
+fapar = 0.0
+fbpar = 0.0
 
 [Time]
 t_max = 200.0

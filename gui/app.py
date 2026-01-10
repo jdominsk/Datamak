@@ -9,9 +9,11 @@ from typing import Dict, List, Optional, Tuple
 from flask import Flask, redirect, render_template, request, send_from_directory, url_for
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_DB = os.path.join(os.path.dirname(APP_DIR), "gyrokinetic_simulations.db")
-DB_UPDATE_DIR = os.path.join(os.path.dirname(APP_DIR), "db_update")
-DOCS_DIR = os.path.join(os.path.dirname(APP_DIR), "docs")
+PROJECT_DIR = os.path.dirname(APP_DIR)
+DEFAULT_DB = os.path.join(PROJECT_DIR, "gyrokinetic_simulations.db")
+DB_UPDATE_DIR = os.path.join(PROJECT_DIR, "db_update")
+DOCS_DIR = os.path.join(PROJECT_DIR, "docs")
+BATCH_DIR = os.path.join(PROJECT_DIR, "batch")
 
 ACTIONS = {
     "populate_mate": {
@@ -33,6 +35,12 @@ ACTIONS = {
         "script": os.path.join(
             DB_UPDATE_DIR, "create_gk_input_from_pyrokinetic_with_transpfile.py"
         ),
+    },
+    "create_batch_db": {
+        "label": "Create Batch DB",
+        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "create_batch_database.py"),
+        "args": ["--copy-torun"],
+        "use_db": True,
     },
 }
 
@@ -62,6 +70,17 @@ def list_tables(conn: sqlite3.Connection) -> List[str]:
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     ).fetchall()
     return [row["name"] for row in rows]
+
+
+def list_batch_databases() -> List[str]:
+    if not os.path.isdir(BATCH_DIR):
+        return []
+    batch_dbs = [
+        name
+        for name in os.listdir(BATCH_DIR)
+        if name.endswith(".db") and os.path.isfile(os.path.join(BATCH_DIR, name))
+    ]
+    return sorted(batch_dbs)
 
 
 def get_data_origins(conn: sqlite3.Connection) -> List[Tuple[int, str]]:
@@ -121,7 +140,7 @@ def get_gk_input_points(
     base_query = f"""
         SELECT {x_col}, {y_col}, do.name
         FROM gk_input
-        JOIN gk_study ON gk_study.id = gk_input.simu_id
+        JOIN gk_study ON gk_study.id = gk_input.gk_study_id
         JOIN data_equil ON data_equil.id = gk_study.data_equil_id
         JOIN data_origin AS do ON do.id = data_equil.data_origin_id
         WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL
@@ -145,9 +164,18 @@ def get_action_state() -> Dict[str, Optional[str]]:
         return dict(ACTION_STATE)
 
 
-def _run_action(action_name: str, script_path: str) -> None:
+def _run_action(action_name: str, script_path: str, db_path: Optional[str]) -> None:
     try:
-        subprocess.run([sys.executable, script_path], check=True)
+        script_args: List[str] = []
+        use_db = False
+        for action in ACTIONS.values():
+            if action.get("script") == script_path:
+                script_args = action.get("args", [])
+                use_db = action.get("use_db", False)
+                break
+        if use_db and db_path:
+            script_args = [*script_args, "--source-db", db_path]
+        subprocess.run([sys.executable, script_path, *script_args], check=True)
     except Exception as exc:
         message = f"Action '{action_name}' failed: {exc}"
     else:
@@ -175,10 +203,32 @@ def run_action(action_name: str):
         ACTION_STATE["name"] = action["label"]
         ACTION_STATE["message"] = f"Action '{action['label']}' is running."
     thread = threading.Thread(
-        target=_run_action, args=(action["label"], action["script"]), daemon=True
+        target=_run_action, args=(action["label"], action["script"], db_path), daemon=True
     )
     thread.start()
     return redirect(url_for("index", panel="action", db=db_path))
+
+
+@app.route("/update_status", methods=["GET", "POST"])
+def update_status():
+    if request.method != "POST":
+        return redirect(url_for("index"))
+    db_path = request.form.get("db", DEFAULT_DB)
+    table = request.form.get("table")
+    row_id = request.form.get("row_id")
+    panel = request.form.get("panel", "tables")
+    if table != "gk_input" or not row_id or not row_id.isdigit():
+        return redirect(url_for("index", panel=panel, db=db_path, table=table))
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE gk_input SET status = 'TORUN' WHERE id = ? AND status = 'WAIT'",
+            (int(row_id),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("index", panel=panel, db=db_path, table=table))
 
 
 @app.route("/", methods=["GET"])
@@ -187,6 +237,7 @@ def index():
     selected_table = request.args.get("table")
     selected_panel = request.args.get("panel", "statistics")
     only_active = request.args.get("only_active") == "1"
+    selected_batch_db = request.args.get("batch_db")
     origin_id_raw = request.args.get("origin_id")
     origin_id = int(origin_id_raw) if origin_id_raw and origin_id_raw.isdigit() else None
     x_col = request.args.get("x_col", "qinp")
@@ -215,6 +266,10 @@ def index():
         y4_col = "ion_vnewk"
     columns: List[str] = []
     rows: List[sqlite3.Row] = []
+    batch_columns: List[str] = []
+    batch_rows: List[sqlite3.Row] = []
+    batch_dbs = list_batch_databases()
+    batch_error: Optional[str] = None
     stats_points: List[Tuple[float, float]] = []
     stats_points_2: List[Tuple[float, float]] = []
     stats_points_3: List[Tuple[float, float]] = []
@@ -229,6 +284,28 @@ def index():
             selected_table=None,
             columns=[],
             rows=[],
+            selected_panel=selected_panel,
+            only_active=only_active,
+            stats_points=[],
+            stats_columns=ALLOWED_STATS_COLUMNS,
+            stats_x_col=x_col,
+            stats_y_col=y_col,
+            stats_points_2=[],
+            stats_x2_col=x2_col,
+            stats_y2_col=y2_col,
+            stats_points_3=[],
+            stats_x3_col=x3_col,
+            stats_y3_col=y3_col,
+            stats_points_4=[],
+            stats_x4_col=x4_col,
+            stats_y4_col=y4_col,
+            data_origins=[],
+            selected_origin_id=origin_id,
+            batch_dbs=batch_dbs,
+            selected_batch_db=selected_batch_db,
+            batch_columns=batch_columns,
+            batch_rows=batch_rows,
+            batch_error=None,
             actions=ACTIONS,
             action_status=get_action_state(),
             error=f"Database not found: {db_path}",
@@ -251,6 +328,25 @@ def index():
     finally:
         conn.close()
 
+    if batch_dbs:
+        if selected_batch_db not in batch_dbs:
+            selected_batch_db = batch_dbs[0]
+        batch_db_path = os.path.join(BATCH_DIR, selected_batch_db)
+        if not os.path.exists(batch_db_path):
+            batch_error = f"Batch database not found: {batch_db_path}"
+        else:
+            batch_conn = get_connection(batch_db_path)
+            try:
+                batch_tables = list_tables(batch_conn)
+                if "gk_run" in batch_tables:
+                    batch_columns, batch_rows = get_table_rows(
+                        batch_conn, "gk_run", False
+                    )
+                else:
+                    batch_error = f"Table gk_run not found in {selected_batch_db}"
+            finally:
+                batch_conn.close()
+
     return render_template(
         "index.html",
         db_path=db_path,
@@ -258,6 +354,11 @@ def index():
         selected_table=selected_table,
         columns=columns,
         rows=rows,
+        batch_dbs=batch_dbs,
+        selected_batch_db=selected_batch_db,
+        batch_columns=batch_columns,
+        batch_rows=batch_rows,
+        batch_error=batch_error,
         selected_panel=selected_panel,
         only_active=only_active,
         stats_points=stats_points,

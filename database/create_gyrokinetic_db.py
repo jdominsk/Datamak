@@ -125,6 +125,17 @@ def create_schema(conn: sqlite3.Connection) -> None:
 
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS gk_batch (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_database_name TEXT NOT NULL,
+            remote_folder TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS gk_linear_run (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             gk_study_id INTEGER NOT NULL,

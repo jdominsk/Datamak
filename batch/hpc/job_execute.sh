@@ -59,8 +59,8 @@ try:
     with open(filepath, "w", encoding="utf-8") as handle:
         handle.write(row["input_content"])
     conn.execute(
-        "UPDATE gk_run SET status = 'RUNNING', input_name = ? WHERE id = ?",
-        (filename, run_id),
+        "UPDATE gk_run SET status = 'RUNNING', input_name = ?, job_id = ? WHERE id = ?",
+        (filename, os.environ.get("SLURM_JOB_ID", ""), run_id),
     )
     conn.commit()
     print(f"{run_id}\t{filepath}")

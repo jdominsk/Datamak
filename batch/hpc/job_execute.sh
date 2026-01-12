@@ -1,15 +1,5 @@
 #!/bin/bash
-#SBATCH -A m4564
-#SBATCH -C gpu
-#SBATCH -q regular
-#SBATCH -t 12:00:00
-#SBATCH -N 4
-#SBATCH --job-name=TO_BE_CHANGED
 
-GX_PATH=/global/homes/j/jdominsk/GX/gx_next6
-source ${GX_PATH}/module.sh
-module load cray-python/3.11.7
-cd "$SLURM_SUBMIT_DIR"
 set -euo pipefail
 
 DB_PATH="${1:-$PWD/batch_database_20260109_143859.db}"

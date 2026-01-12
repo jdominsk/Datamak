@@ -129,6 +129,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             batch_database_name TEXT NOT NULL,
             remote_folder TEXT NOT NULL,
+            remote_host TEXT,
             status TEXT NOT NULL
         )
         """

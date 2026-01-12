@@ -4,6 +4,10 @@ import shlex
 import sqlite3
 import subprocess
 from pathlib import Path
+import os
+
+
+ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
 
 
 def main() -> None:
@@ -12,7 +16,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--batch-dir",
-        default="./batch",
+        default=str(ROOT_DIR / "batch" / "new"),
         help="Local folder containing batch_database_*.db files.",
     )
     parser.add_argument(
@@ -22,7 +26,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--gk-db",
-        default="gyrokinetic_database.db",
+        default=str(ROOT_DIR / "gyrokinetic_simulations.db"),
         help="Local gyrokinetic database for logging gk_batch entries.",
     )
     args = parser.parse_args()
@@ -32,19 +36,17 @@ def main() -> None:
         raise SystemExit(f"Batch directory not found: {batch_path}")
 
     db_files = sorted(batch_path.glob("batch_database_*.db"))
-    if not db_files:
-        print(f"No batch_database_*.db files found in {batch_path}")
-        return
-
+    hpc_dir = ROOT_DIR / "batch" / "hpc"
     scripts = [
-        batch_path / "hpc" / "job_submit.sh",
-        batch_path / "hpc" / "job_execute.sh",
+        hpc_dir / "job_submit.sh",
+        hpc_dir / "job_execute.sh",
+        hpc_dir / "prepare_newbatch.sh",
     ]
     missing_scripts = [str(path) for path in scripts if not path.is_file()]
     if missing_scripts:
         raise SystemExit(f"Missing required scripts: {', '.join(missing_scripts)}")
 
-    sent_dir = batch_path / "sent"
+    sent_dir = batch_path.parent / "sent"
     sent_dir.mkdir(exist_ok=True)
 
     conn = sqlite3.connect(args.gk_db)
@@ -55,15 +57,48 @@ def main() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 batch_database_name TEXT NOT NULL,
                 remote_folder TEXT NOT NULL,
-                status TEXT NOT NULL
+                status TEXT NOT NULL,
+                remote_host TEXT
             )
             """
         )
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_batch)")}
+        if "remote_host" not in columns:
+            conn.execute("ALTER TABLE gk_batch ADD COLUMN remote_host TEXT")
+
+        created_rows = conn.execute(
+            """
+            SELECT batch_database_name
+            FROM gk_batch
+            WHERE status = 'CREATED'
+            """
+        ).fetchall()
+        created_names = {row[0] for row in created_rows}
+
+        if not created_names:
+            print("No CREATED gk_batch rows found.")
+            return
+
+        db_by_name = {path.name: path for path in db_files}
+        missing_files = sorted(name for name in created_names if name not in db_by_name)
+        extra_files = sorted(name for name in db_by_name if name not in created_names)
+
+        for name in missing_files:
+            print(f"Warning: gk_batch row without file: {name}")
+        for name in extra_files:
+            print(f"Warning: file without gk_batch row: {name}")
+
+        candidate_dbs = [
+            db_by_name[name] for name in sorted(created_names) if name in db_by_name
+        ]
+        if not candidate_dbs:
+            print("No batch databases found for CREATED rows.")
+            return
+
         non_empty_dbs = []
-        for db_path in db_files:
+        for db_path in candidate_dbs:
             db_conn = sqlite3.connect(db_path)
             try:
-                db_conn.row_factory = sqlite3.Row
                 count = db_conn.execute("SELECT COUNT(*) FROM gk_run").fetchone()[0]
             except sqlite3.Error:
                 count = 0
@@ -96,13 +131,14 @@ def main() -> None:
         remote_host, remote_root = remote_base.split(":", 1)
         remote_root_quoted = shlex.quote(remote_root)
 
+        tar_root = batch_path.parent
         transfer_items = sorted(
             {
-                str(path.relative_to(batch_path))
+                str(path.relative_to(tar_root))
                 for path in non_empty_dbs + scripts
             }
         )
-        tar_cmd = ["tar", "-cf", "-", "-C", str(batch_path), *transfer_items]
+        tar_cmd = ["tar", "-cf", "-", "-C", str(tar_root), *transfer_items]
         remote_cmd = f"mkdir -p {remote_root_quoted} && tar -xf - -C {remote_root_quoted}"
         tar_proc = subprocess.Popen(
             tar_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -123,12 +159,14 @@ def main() -> None:
             raise SystemExit(message)
 
         for db_path in non_empty_dbs:
+            remote_location = f"{remote_host}:{remote_root}"
             conn.execute(
                 """
-                INSERT INTO gk_batch (batch_database_name, remote_folder, status)
-                VALUES (?, ?, 'SENT')
+                UPDATE gk_batch
+                SET remote_folder = ?, remote_host = ?, status = 'SENT'
+                WHERE batch_database_name = ?
                 """,
-                (db_path.name, f"{remote_host}:{remote_root}"),
+                (remote_location, remote_host, db_path.name),
             )
             conn.commit()
             db_path.replace(sent_dir / db_path.name)

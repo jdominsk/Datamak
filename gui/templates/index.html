@@ -304,6 +304,11 @@
           <input type="hidden" name="db" value="{{ db_path }}" />
           <input type="hidden" name="panel" value="batch" />
           <div class="row">
+            <label for="batch_view">Folder</label>
+            <select id="batch_view" name="batch_view" onchange="this.form.submit()">
+              <option value="new" {% if batch_view == 'new' %}selected{% endif %}>new</option>
+              <option value="sent" {% if batch_view == 'sent' %}selected{% endif %}>sent</option>
+            </select>
             <label for="batch_db">Batch database</label>
             <select id="batch_db" name="batch_db" onchange="this.form.submit()">
               {% for batch_db in batch_dbs %}
@@ -608,6 +613,31 @@
         <div class="chart-wrap borderless">
           <div class="chart-title">Schema</div>
           <img class="schema-image" src="{{ url_for('docs_file', filename='schema_light.png') }}" alt="Database schema" />
+        </div>
+        <div class="chart-wrap" style="margin-top:16px;">
+          <div class="chart-title">Batch Workflow</div>
+          <pre class="panel-note">gk_input (gyrokinetic_simulations.db)
+  | status=TORUN
+  v
+create_batch_database.py --copy-torun
+  | -> batch_database_TIMESTAMP.db (gk_run)
+  | -> gk_input.status = BATCH
+  | -> gk_batch.status = CREATED
+  v
+send_batch_database.py
+  | -> send DB + scripts to NERSC newbatch
+  | -> gk_batch.status = SENT
+  v
+prepare_newbatch.sh (NERSC)
+  | -> ../runXXXX/ + copy DB + scripts
+  v
+deploy_batch.py
+  | -> sbatch runXXXX/job_submit.sh
+  | -> gk_batch.status = LAUNCHED
+  v
+job_execute.sh (NERSC)
+  | -> gk_run.status = RUNNING -> SUCCESS/CRASHED
+  | -> gk_run.job_id set per run</pre>
         </div>
       </section>
     </div>

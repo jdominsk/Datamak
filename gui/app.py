@@ -9,11 +9,13 @@ from typing import Dict, List, Optional, Tuple
 from flask import Flask, redirect, render_template, request, send_from_directory, url_for
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.path.dirname(APP_DIR)
+PROJECT_DIR = os.environ.get("DTWIN_ROOT", os.path.dirname(APP_DIR))
 DEFAULT_DB = os.path.join(PROJECT_DIR, "gyrokinetic_simulations.db")
 DB_UPDATE_DIR = os.path.join(PROJECT_DIR, "db_update")
 DOCS_DIR = os.path.join(PROJECT_DIR, "docs")
-BATCH_DIR = os.path.join(PROJECT_DIR, "batch")
+BATCH_BASE_DIR = os.path.join(PROJECT_DIR, "batch")
+BATCH_NEW_DIR = os.path.join(BATCH_BASE_DIR, "new")
+BATCH_SENT_DIR = os.path.join(BATCH_BASE_DIR, "sent")
 
 ACTIONS = {
     "populate_mate": {
@@ -72,13 +74,13 @@ def list_tables(conn: sqlite3.Connection) -> List[str]:
     return [row["name"] for row in rows]
 
 
-def list_batch_databases() -> List[str]:
-    if not os.path.isdir(BATCH_DIR):
+def list_batch_databases(batch_dir: str) -> List[str]:
+    if not os.path.isdir(batch_dir):
         return []
     batch_dbs = [
         name
-        for name in os.listdir(BATCH_DIR)
-        if name.endswith(".db") and os.path.isfile(os.path.join(BATCH_DIR, name))
+        for name in os.listdir(batch_dir)
+        if name.endswith(".db") and os.path.isfile(os.path.join(batch_dir, name))
     ]
     return sorted(batch_dbs)
 
@@ -238,6 +240,7 @@ def index():
     selected_panel = request.args.get("panel", "statistics")
     only_active = request.args.get("only_active") == "1"
     selected_batch_db = request.args.get("batch_db")
+    batch_view = request.args.get("batch_view", "new")
     origin_id_raw = request.args.get("origin_id")
     origin_id = int(origin_id_raw) if origin_id_raw and origin_id_raw.isdigit() else None
     x_col = request.args.get("x_col", "qinp")
@@ -268,7 +271,8 @@ def index():
     rows: List[sqlite3.Row] = []
     batch_columns: List[str] = []
     batch_rows: List[sqlite3.Row] = []
-    batch_dbs = list_batch_databases()
+    batch_dir = BATCH_NEW_DIR if batch_view == "new" else BATCH_SENT_DIR
+    batch_dbs = list_batch_databases(batch_dir)
     batch_error: Optional[str] = None
     stats_points: List[Tuple[float, float]] = []
     stats_points_2: List[Tuple[float, float]] = []
@@ -303,6 +307,7 @@ def index():
             selected_origin_id=origin_id,
             batch_dbs=batch_dbs,
             selected_batch_db=selected_batch_db,
+            batch_view=batch_view,
             batch_columns=batch_columns,
             batch_rows=batch_rows,
             batch_error=None,
@@ -331,7 +336,7 @@ def index():
     if batch_dbs:
         if selected_batch_db not in batch_dbs:
             selected_batch_db = batch_dbs[0]
-        batch_db_path = os.path.join(BATCH_DIR, selected_batch_db)
+        batch_db_path = os.path.join(batch_dir, selected_batch_db)
         if not os.path.exists(batch_db_path):
             batch_error = f"Batch database not found: {batch_db_path}"
         else:
@@ -356,6 +361,7 @@ def index():
         rows=rows,
         batch_dbs=batch_dbs,
         selected_batch_db=selected_batch_db,
+        batch_view=batch_view,
         batch_columns=batch_columns,
         batch_rows=batch_rows,
         batch_error=batch_error,

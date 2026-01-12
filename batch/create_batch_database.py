@@ -3,6 +3,10 @@ import argparse
 import sqlite3
 from datetime import datetime
 import os
+from pathlib import Path
+
+
+ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
 
 
 def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
@@ -17,6 +21,7 @@ def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
           archive_folder TEXT,
           input_name TEXT,
           nb_nodes INTEGER,
+          job_id TEXT,
           status TEXT
         );
         """
@@ -24,6 +29,8 @@ def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_run)")}
     if "input_content" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN input_content TEXT")
+    if "job_id" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN job_id TEXT")
 
 
 def copy_torun_rows(source_db: str, batch_db: str) -> int:
@@ -53,9 +60,39 @@ def copy_torun_rows(source_db: str, batch_db: str) -> int:
     return len(rows)
 
 
+def ensure_gk_batch_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gk_batch (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_database_name TEXT NOT NULL,
+            remote_folder TEXT NOT NULL,
+            status TEXT NOT NULL,
+            remote_host TEXT
+        )
+        """
+    )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_batch)")}
+    if "remote_host" not in columns:
+        conn.execute("ALTER TABLE gk_batch ADD COLUMN remote_host TEXT")
+
+
+def log_batch_created(source_db: str, batch_db: str) -> None:
+    with sqlite3.connect(source_db) as conn:
+        ensure_gk_batch_table(conn)
+        conn.execute(
+            """
+            INSERT INTO gk_batch (batch_database_name, remote_folder, status)
+            VALUES (?, ?, 'CREATED')
+            """,
+            (os.path.basename(batch_db), 'N/A'),
+        )
+        conn.commit()
+
+
 def main() -> None:
     default_name = datetime.now().strftime("batch_database_%Y%m%d_%H%M%S.db")
-    default_path = f"batch/{default_name}"
+    default_path = ROOT_DIR / "batch" / "new" / default_name
     parser = argparse.ArgumentParser(
         description=(
             "Create a batch database and optionally copy TORUN gk_input rows."
@@ -64,7 +101,7 @@ def main() -> None:
     parser.add_argument(
         "db",
         nargs="?",
-        default=default_path,
+        default=str(default_path),
         help=(
             "Path to the SQLite database file "
             f"(default: {default_path})."
@@ -77,7 +114,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--source-db",
-        default="gyrokinetic_simulations.db",
+        default=str(ROOT_DIR / "gyrokinetic_simulations.db"),
         help="Path to the source gyrokinetic database.",
     )
     args = parser.parse_args()
@@ -90,6 +127,7 @@ def main() -> None:
         ensure_gk_run_table(conn)
 
     print(f"Created/verified {args.db} with table gk_run.")
+    log_batch_created(args.source_db, args.db)
 
     if args.copy_torun:
         copied = copy_torun_rows(args.source_db, args.db)

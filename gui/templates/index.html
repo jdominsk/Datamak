@@ -171,6 +171,22 @@
         border-color: #a7c4ff;
         font-weight: 600;
       }
+      .workflow-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 16px;
+        margin-top: 16px;
+      }
+      .input-editor {
+        width: 100%;
+        min-height: 320px;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 12px;
+        padding: 8px;
+        border: 1px solid #d9e2ec;
+        border-radius: 6px;
+        resize: vertical;
+      }
       .panel-note {
         color: #52606d;
         font-size: 13px;
@@ -221,6 +237,9 @@
         </button>
         <button class="tab{% if selected_panel == 'batch' %} active{% endif %}" type="button" data-tab="batch">
           Batch db
+        </button>
+        <button class="tab{% if selected_panel == 'edit' %} active{% endif %}" type="button" data-tab="edit">
+          Edit GK Input
         </button>
         <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
           Action
@@ -353,6 +372,38 @@
             </table>
           </div>
         {% endif %}
+      </section>
+      <section class="panel panel-tabbed{% if selected_panel != 'edit' %} panel-hidden{% endif %}" data-panel="edit">
+        <form method="post" action="/edit_gk_input">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <div class="row">
+            <label for="gk_input_id">gk_input id</label>
+            <input
+              id="gk_input_id"
+              name="gk_input_id"
+              type="text"
+              size="10"
+              value="{{ edit_gk_input_id|default('', true) }}"
+            />
+            <button type="submit" name="action" value="load">Load</button>
+            <button type="submit" name="action" value="save" {% if edit_status and edit_status != 'WAIT' %}disabled{% endif %}>Save</button>
+          </div>
+          {% if edit_error %}
+            <div class="error">{{ edit_error }}</div>
+          {% endif %}
+          {% if edit_warning %}
+            <div class="error">{{ edit_warning }}</div>
+          {% endif %}
+          {% if edit_status and edit_status != 'WAIT' %}
+            <div class="error">Editing disabled because status is {{ edit_status }}.</div>
+          {% endif %}
+          {% if edit_message %}
+            <div class="notice">{{ edit_message }}</div>
+          {% endif %}
+          <div style="margin-top:12px;">
+            <textarea class="input-editor" name="gk_input_content" {% if edit_status and edit_status != 'WAIT' %}readonly{% endif %}>{{ edit_gk_input_content|default('', true) }}</textarea>
+          </div>
+        </form>
       </section>
       <section class="panel panel-tabbed{% if selected_panel != 'statistics' %} panel-hidden{% endif %}" data-panel="statistics">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
@@ -545,6 +596,14 @@
           {% if action_status and action_status.message %}
             <div class="notice">{{ action_status.message }}</div>
           {% endif %}
+          <div class="chart-empty">
+            <ol>
+              <li>First step: populating the database with equilibria and filter which ones are valid to process.</li>
+              <li>Second step: generating local gyrokinetic inputs for these cases at various radial location.</li>
+              <li>Third step: launching the job on remote supercomputer.</li>
+              <li>Fourth step: collecting back the data.</li>
+            </ol>
+          </div>
           <div class="row">
             <span>Mate Kinetic EFIT</span>
             {% if actions.get("populate_mate") %}
@@ -598,25 +657,42 @@
                 </button>
               </form>
             {% endif %}
-          </div>
-          <div class="chart-empty">
-            <ol>
-              <li>First step: populating the database with equilibria and filter which ones are valid to process.</li>
-              <li>Second step: generating local gyrokinetic inputs for these cases at various radial location.</li>
-              <li>Third step: launching the job on remote supercomputer.</li>
-              <li>Fourth step: collecting back the data.</li>
-            </ol>
+            {% if actions.get("deploy_batch_db") %}
+              <form method="post" action="/action/deploy_batch_db">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("deploy_batch_db").label }}
+                </button>
+              </form>
+            {% endif %}
           </div>
         </div>
-      </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'schema' %} panel-hidden{% endif %}" data-panel="schema">
-        <div class="chart-wrap borderless">
-          <div class="chart-title">Schema</div>
-          <img class="schema-image" src="{{ url_for('docs_file', filename='schema_light.png') }}" alt="Database schema" />
-        </div>
-        <div class="chart-wrap" style="margin-top:16px;">
-          <div class="chart-title">Batch Workflow</div>
-          <pre class="panel-note">gk_input (gyrokinetic_simulations.db)
+        <div class="workflow-grid">
+          <div class="chart-wrap">
+            <div class="chart-title">Equilibrium Import and GK Input Generation</div>
+          <pre class="panel-note">Mate Kinetic EFIT
+  | -> db_update/populate_data_equil_from_Mate_KinEFIT.py
+  | -> data_origin + data_equil rows (data_equil.active = 0)
+  v
+db_update/create_gk_input_from_pyrokinetic_with_pfile_and_gfile.py
+  | -> gk_input rows (WAIT by default)
+  v
+Manually set gk_input.status = TORUN (use the Tables panel)
+
+
+Alexei Transp 09
+  | -> db_update/populate_data_equil_from_Alexei_Transp_09.py
+  | -> data_origin + data_equil rows (data_equil.active = 0)
+  v
+db_update/create_gk_input_from_pyrokinetic_with_transpfile.py
+  | -> gk_input rows (WAIT by default)
+  v
+Manually set gk_input.status = TORUN (use the Tables panel)</pre>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-title">Batch Workflow</div>
+            <pre class="panel-note">gk_input (gyrokinetic_simulations.db)
   | status=TORUN
   v
 create_batch_database.py --copy-torun
@@ -624,20 +700,55 @@ create_batch_database.py --copy-torun
   | -> gk_input.status = BATCH
   | -> gk_batch.status = CREATED
   v
-send_batch_database.py
-  | -> send DB + scripts to NERSC newbatch
+deploy_batch.py
+  | -> sends DBs from batch/new + hpc scripts to NERSC newbatch
   | -> gk_batch.status = SENT
   v
-prepare_newbatch.sh (NERSC)
+prepare_newbatch.sh (NERSC, newbatch/new)
   | -> ../runXXXX/ + copy DB + scripts
   v
-deploy_batch.py
+deploy_batch.py (remote)
   | -> sbatch runXXXX/job_submit.sh
   | -> gk_batch.status = LAUNCHED
   v
 job_execute.sh (NERSC)
   | -> gk_run.status = RUNNING -> SUCCESS/CRASHED
   | -> gk_run.job_id set per run</pre>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <div class="chart-title">job_execute.sh Algorithm</div>
+          <pre class="panel-note">Inputs
+  - db path (batch_database_*.db)
+  - optional NODES
+  - flags: --analyze-only, --force-running-torun
+
+Initialize
+  - ensure gk_run has t_max_initial and t_max
+  - analyze SUCCESS rows with gx_analyze.py (mark CONVERGED/RESTART)
+
+Main loop
+  - pick first TORUN row
+  - if none: pick RESTART row, set restart=true in input_content, mark TORUN
+  - if none: exit
+
+Prepare run
+  - if t_max_initial == 0, parse t_max from input_content
+  - increment t_max by t_max_initial
+  - update input_content and write input_id*_gkinputid*.in
+  - set status RUNNING, record job_id, t_max_initial, t_max
+
+Execute
+  - if analyze-only: skip srun (treat as success)
+  - else run GX with srun
+  - on failure: status CRASHED
+  - on success: status SUCCESS, run gx_analyze.py to set CONVERGED/RESTART</pre>
+        </div>
+      </section>
+      <section class="panel panel-tabbed{% if selected_panel != 'schema' %} panel-hidden{% endif %}" data-panel="schema">
+        <div class="chart-wrap borderless">
+          <div class="chart-title">Schema</div>
+          <img class="schema-image" src="{{ url_for('docs_file', filename='schema_light.png') }}" alt="Database schema" />
         </div>
       </section>
     </div>

@@ -54,8 +54,8 @@ def get_or_create_origin_id(conn: sqlite3.Connection, name: str, origin: str, co
     if row:
         return int(row[0])
     cur = conn.execute(
-        "INSERT INTO data_origin (name, origin, copy) VALUES (?, ?, ?)",
-        (name, origin, copy),
+        "INSERT INTO data_origin (name, origin, copy, tokamak) VALUES (?, ?, ?, ?)",
+        (name, origin, copy, "NSTX"),
     )
     return int(cur.lastrowid)
 

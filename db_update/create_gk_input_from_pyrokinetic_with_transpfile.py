@@ -174,6 +174,36 @@ def parse_geometry_fields(content: str) -> dict:
     return values
 
 
+def parse_physics_fields(content: str) -> dict:
+    lines = content.splitlines()
+    start = None
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == "[physics]":
+            start = idx + 1
+            break
+    if start is None:
+        return {}
+    end = len(lines)
+    for idx in range(start, len(lines)):
+        if lines[idx].strip().startswith("[") and idx != start:
+            end = idx
+            break
+    values = {}
+    for line in lines[start:end]:
+        if "=" not in line:
+            continue
+        key, raw_val = line.split("=", 1)
+        key = key.strip()
+        raw_val = raw_val.strip().strip('"').strip("'")
+        if not key:
+            continue
+        try:
+            values[key] = float(raw_val)
+        except ValueError:
+            continue
+    return values
+
+
 def parse_list_values(raw: str) -> list:
     start = raw.find("[")
     end = raw.rfind("]")
@@ -505,17 +535,19 @@ def main() -> None:
                                     with open(outpath, "w", encoding="utf-8") as handle:
                                         handle.write(content)
                                     comment_parts.append("kinetic adjustments: fapar, fbpar")
-                            geometry = parse_geometry_fields(content)
-                            species = parse_species_fields(content)
-                            status = args.status
+                        geometry = parse_geometry_fields(content)
+                        physics = parse_physics_fields(content)
+                        species = parse_species_fields(content)
+                        status = args.status
                         except Exception as exc:
                             print(f"Warning: failed to create gk_input for study {study_id} psin={psin}: {exc}")
-                            comment_parts.append(f"error: {exc}")
-                            comment_parts.append("file not written")
-                            content = ""
-                            geometry = {}
-                            species = {}
-                            status = "CRASHED"
+                        comment_parts.append(f"error: {exc}")
+                        comment_parts.append("file not written")
+                        content = ""
+                        geometry = {}
+                        physics = {}
+                        species = {}
+                        status = "CRASHED"
                         comment = ""
                         if comment_parts:
                             comment = "WARNING: " + "; ".join(comment_parts)
@@ -539,6 +571,7 @@ def main() -> None:
                                 tri = ?,
                                 tripri = ?,
                                 betaprim = ?,
+                                beta = ?,
                                 electron_z = ?,
                                 electron_mass = ?,
                                 electron_dens = ?,
@@ -575,6 +608,7 @@ def main() -> None:
                                 geometry.get("tri"),
                                 geometry.get("tripri"),
                                 geometry.get("betaprim"),
+                                physics.get("beta"),
                                 species.get("electron_z"),
                                 species.get("electron_mass"),
                                 species.get("electron_dens"),

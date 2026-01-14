@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -43,6 +44,10 @@ ACTIONS = {
         "script": os.path.join(os.path.dirname(APP_DIR), "batch", "create_batch_database.py"),
         "args": ["--copy-torun"],
         "use_db": True,
+    },
+    "deploy_batch_db": {
+        "label": "Deploy Batch DB",
+        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "deploy_batch.py"),
     },
 }
 
@@ -105,6 +110,98 @@ def get_table_rows(
     return columns, rows
 
 
+def parse_numeric_fields(content: str) -> Dict[str, float]:
+    pattern = re.compile(
+        r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([+-]?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)\s*$"
+    )
+    values: Dict[str, float] = {}
+    for line in content.splitlines():
+        match = pattern.match(line)
+        if not match:
+            continue
+        key = match.group(1)
+        try:
+            values[key] = float(match.group(2))
+        except ValueError:
+            continue
+    return values
+
+
+def parse_list_values(raw: str) -> List[float]:
+    start = raw.find("[")
+    end = raw.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return []
+    items: List[float] = []
+    for item in raw[start + 1 : end].split(","):
+        item = item.strip().strip('"').strip("'")
+        if not item:
+            continue
+        try:
+            items.append(float(item))
+        except ValueError:
+            # Keep string entries such as species type labels.
+            try:
+                items.append(str(item))
+            except Exception:
+                continue
+    return items
+
+
+def parse_species_fields(content: str) -> Dict[str, float]:
+    lines = content.splitlines()
+    start = None
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == "[species]":
+            start = idx + 1
+            break
+    if start is None:
+        return {}
+    end = len(lines)
+    for idx in range(start, len(lines)):
+        if lines[idx].strip().startswith("[") and idx != start:
+            end = idx
+            break
+    fields: Dict[str, List[float]] = {}
+    for line in lines[start:end]:
+        if "=" not in line:
+            continue
+        key, raw_val = line.split("=", 1)
+        key = key.strip().lower().replace("_", "")
+        fields[key] = parse_list_values(raw_val)
+    types = [str(val).lower() for val in fields.get("type", [])]
+    densities = fields.get("dens", [])
+    electron_idx = None
+    for idx, tval in enumerate(types):
+        if tval == "electron":
+            electron_idx = idx
+            break
+    ion_indices = [idx for idx, tval in enumerate(types) if tval == "ion"]
+    main_ion_idx = None
+    if ion_indices and densities:
+        max_idx = ion_indices[0]
+        max_val = densities[max_idx] if max_idx < len(densities) else None
+        for idx in ion_indices[1:]:
+            if idx >= len(densities):
+                continue
+            if max_val is None or densities[idx] > max_val:
+                max_val = densities[idx]
+                max_idx = idx
+        main_ion_idx = max_idx
+    result: Dict[str, float] = {}
+    for label, idx in (("electron", electron_idx), ("ion", main_ion_idx)):
+        if idx is None:
+            continue
+        for key in ("z", "mass", "dens", "temp", "tprim", "fprim", "vnewk"):
+            values = fields.get(key, [])
+            if idx < len(values):
+                try:
+                    result[f"{label}_{key}"] = float(values[idx])
+                except (TypeError, ValueError):
+                    continue
+    return result
+
+
 ALLOWED_STATS_COLUMNS = [
     "rhoc",
     "Rmaj",
@@ -117,6 +214,7 @@ ALLOWED_STATS_COLUMNS = [
     "tri",
     "tripri",
     "betaprim",
+    "beta",
     "electron_z",
     "electron_mass",
     "electron_dens",
@@ -130,6 +228,23 @@ ALLOWED_STATS_COLUMNS = [
     "ion_dens",
     "ion_temp",
     "ion_temp_ev",
+    "ion_tprim",
+    "ion_fprim",
+    "ion_vnewk",
+]
+
+SPECIES_COLUMNS = [
+    "electron_z",
+    "electron_mass",
+    "electron_dens",
+    "electron_temp",
+    "electron_tprim",
+    "electron_fprim",
+    "electron_vnewk",
+    "ion_z",
+    "ion_mass",
+    "ion_dens",
+    "ion_temp",
     "ion_tprim",
     "ion_fprim",
     "ion_vnewk",
@@ -233,6 +348,101 @@ def update_status():
     return redirect(url_for("index", panel=panel, db=db_path, table=table))
 
 
+@app.route("/edit_gk_input", methods=["POST"])
+def edit_gk_input():
+    db_path = request.form.get("db", DEFAULT_DB)
+    gk_input_id = request.form.get("gk_input_id", "").strip()
+    action = request.form.get("action", "load")
+    if not gk_input_id.isdigit():
+        return redirect(
+            url_for(
+                "index",
+                panel="edit",
+                db=db_path,
+                gk_input_id=gk_input_id,
+                edit_error="Enter a numeric gk_input id.",
+            )
+        )
+    if action == "save":
+        content = request.form.get("gk_input_content", "")
+        conn = get_connection(db_path)
+        try:
+            row = conn.execute(
+                "SELECT * FROM gk_input WHERE id = ?",
+                (int(gk_input_id),),
+            ).fetchone()
+            if row is None:
+                return redirect(
+                    url_for(
+                        "index",
+                        panel="edit",
+                        db=db_path,
+                        gk_input_id=gk_input_id,
+                        edit_error="No gk_input row found for that id.",
+                    )
+                )
+            if str(row["status"]) != "WAIT":
+                return redirect(
+                    url_for(
+                        "index",
+                        panel="edit",
+                        db=db_path,
+                        gk_input_id=gk_input_id,
+                        edit_error="Edits allowed only when status is WAIT.",
+                        edit_status=str(row["status"]),
+                    )
+                )
+            allowed_keys = set(ALLOWED_STATS_COLUMNS + SPECIES_COLUMNS + ["psin"])
+            parsed = parse_numeric_fields(content)
+            species_updates = parse_species_fields(content)
+            updates: Dict[str, float] = {}
+            for key, value in {**parsed, **species_updates}.items():
+                if key not in allowed_keys:
+                    continue
+                if key not in row.keys():
+                    continue
+                current = row[key]
+                if current is None or abs(float(current) - value) > 1e-12:
+                    updates[key] = value
+            if updates:
+                set_clause = ", ".join([f"{key} = ?" for key in updates.keys()])
+                params = [content, *updates.values(), int(gk_input_id)]
+                conn.execute(
+                    f"UPDATE gk_input SET content = ?, {set_clause} WHERE id = ?",
+                    params,
+                )
+            else:
+                conn.execute(
+                    "UPDATE gk_input SET content = ? WHERE id = ?",
+                    (content, int(gk_input_id)),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        warning = None
+        if updates:
+            keys = ", ".join(sorted(updates.keys()))
+            warning = f"Updated columns based on content: {keys}"
+        return redirect(
+            url_for(
+                "index",
+                panel="edit",
+                db=db_path,
+                gk_input_id=gk_input_id,
+                edit_message="Saved.",
+                edit_warning=warning,
+            )
+        )
+    return redirect(
+        url_for(
+            "index",
+            panel="edit",
+            db=db_path,
+            gk_input_id=gk_input_id,
+        )
+    )
+
+
 @app.route("/", methods=["GET"])
 def index():
     db_path = request.args.get("db", DEFAULT_DB)
@@ -241,6 +451,11 @@ def index():
     only_active = request.args.get("only_active") == "1"
     selected_batch_db = request.args.get("batch_db")
     batch_view = request.args.get("batch_view", "new")
+    edit_gk_input_id = request.args.get("gk_input_id")
+    edit_message = request.args.get("edit_message")
+    edit_error = request.args.get("edit_error")
+    edit_warning = request.args.get("edit_warning")
+    edit_status = request.args.get("edit_status")
     origin_id_raw = request.args.get("origin_id")
     origin_id = int(origin_id_raw) if origin_id_raw and origin_id_raw.isdigit() else None
     x_col = request.args.get("x_col", "qinp")
@@ -274,6 +489,7 @@ def index():
     batch_dir = BATCH_NEW_DIR if batch_view == "new" else BATCH_SENT_DIR
     batch_dbs = list_batch_databases(batch_dir)
     batch_error: Optional[str] = None
+    edit_gk_input_content = ""
     stats_points: List[Tuple[float, float]] = []
     stats_points_2: List[Tuple[float, float]] = []
     stats_points_3: List[Tuple[float, float]] = []
@@ -311,6 +527,12 @@ def index():
             batch_columns=batch_columns,
             batch_rows=batch_rows,
             batch_error=None,
+            edit_gk_input_id=edit_gk_input_id,
+            edit_gk_input_content=edit_gk_input_content,
+            edit_status=edit_status,
+            edit_message=edit_message,
+            edit_error=edit_error,
+            edit_warning=edit_warning,
             actions=ACTIONS,
             action_status=get_action_state(),
             error=f"Database not found: {db_path}",
@@ -330,6 +552,16 @@ def index():
             stats_points_2 = get_gk_input_points(conn, x2_col, y2_col, origin_id)
             stats_points_3 = get_gk_input_points(conn, x3_col, y3_col, origin_id)
             stats_points_4 = get_gk_input_points(conn, x4_col, y4_col, origin_id)
+            if edit_gk_input_id and edit_gk_input_id.isdigit():
+                row = conn.execute(
+                    "SELECT content, status FROM gk_input WHERE id = ?",
+                    (int(edit_gk_input_id),),
+                ).fetchone()
+                if row is None:
+                    edit_error = "No gk_input row found for that id."
+                else:
+                    edit_gk_input_content = str(row["content"])
+                    edit_status = str(row["status"])
     finally:
         conn.close()
 
@@ -365,6 +597,12 @@ def index():
         batch_columns=batch_columns,
         batch_rows=batch_rows,
         batch_error=batch_error,
+        edit_gk_input_id=edit_gk_input_id,
+        edit_gk_input_content=edit_gk_input_content,
+        edit_status=edit_status,
+        edit_message=edit_message,
+        edit_error=edit_error,
+        edit_warning=edit_warning,
         selected_panel=selected_panel,
         only_active=only_active,
         stats_points=stats_points,

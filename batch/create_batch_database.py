@@ -22,7 +22,9 @@ def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
           input_name TEXT,
           nb_nodes INTEGER,
           job_id TEXT,
-          status TEXT
+          status TEXT,
+          t_max_initial REAL NOT NULL DEFAULT 0,
+          t_max REAL NOT NULL DEFAULT 0
         );
         """
     )
@@ -31,6 +33,45 @@ def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gk_run ADD COLUMN input_content TEXT")
     if "job_id" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN job_id TEXT")
+    if "t_max_initial" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN t_max_initial REAL NOT NULL DEFAULT 0")
+    if "t_max" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN t_max REAL NOT NULL DEFAULT 0")
+
+
+def ensure_gk_convergence_timeseries_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gk_convergence_timeseries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gk_run_id INTEGER NOT NULL,
+            gk_input_id INTEGER NOT NULL,
+            phi2_tot_f32 BLOB NOT NULL,
+            n_points INTEGER NOT NULL DEFAULT 100 CHECK (n_points = 100),
+            window_t_min REAL,
+            window_t_max REAL,
+            gamma_mean REAL,
+            relstd REAL,
+            slope_norm REAL,
+            method TEXT NOT NULL DEFAULT 'A',
+            r2 REAL,
+            is_converged INTEGER NOT NULL DEFAULT 0 CHECK (is_converged IN (0, 1)),
+            creation_date TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_gk_convergence_timeseries_run_id
+        ON gk_convergence_timeseries (gk_run_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_gk_convergence_timeseries_input_id
+        ON gk_convergence_timeseries (gk_input_id)
+        """
+    )
 
 
 def copy_torun_rows(source_db: str, batch_db: str) -> int:
@@ -125,8 +166,11 @@ def main() -> None:
 
     with sqlite3.connect(args.db) as conn:
         ensure_gk_run_table(conn)
+        ensure_gk_convergence_timeseries_table(conn)
 
-    print(f"Created/verified {args.db} with table gk_run.")
+    print(
+        f"Created/verified {args.db} with tables gk_run and gk_convergence_timeseries."
+    )
     log_batch_created(args.source_db, args.db)
 
     if args.copy_torun:

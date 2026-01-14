@@ -18,37 +18,23 @@ Notes:
 - The default source DB is `gyrokinetic_simulations.db`.
 - The batch DB name is timestamped: `batch/new/batch_database_YYYYMMDD_HHMMSS.db`.
 
-## 2) Send batch databases to Perlmutter
+## 2) Send + deploy in one step
 
 From inside `batch/` (or anywhere; it defaults to `batch/new`):
 
 ```
-python3 send_batch_database.py
+python3 deploy_batch.py
 ```
 
 What it does:
-- Copies non-empty `batch_database_*.db` to
-  `jdominsk@perlmutter.nersc.gov:/pscratch/sd/j/jdominsk/DTwin/newbatch`.
-- Also copies `hpc/job_submit.sh` and `hpc/job_execute.sh`.
-- Logs the transfer in `gk_batch` (in `gyrokinetic_simulations.db`).
-- Moves sent DBs to `./sent`.
+- Filters `gk_batch` rows with status `CREATED` and matches them to files in `batch/new`.
 - Renames empty DBs with the prefix `empty_`.
+- Sends non-empty DBs + `hpc/*.sh` to NERSC in a single SSH session.
+- Runs `prepare_newbatch.sh` and submits the jobs.
+- Updates `gk_batch` to `SENT` and `LAUNCHED`.
+- Moves sent DBs to `batch/sent`.
 
-## 3) Submit jobs on Perlmutter
-
-On Perlmutter, in the folder with the batch database:
-
-```
-sbatch job_submit.sh
-```
-
-Options:
-- Pass a specific DB path:
-  `sbatch job_submit.sh /path/to/batch_database_*.db`
-- Node count is taken from Slurm (`SLURM_JOB_NUM_NODES`) unless you pass a
-  second argument.
-
-## 4) What job_execute.sh does
+## 3) What job_execute.sh does
 
 `job_execute.sh`:
 - Reads the next TORUN row from `gk_run`.
@@ -63,18 +49,18 @@ gk_input (gyrokinetic_simulations.db)
   |  status=TORUN
   v
 create_batch_database.py --copy-torun
-  |  -> batch/batch_database_TIMESTAMP.db (gk_run)
+  |  -> batch/new/batch_database_TIMESTAMP.db (gk_run)
   |  -> gk_input.status = BATCH
   |  -> gk_batch.status = CREATED
   v
-send_batch_database.py
-  |  -> sends DB + scripts to NERSC newbatch
+deploy_batch.py
+  |  -> sends DBs from batch/new + hpc scripts to NERSC newbatch
   |  -> gk_batch.status = SENT
   v
-prepare_newbatch.sh (NERSC)
+prepare_newbatch.sh (NERSC, newbatch/new)
   |  -> ../runXXXX/ + copy DB + scripts
   v
-deploy_batch.py
+deploy_batch.py (remote)
   |  -> sbatch runXXXX/job_submit.sh
   |  -> gk_batch.status = LAUNCHED
   v

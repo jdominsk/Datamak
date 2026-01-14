@@ -25,10 +25,14 @@ def create_schema(conn: sqlite3.Connection) -> None:
             name TEXT NOT NULL,
             origin TEXT NOT NULL,
             copy TEXT NOT NULL,
+            tokamak TEXT NOT NULL DEFAULT 'NSTX',
             creation_date TEXT NOT NULL DEFAULT (datetime('now'))
         )
         """
     )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(data_origin)").fetchall()}
+    if "tokamak" not in columns:
+        conn.execute("ALTER TABLE data_origin ADD COLUMN tokamak TEXT NOT NULL DEFAULT 'NSTX'")
     # Database of equilibrium based on pfile and gfile
     conn.execute(
         """
@@ -60,6 +64,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+
     # This refers to a study of an equilrium with a given gyrokinetic code
     conn.execute(
         """
@@ -101,6 +106,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             tri REAL,
             tripri REAL,
             betaprim REAL,
+            beta REAL,
             electron_z REAL,
             electron_mass REAL,
             electron_dens REAL,
@@ -122,6 +128,9 @@ def create_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_input)").fetchall()}
+    if "beta" not in columns:
+        conn.execute("ALTER TABLE gk_input ADD COLUMN beta REAL")
 
     conn.execute(
         """
@@ -132,6 +141,33 @@ def create_schema(conn: sqlite3.Connection) -> None:
             remote_host TEXT,
             status TEXT NOT NULL
         )
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gk_run (
+            id INTEGER NOT NULL,
+            gk_input_id INTEGER,
+            gk_batch_id INTEGER,
+            input_folder TEXT,
+            job_folder TEXT,
+            archive_folder TEXT,
+            input_name TEXT,
+            nb_nodes INTEGER,
+            job_id TEXT,
+            status TEXT,
+            input_content TEXT,
+            remote_host TEXT,
+            remote_folder TEXT,
+            creation_date TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_gk_run_remote_input_name
+        ON gk_run (remote_host, remote_folder, input_name)
         """
     )
 
@@ -172,6 +208,29 @@ def create_schema(conn: sqlite3.Connection) -> None:
             creation_date TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (gk_study_id) REFERENCES gk_study(id) ON DELETE CASCADE,
             UNIQUE (gk_study_id, t_min, t_max)
+        )
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gk_convergence_timeseries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gk_run_id INTEGER NOT NULL,
+            gk_input_id INTEGER NOT NULL,
+            phi2_tot_f32 BLOB NOT NULL,
+            n_points INTEGER NOT NULL DEFAULT 100 CHECK (n_points = 100),
+            window_t_min REAL,
+            window_t_max REAL,
+            gamma_mean REAL,
+            relstd REAL,
+            slope_norm REAL,
+            method TEXT NOT NULL DEFAULT 'A',
+            r2 REAL,
+            is_converged INTEGER NOT NULL DEFAULT 0 CHECK (is_converged IN (0, 1)),
+            creation_date TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (gk_run_id) REFERENCES gk_run(id) ON DELETE CASCADE,
+            FOREIGN KEY (gk_input_id) REFERENCES gk_input(id) ON DELETE CASCADE
         )
         """
     )
@@ -224,6 +283,18 @@ def create_schema(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_gk_nonlinear_run_gk_study_id
         ON gk_nonlinear_run (gk_study_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_gk_convergence_timeseries_run_id
+        ON gk_convergence_timeseries (gk_run_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_gk_convergence_timeseries_input_id
+        ON gk_convergence_timeseries (gk_input_id)
         """
     )
     conn.commit()

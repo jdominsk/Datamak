@@ -65,6 +65,10 @@ db_path = sys.argv[1]
 conn = sqlite3.connect(db_path)
 try:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_run)")}
+    if "gk_batch_id" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN gk_batch_id INTEGER NOT NULL DEFAULT 0")
+    if "synced" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN synced INTEGER NOT NULL DEFAULT 0")
     if "t_max_initial" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max_initial REAL NOT NULL DEFAULT 0")
     if "t_max" not in columns:
@@ -101,7 +105,7 @@ try:
             lines.append("restart = true")
         new_content = "\n".join(lines) + "\n"
         conn.execute(
-            "UPDATE gk_run SET status = 'TORUN', input_content = ? WHERE id = ?",
+            "UPDATE gk_run SET status = 'TORUN', input_content = ?, synced = 0 WHERE id = ?",
             (new_content, run_id),
         )
         updated += 1
@@ -170,12 +174,17 @@ if [[ $ANALYZE_ONLY -eq 1 && $ANALYZE_ALL_NC -eq 1 ]]; then
     echo "Analyzing all .out.nc files in ${OUTPUT_DIR}."
     for nc_path in "${nc_files[@]}"; do
       run_id="0"
-      if [[ "$nc_path" =~ input_id([0-9]+)_gkinputid[0-9]+\.out\.nc$ ]]; then
+      if [[ "$nc_path" =~ input_batchid[0-9]+_gkinputid[0-9]+_runid([0-9]+)\.out\.nc$ ]]; then
         run_id="${BASH_REMATCH[1]}"
       fi
       echo "Running gx_analyze on $nc_path (run_id=$run_id)"
-      python3 "$(dirname "$0")/gx_analyze.py" "$DB_PATH" "$run_id" "$nc_path" --save-plot || \
-        echo "gx_analyze failed for $nc_path"
+      if [[ "$run_id" == "0" ]]; then
+        python3 "$(dirname "$0")/gx_analyze.py" "$DB_PATH" "$run_id" "$nc_path" --save-plot --no-db || \
+          echo "gx_analyze failed for $nc_path"
+      else
+        python3 "$(dirname "$0")/gx_analyze.py" "$DB_PATH" "$run_id" "$nc_path" --save-plot || \
+          echo "gx_analyze failed for $nc_path"
+      fi
       if [[ -f "$(dirname "$0")/ky_growth_rates.py" ]]; then
         python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save || \
           echo "ky_growth_rates failed for $nc_path"
@@ -286,7 +295,7 @@ conn.row_factory = sqlite3.Row
 try:
     conn.execute("BEGIN IMMEDIATE")
     row = conn.execute(
-        "SELECT id, gk_input_id, input_content, t_max_initial, t_max "
+        "SELECT id, gk_input_id, gk_batch_id, input_content, t_max_initial, t_max "
         "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
     ).fetchone()
     if row is None:
@@ -298,11 +307,11 @@ try:
             for run_id, content in restart_rows:
                 updated_content = update_restart_input(content)
                 conn.execute(
-                    "UPDATE gk_run SET input_content = ?, status = 'TORUN' WHERE id = ?",
+                    "UPDATE gk_run SET input_content = ?, status = 'TORUN', synced = 0 WHERE id = ?",
                     (updated_content, int(run_id)),
                 )
             row = conn.execute(
-                "SELECT id, gk_input_id, input_content, t_max_initial, t_max "
+                "SELECT id, gk_input_id, gk_batch_id, input_content, t_max_initial, t_max "
                 "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
             ).fetchone()
     if row is None:
@@ -311,6 +320,7 @@ try:
         sys.exit(2)
     run_id = int(row["id"])
     gk_input_id = int(row["gk_input_id"]) if row["gk_input_id"] is not None else 0
+    gk_batch_id = int(row["gk_batch_id"]) if row["gk_batch_id"] is not None else 0
     content = row["input_content"]
     tmax_initial = float(row["t_max_initial"] or 0)
     tmax_current = float(row["t_max"] or 0)
@@ -339,13 +349,13 @@ try:
     if count == 0:
         raise ValueError("t_max not found in input_content for update.")
 
-    filename = f"input_id{run_id}_gkinputid{gk_input_id}.in"
+    filename = f"input_batchid{gk_batch_id}_gkinputid{gk_input_id}_runid{run_id}.in"
     filepath = os.path.join(output_dir, filename)
     with open(filepath, "w", encoding="utf-8") as handle:
         handle.write(content)
     conn.execute(
         "UPDATE gk_run "
-        "SET status = 'RUNNING', input_name = ?, job_id = ?, "
+        "SET status = 'RUNNING', input_name = ?, job_id = ?, synced = 0, "
         "input_content = ?, t_max_initial = ?, t_max = ? "
         "WHERE id = ?",
         (

@@ -46,7 +46,6 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    repo_root = ROOT_DIR.resolve()
     batch_root = Path(args.batch_dir).resolve().parent
     batch_new = Path(args.batch_dir).resolve()
     batch_sent = batch_root / "sent"
@@ -148,9 +147,9 @@ def main() -> None:
 set -euo pipefail
 mkdir -p {args.remote_dir}
 tar -xf - -C {args.remote_dir}
-cd {args.remote_dir}/batch/hpc
+cd {args.remote_dir}/hpc
 chmod +x ./prepare_newbatch.sh
-bash ./prepare_newbatch.sh
+BASE_DIR="{args.base_dir}" bash ./prepare_newbatch.sh
 shopt -s nullglob
 count=0
 manifest="{args.remote_dir}/new_runs.txt"
@@ -178,7 +177,7 @@ while IFS= read -r run_dir; do
 done < "$manifest"
 rm -f "$manifest"
 """
-    tar_root = repo_root
+    tar_root = batch_root
     transfer_items = sorted(
         {
             str(path.relative_to(tar_root))

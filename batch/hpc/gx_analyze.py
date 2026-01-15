@@ -58,6 +58,9 @@ def ensure_gk_convergence_timeseries_table(conn: sqlite3.Connection) -> None:
             slope_norm REAL,
             method TEXT NOT NULL DEFAULT 'A',
             r2 REAL,
+            ky_abs_mean REAL,
+            gamma_max REAL,
+            diffusion REAL,
             is_converged INTEGER NOT NULL DEFAULT 0 CHECK (is_converged IN (0, 1)),
             creation_date TEXT NOT NULL DEFAULT (datetime('now'))
         )
@@ -74,6 +77,9 @@ def ensure_gk_convergence_timeseries_table(conn: sqlite3.Connection) -> None:
         ("slope_norm", "REAL"),
         ("method", "TEXT NOT NULL DEFAULT 'A'"),
         ("r2", "REAL"),
+        ("ky_abs_mean", "REAL"),
+        ("gamma_max", "REAL"),
+        ("diffusion", "REAL"),
         ("is_converged", "INTEGER NOT NULL DEFAULT 0"),
     ):
         if col not in columns:
@@ -85,6 +91,53 @@ def ensure_gk_convergence_timeseries_table(conn: sqlite3.Connection) -> None:
 def fetch_time_array(nc_path: str) -> np.ndarray:
     with Dataset(nc_path, "r") as nc:
         return np.array(nc["Grids/time"][:], dtype=float).reshape(-1)
+
+
+def load_ky_phi2_kxkyt(nc_path: str):
+    with Dataset(nc_path, "r") as nc:
+        ky = np.array(nc["Grids/ky"][:], dtype=float).reshape(-1)
+        phi_var = nc["Diagnostics/Phi2_kxkyt"]
+        phi = np.array(phi_var[:], dtype=float)
+        dims = getattr(phi_var, "dimensions", ())
+    if "time" in dims:
+        t_axis = dims.index("time")
+        if t_axis != 0:
+            phi = np.moveaxis(phi, t_axis, 0)
+    if "ky" in dims:
+        ky_axis = dims.index("ky")
+        if ky_axis != 1:
+            phi = np.moveaxis(phi, ky_axis, 1)
+    return ky, phi
+
+
+def fit_gamma_linear(time, phi2, window_frac=0.3, min_pts=20, eps_floor=1e-300):
+    Nt = time.size
+    nwin = max(min_pts, int(round(window_frac * Nt)))
+    i0 = max(0, Nt - nwin)
+    t = time[i0:]
+    y = phi2[i0:]
+    y = np.where(np.isfinite(y), y, np.nan)
+    y = np.where(y > eps_floor, y, eps_floor)
+    logy = np.log(y)
+    mask = np.isfinite(t) & np.isfinite(logy)
+    if np.count_nonzero(mask) < 6:
+        return np.nan
+    p = np.polyfit(t[mask], logy[mask], deg=1)
+    return 0.5 * p[0]
+
+
+def metric_gamma_over_abs_kymean2(ky, gamma):
+    ky = np.asarray(ky, dtype=float)
+    gamma = np.asarray(gamma, dtype=float)
+    mask = gamma > 0
+    if not np.any(mask):
+        return np.nan, np.nan, np.nan
+    w = gamma[mask]
+    x = np.abs(ky[mask])
+    ky_abs_mean = np.sum(w * x) / np.sum(w)
+    gamma_max = np.max(w)
+    metric = np.inf if ky_abs_mean == 0 else gamma_max / ky_abs_mean**2
+    return metric, ky_abs_mean, gamma_max
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,6 +158,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--b-tol", type=float, default=0.02)
     parser.add_argument("--b-r2-min", type=float, default=0.995)
     parser.add_argument("--save-plot", action="store_true")
+    parser.add_argument("--no-db", action="store_true", help="Skip DB writes")
     return parser.parse_args()
 
 
@@ -161,11 +215,52 @@ def main() -> int:
 
     phi2_f32 = np.asarray(phi2_tot, dtype=np.float32)
 
+    ky_abs_mean = None
+    gamma_max = None
+    gamma_metric = None
+    try:
+        ky, phi = load_ky_phi2_kxkyt(args.nc_path)
+        if phi.ndim == 3 and phi.shape[0] == fetch_time_array(args.nc_path).size:
+            phi2_kyt = np.nansum(phi, axis=2)
+            gamma_each = np.array(
+                [
+                    fit_gamma_linear(
+                        fetch_time_array(args.nc_path),
+                        phi2_kyt[:, j],
+                        window_frac=args.window_frac,
+                        min_pts=args.min_pts,
+                    )
+                    for j in range(phi2_kyt.shape[1])
+                ],
+                dtype=float,
+            )
+            gamma_metric, ky_abs_mean, gamma_max = metric_gamma_over_abs_kymean2(
+                ky, gamma_each
+            )
+    except Exception:
+        pass
+
+    if ky_abs_mean is not None and gamma_max is not None and gamma_metric is not None:
+        print(
+            f"<|ky|> = {ky_abs_mean:.6g}, gamma_max = {gamma_max:.6g}, "
+            f"D = {gamma_metric:.6g}"
+        )
+
     status = "CONVERGED" if is_converged else "RESTART"
+
+    if args.no_db:
+        return 0
 
     with sqlite3.connect(args.db) as conn:
         ensure_gk_convergence_timeseries_table(conn)
         conn.row_factory = sqlite3.Row
+        columns_run = {row[1] for row in conn.execute("PRAGMA table_info(gk_run)")}
+        if "ky_abs_mean" not in columns_run:
+            conn.execute("ALTER TABLE gk_run ADD COLUMN ky_abs_mean REAL")
+        if "gamma_max" not in columns_run:
+            conn.execute("ALTER TABLE gk_run ADD COLUMN gamma_max REAL")
+        if "diffusion" not in columns_run:
+            conn.execute("ALTER TABLE gk_run ADD COLUMN diffusion REAL")
         row = conn.execute(
             "SELECT gk_input_id FROM gk_run WHERE id = ?",
             (args.run_id,),
@@ -190,8 +285,8 @@ def main() -> int:
                 "INSERT INTO gk_convergence_timeseries ("
                 "gk_run_id, gk_input_id, time_f32, phi2_tot_f32, n_points, "
                 "window_t_min, window_t_max, gamma_mean, relstd, slope_norm, "
-                "method, r2, is_converged"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "method, r2, ky_abs_mean, gamma_max, diffusion, is_converged"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             insert_params = (
                 args.run_id,
@@ -206,6 +301,9 @@ def main() -> int:
                 float(diagnostics["slope_norm"]),
                 method,
                 None if r2_val is None else float(r2_val),
+                None if ky_abs_mean is None else float(ky_abs_mean),
+                None if gamma_max is None else float(gamma_max),
+                None if gamma_metric is None else float(gamma_metric),
                 int(bool(is_converged)),
             )
         else:
@@ -213,8 +311,8 @@ def main() -> int:
                 "INSERT INTO gk_convergence_timeseries ("
                 "gk_run_id, gk_input_id, phi2_tot_f32, n_points, "
                 "window_t_min, window_t_max, gamma_mean, relstd, slope_norm, "
-                "method, r2, is_converged"
-                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                "method, r2, ky_abs_mean, gamma_max, diffusion, is_converged"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             )
             insert_params = (
                 args.run_id,
@@ -228,9 +326,22 @@ def main() -> int:
                 float(diagnostics["slope_norm"]),
                 method,
                 None if r2_val is None else float(r2_val),
+                None if ky_abs_mean is None else float(ky_abs_mean),
+                None if gamma_max is None else float(gamma_max),
+                None if gamma_metric is None else float(gamma_metric),
                 int(bool(is_converged)),
             )
         conn.execute(insert_sql, insert_params)
+        conn.execute(
+            "UPDATE gk_run SET ky_abs_mean = ?, gamma_max = ?, diffusion = ? "
+            "WHERE id = ?",
+            (
+                None if ky_abs_mean is None else float(ky_abs_mean),
+                None if gamma_max is None else float(gamma_max),
+                None if gamma_metric is None else float(gamma_metric),
+                args.run_id,
+            ),
+        )
         conn.execute(
             "UPDATE gk_run SET status = ? WHERE id = ?",
             (status, args.run_id),

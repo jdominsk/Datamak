@@ -4,7 +4,7 @@ import os
 import re
 import sqlite3
 import subprocess
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import pyrokinetics as pk
 
@@ -100,6 +100,35 @@ def resolve_template(template_dir: str, is_linear: int, is_adiabatic_electron: i
     raise SystemExit(
         f"Multiple templates found for {linear_token}/{electron_token}: {matches}"
     )
+
+
+def drop_gx_nkx_nky(content: str) -> tuple:
+    lines = content.splitlines()
+    header_idx = None
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == "[dimensions]":
+            header_idx = idx
+            break
+    if header_idx is None:
+        return content, False
+    changed = False
+    out = []
+    for idx, line in enumerate(lines):
+        if idx <= header_idx:
+            out.append(line)
+            continue
+        if line.strip().startswith("[") and line.strip().endswith("]"):
+            out.extend(lines[idx:])
+            break
+        if re.match(r"^\s*nkx\s*=", line) or re.match(r"^\s*nky\s*=", line):
+            changed = True
+            continue
+        out.append(line)
+    else:
+        out = out
+    if not changed:
+        return content, False
+    return "\n".join(out) + ("\n" if content.endswith("\n") else ""), True
 
 
 def adjust_gx_input_for_adiabatic(content: str) -> Tuple[str, bool]:
@@ -315,22 +344,66 @@ def read_file(path: str) -> str:
 
 def existing_inputs(conn: sqlite3.Connection, gk_study_id: int) -> dict:
     rows = conn.execute(
-        "SELECT id, psin, status, is_linear, is_adiabatic_electron FROM gk_input WHERE gk_study_id = ?",
+        "SELECT id, psin, status, gk_model_id FROM gk_input WHERE gk_study_id = ?",
         (gk_study_id,),
     ).fetchall()
     inputs = {}
-    for row_id, psin, status, is_linear, is_adiabatic_electron in rows:
-        key = (float(psin), int(is_linear), int(is_adiabatic_electron))
+    for row_id, psin, status, gk_model_id in rows:
+        key = (float(psin), gk_model_id)
         inputs[key] = (int(row_id), str(status))
     return inputs
 
 
-def fetch_active_transp_studies(
-    conn: sqlite3.Connection, origin_name: str
-) -> List[Tuple[int, str, str, str, str, float]]:
+def fetch_active_models(
+    conn: sqlite3.Connection, template_dir: str
+) -> List[Dict[str, object]]:
     rows = conn.execute(
         """
-        SELECT gs.id, de.transpfile, do.origin, do.copy, gc.name, de.time
+        SELECT id, is_linear, is_adiabatic, is_electrostatic, input_template
+        FROM gk_model
+        WHERE active = 1
+        ORDER BY id
+        """
+    ).fetchall()
+    if not rows:
+        raise SystemExit("No active gk_model rows found.")
+    seen = set()
+    models: List[Dict[str, object]] = []
+    for row in rows:
+        model_id, is_linear, is_adiabatic, is_electrostatic, template_name = row
+        is_adiabatic_electron = 1 if int(is_adiabatic) in (1, 2) else 0
+        key = (int(is_linear), is_adiabatic_electron)
+        if key in seen:
+            print(
+                "Warning: multiple active gk_model rows for "
+                f"is_linear={key[0]} is_adiabatic_electron={key[1]}; "
+                f"keeping model_id={model_id} and skipping duplicate."
+            )
+            continue
+        template_path = os.path.join(template_dir, str(template_name))
+        if not os.path.isfile(template_path):
+            raise SystemExit(f"Template file not found: {template_path}")
+        seen.add(key)
+        models.append(
+            {
+                "id": int(model_id),
+                "is_linear": int(is_linear),
+                "is_adiabatic": int(is_adiabatic),
+                "is_adiabatic_electron": int(is_adiabatic_electron),
+                "is_electrostatic": int(is_electrostatic),
+                "template_name": str(template_name),
+                "template_path": template_path,
+            }
+        )
+    return models
+
+
+def fetch_active_transp_studies(
+    conn: sqlite3.Connection, origin_name: str
+) -> List[Tuple[int, int, str, str, str, str, float]]:
+    rows = conn.execute(
+        """
+        SELECT gs.id, gs.gk_code_id, de.transpfile, do.origin, do.copy, gc.name, de.time
         FROM gk_study AS gs
         JOIN data_equil AS de ON de.id = gs.data_equil_id
         JOIN data_origin AS do ON do.id = de.data_origin_id
@@ -343,7 +416,7 @@ def fetch_active_transp_studies(
         (origin_name,),
     ).fetchall()
     return [
-        (int(r[0]), str(r[1]), str(r[2]), str(r[3]), str(r[4]), r[5])
+        (int(r[0]), int(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]), r[6])
         for r in rows
     ]
 
@@ -368,88 +441,48 @@ def main() -> None:
         raise SystemExit(f"Template directory not found: {args.template_dir}")
     os.makedirs(args.output_dir, exist_ok=True)
     psins = psin_values(args.psin_start, args.psin_end, args.psin_step)
-    template_map = {}
-    for is_linear in (1, 0):
-        for is_adiabatic_electron in (1, 0):
-            template_map[(is_linear, is_adiabatic_electron)] = resolve_template(
-                args.template_dir, is_linear, is_adiabatic_electron
-            )
-
     conn = sqlite3.connect(args.db)
     inserted = 0
     try:
+        models = fetch_active_models(conn, args.template_dir)
         conn.execute("PRAGMA foreign_keys = ON")
         studies = fetch_active_transp_studies(conn, args.origin_name)
         if not studies:
             raise SystemExit("No active TRANSP studies found.")
-        for study_id, transpfile, origin_path, copy_path, gk_code, transp_time in studies:
+        for (
+            study_id,
+            gk_code_id,
+            transpfile,
+            origin_path,
+            copy_path,
+            gk_code,
+            transp_time,
+        ) in studies:
             filepath = scp_if_missing(args.remote, origin_path, copy_path, transpfile)
             time_val = args.time if transp_time is None else float(transp_time)
             existing = existing_inputs(conn, study_id)
-            for is_linear in (1, 0):
-                for is_adiabatic_electron in (1, 0):
-                    template_path = template_map[(is_linear, is_adiabatic_electron)]
-                    try:
-                        pyro_transp = pk.Pyro(
-                            eq_file=filepath,
-                            eq_type="TRANSP",
-                            eq_kwargs={"time": time_val, "neighbors": args.neighbors},
-                            kinetics_file=filepath,
-                            kinetics_type="TRANSP",
-                            kinetics_kwargs={"time": time_val},
-                        )
-                    except Exception as exc:
-                        print(f"Warning: failed to initialize Pyro for study {study_id}: {exc}")
-                        for psin in psins:
-                            key = (psin, is_linear, is_adiabatic_electron)
-                            if key in existing and existing[key][1] != "CRASHED":
-                                continue
-                            comment = f"WARNING: error: {exc}; file not written"
-                            if key in existing:
-                                row_id = existing[key][0]
-                            else:
-                                stub = conn.execute(
-                                    """
-                                    INSERT INTO gk_input
-                                        (gk_study_id, file_name, file_path, content, psin,
-                                         is_linear, is_adiabatic_electron, status, comment)
-                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                    """,
-                                    (
-                                        study_id,
-                                        "pending",
-                                        "",
-                                        "",
-                                        psin,
-                                        is_linear,
-                                        is_adiabatic_electron,
-                                        "CRASHED",
-                                        "",
-                                    ),
-                                )
-                                row_id = int(stub.lastrowid)
-                            linear_tag = "linear" if is_linear == 1 else "nonlinear"
-                            adiabatic_tag = "adiabe" if is_adiabatic_electron == 1 else "kine"
-                            filename = (
-                                f"{args.file_prefix}gk_input_{row_id}_study_{study_id}"
-                                f"_psin_{psin:.2f}_{linear_tag}_{adiabatic_tag}.in"
-                            )
-                            outpath = os.path.join(args.output_dir, filename)
-                            conn.execute(
-                                """
-                                UPDATE gk_input
-                                SET file_name = ?, file_path = ?, content = ?, status = ?, comment = ?
-                                WHERE id = ?
-                                """,
-                                (filename, outpath, "", "CRASHED", comment, row_id),
-                            )
-                            inserted += 1
-                        continue
-
+            for model in models:
+                is_linear = int(model["is_linear"])
+                is_adiabatic_electron = int(model["is_adiabatic_electron"])
+                gk_model_id = int(model["id"])
+                template_path = str(model["template_path"])
+                try:
+                    pyro_transp = pk.Pyro(
+                        eq_file=filepath,
+                        eq_type="TRANSP",
+                        eq_kwargs={"time": time_val, "neighbors": args.neighbors},
+                        kinetics_file=filepath,
+                        kinetics_type="TRANSP",
+                        kinetics_kwargs={"time": time_val},
+                        gk_file=template_path,
+                    )
+                except Exception as exc:
+                    print(f"Warning: failed to initialize Pyro for study {study_id}: {exc}")
                     for psin in psins:
-                        key = (psin, is_linear, is_adiabatic_electron)
+                        key = (psin, gk_model_id)
                         if key in existing and existing[key][1] != "CRASHED":
                             continue
+                        comment = f"WARNING: error: {exc}; file not written"
                         if key in existing:
                             row_id = existing[key][0]
                         else:
@@ -457,8 +490,8 @@ def main() -> None:
                                 """
                                 INSERT INTO gk_input
                                     (gk_study_id, file_name, file_path, content, psin,
-                                     is_linear, is_adiabatic_electron, status, comment)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     gk_model_id, status, comment)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                 """,
                                 (
                                     study_id,
@@ -466,9 +499,8 @@ def main() -> None:
                                     "",
                                     "",
                                     psin,
-                                    is_linear,
-                                    is_adiabatic_electron,
-                                    "WAIT",
+                                    gk_model_id,
+                                    "CRASHED",
                                     "",
                                 ),
                             )
@@ -480,67 +512,119 @@ def main() -> None:
                             f"_psin_{psin:.2f}_{linear_tag}_{adiabatic_tag}.in"
                         )
                         outpath = os.path.join(args.output_dir, filename)
-                        comment_parts = []
-                        local_evs = {"electron_temp_ev": None, "ion_temp_ev": None}
-                        try:
-                            pyro_transp.load_local(
-                                psi_n=psin,
-                                local_geometry="Miller",
-                                show_fit=False,
-                            )
-                            if not pyro_transp.local_species.check_quasineutrality():
-                                if args.enforce_local_quasineutrality == 1:
-                                    modify_species = args.qn_modify_species
-                                    if modify_species not in pyro_transp.local_species.names:
-                                        if "electron" in pyro_transp.local_species.names:
-                                            modify_species = "electron"
-                                        else:
-                                            modify_species = pyro_transp.local_species.names[0]
-                                    pyro_transp.local_species.enforce_quasineutrality(modify_species)
-                                    comment_parts.append(
-                                        f"enforced local quasineutrality on {modify_species}"
-                                    )
-                                else:
-                                    raise SystemExit(
-                                        "LocalSpecies is not quasineutral. "
-                                        "Use --enforce-local-quasineutrality 1 to override."
-                                    )
-                            local_evs = extract_local_temps_ev(pyro_transp)
-                            pyro_transp.write_gk_file(file_name=outpath, gk_code=gk_code)
-                            content = read_file(outpath)
-                            if is_adiabatic_electron == 1:
-                                content, adjusted = adjust_gx_input_for_adiabatic(content)
-                                if adjusted:
-                                    with open(outpath, "w", encoding="utf-8") as handle:
-                                        handle.write(content)
-                                    comment_parts.append(
-                                        "adiabatic adjustments: nspecies, beta, fapar, fbpar"
-                                    )
+                        conn.execute(
+                            """
+                            UPDATE gk_input
+                            SET file_name = ?, file_path = ?, content = ?, status = ?, comment = ?
+                            WHERE id = ?
+                            """,
+                            (filename, outpath, "", "CRASHED", comment, row_id),
+                        )
+                        inserted += 1
+                    continue
+
+                for psin in psins:
+                    key = (psin, gk_model_id)
+                    if key in existing and existing[key][1] != "CRASHED":
+                        continue
+                    if key in existing:
+                        row_id = existing[key][0]
+                    else:
+                        stub = conn.execute(
+                            """
+                            INSERT INTO gk_input
+                                (gk_study_id, file_name, file_path, content, psin,
+                                 gk_model_id, status, comment)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                study_id,
+                                "pending",
+                                "",
+                                "",
+                                psin,
+                                gk_model_id,
+                                "WAIT",
+                                "",
+                            ),
+                        )
+                        row_id = int(stub.lastrowid)
+                    linear_tag = "linear" if is_linear == 1 else "nonlinear"
+                    adiabatic_tag = "adiabe" if is_adiabatic_electron == 1 else "kine"
+                    filename = (
+                        f"{args.file_prefix}gk_input_{row_id}_study_{study_id}"
+                        f"_psin_{psin:.2f}_{linear_tag}_{adiabatic_tag}.in"
+                    )
+                    outpath = os.path.join(args.output_dir, filename)
+                    comment_parts = []
+                    local_evs = {"electron_temp_ev": None, "ion_temp_ev": None}
+                    try:
+                        pyro_transp.load_local(
+                            psi_n=psin,
+                            local_geometry="Miller",
+                            show_fit=False,
+                        )
+                        if not pyro_transp.local_species.check_quasineutrality():
+                            if args.enforce_local_quasineutrality == 1:
+                                modify_species = args.qn_modify_species
+                                if modify_species not in pyro_transp.local_species.names:
+                                    if "electron" in pyro_transp.local_species.names:
+                                        modify_species = "electron"
+                                    else:
+                                        modify_species = pyro_transp.local_species.names[0]
+                                pyro_transp.local_species.enforce_quasineutrality(modify_species)
+                                comment_parts.append(
+                                    f"enforced local quasineutrality on {modify_species}"
+                                )
                             else:
-                                lines = content.splitlines()
-                                fapar_re = re.compile(r"^\s*fapar\s*=\s*")
-                                fbpar_re = re.compile(r"^\s*fbpar\s*=\s*")
-                                changed = False
-                                for idx, line in enumerate(lines):
-                                    if fapar_re.match(line):
-                                        lines[idx] = "fapar = 0.0"
-                                        changed = True
-                                        continue
-                                    if fbpar_re.match(line):
-                                        lines[idx] = "fbpar = 0.0"
-                                        changed = True
-                                        continue
-                                if changed:
-                                    content = "\n".join(lines) + ("\n" if content.endswith("\n") else "")
-                                    with open(outpath, "w", encoding="utf-8") as handle:
-                                        handle.write(content)
-                                    comment_parts.append("kinetic adjustments: fapar, fbpar")
+                                raise SystemExit(
+                                    "LocalSpecies is not quasineutral. "
+                                    "Use --enforce-local-quasineutrality 1 to override."
+                                )
+                        local_evs = extract_local_temps_ev(pyro_transp)
+                        pyro_transp.write_gk_file(file_name=outpath, gk_code=gk_code)
+                        content = read_file(outpath)
+                        content, dropped = drop_gx_nkx_nky(content)
+                        if dropped:
+                            with open(outpath, "w", encoding="utf-8") as handle:
+                                handle.write(content)
+                            comment_parts.append("removed nkx/nky from Dimensions")
+                        if is_adiabatic_electron == 1:
+                            content, adjusted = adjust_gx_input_for_adiabatic(content)
+                            if adjusted:
+                                with open(outpath, "w", encoding="utf-8") as handle:
+                                    handle.write(content)
+                                comment_parts.append(
+                                    "adiabatic adjustments: nspecies, beta, fapar, fbpar"
+                                )
+                        else:
+                            lines = content.splitlines()
+                            fapar_re = re.compile(r"^\s*fapar\s*=\s*")
+                            fbpar_re = re.compile(r"^\s*fbpar\s*=\s*")
+                            changed = False
+                            for idx, line in enumerate(lines):
+                                if fapar_re.match(line):
+                                    lines[idx] = "fapar = 0.0"
+                                    changed = True
+                                    continue
+                                if fbpar_re.match(line):
+                                    lines[idx] = "fbpar = 0.0"
+                                    changed = True
+                                    continue
+                            if changed:
+                                content = "\n".join(lines) + ("\n" if content.endswith("\n") else "")
+                                with open(outpath, "w", encoding="utf-8") as handle:
+                                    handle.write(content)
+                                comment_parts.append("kinetic adjustments: fapar, fbpar")
                         geometry = parse_geometry_fields(content)
                         physics = parse_physics_fields(content)
                         species = parse_species_fields(content)
                         status = args.status
-                        except Exception as exc:
-                            print(f"Warning: failed to create gk_input for study {study_id} psin={psin}: {exc}")
+                    except Exception as exc:
+                        print(
+                            "Warning: failed to create gk_input for study "
+                            f"{study_id} psin={psin}: {exc}"
+                        )
                         comment_parts.append(f"error: {exc}")
                         comment_parts.append("file not written")
                         content = ""
@@ -548,87 +632,87 @@ def main() -> None:
                         physics = {}
                         species = {}
                         status = "CRASHED"
-                        comment = ""
-                        if comment_parts:
-                            comment = "WARNING: " + "; ".join(comment_parts)
-                        conn.execute(
-                            """
-                            UPDATE gk_input
-                            SET file_name = ?,
-                                file_path = ?,
-                                content = ?,
-                                status = ?,
-                                comment = ?,
-                                geo_option = ?,
-                                rhoc = ?,
-                                Rmaj = ?,
-                                R_geo = ?,
-                                qinp = ?,
-                                shat = ?,
-                                shift = ?,
-                                akappa = ?,
-                                akappri = ?,
-                                tri = ?,
-                                tripri = ?,
-                                betaprim = ?,
-                                beta = ?,
-                                electron_z = ?,
-                                electron_mass = ?,
-                                electron_dens = ?,
-                                electron_temp = ?,
-                                electron_temp_ev = ?,
-                                electron_tprim = ?,
-                                electron_fprim = ?,
-                                electron_vnewk = ?,
-                                ion_z = ?,
-                                ion_mass = ?,
-                                ion_dens = ?,
-                                ion_temp = ?,
-                                ion_temp_ev = ?,
-                                ion_tprim = ?,
-                                ion_fprim = ?,
-                                ion_vnewk = ?
-                            WHERE id = ?
-                            """,
-                            (
-                                filename,
-                                outpath,
-                                content,
-                                status,
-                                comment,
-                                geometry.get("geo_option"),
-                                geometry.get("rhoc"),
-                                geometry.get("Rmaj"),
-                                geometry.get("R_geo"),
-                                geometry.get("qinp"),
-                                geometry.get("shat"),
-                                geometry.get("shift"),
-                                geometry.get("akappa"),
-                                geometry.get("akappri"),
-                                geometry.get("tri"),
-                                geometry.get("tripri"),
-                                geometry.get("betaprim"),
-                                physics.get("beta"),
-                                species.get("electron_z"),
-                                species.get("electron_mass"),
-                                species.get("electron_dens"),
-                                species.get("electron_temp"),
-                                local_evs.get("electron_temp_ev"),
-                                species.get("electron_tprim"),
-                                species.get("electron_fprim"),
-                                species.get("electron_vnewk"),
-                                species.get("ion_z"),
-                                species.get("ion_mass"),
-                                species.get("ion_dens"),
-                                species.get("ion_temp"),
-                                local_evs.get("ion_temp_ev"),
-                                species.get("ion_tprim"),
-                                species.get("ion_fprim"),
-                                species.get("ion_vnewk"),
-                                row_id,
-                            ),
-                        )
-                        inserted += 1
+                    comment = ""
+                    if comment_parts:
+                        comment = "WARNING: " + "; ".join(comment_parts)
+                    conn.execute(
+                        """
+                        UPDATE gk_input
+                        SET file_name = ?,
+                            file_path = ?,
+                            content = ?,
+                            status = ?,
+                            comment = ?,
+                            geo_option = ?,
+                            rhoc = ?,
+                            Rmaj = ?,
+                            R_geo = ?,
+                            qinp = ?,
+                            shat = ?,
+                            shift = ?,
+                            akappa = ?,
+                            akappri = ?,
+                            tri = ?,
+                            tripri = ?,
+                            betaprim = ?,
+                            beta = ?,
+                            electron_z = ?,
+                            electron_mass = ?,
+                            electron_dens = ?,
+                            electron_temp = ?,
+                            electron_temp_ev = ?,
+                            electron_tprim = ?,
+                            electron_fprim = ?,
+                            electron_vnewk = ?,
+                            ion_z = ?,
+                            ion_mass = ?,
+                            ion_dens = ?,
+                            ion_temp = ?,
+                            ion_temp_ev = ?,
+                            ion_tprim = ?,
+                            ion_fprim = ?,
+                            ion_vnewk = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            filename,
+                            outpath,
+                            content,
+                            status,
+                            comment,
+                            geometry.get("geo_option"),
+                            geometry.get("rhoc"),
+                            geometry.get("Rmaj"),
+                            geometry.get("R_geo"),
+                            geometry.get("qinp"),
+                            geometry.get("shat"),
+                            geometry.get("shift"),
+                            geometry.get("akappa"),
+                            geometry.get("akappri"),
+                            geometry.get("tri"),
+                            geometry.get("tripri"),
+                            geometry.get("betaprim"),
+                            physics.get("beta"),
+                            species.get("electron_z"),
+                            species.get("electron_mass"),
+                            species.get("electron_dens"),
+                            species.get("electron_temp"),
+                            local_evs.get("electron_temp_ev"),
+                            species.get("electron_tprim"),
+                            species.get("electron_fprim"),
+                            species.get("electron_vnewk"),
+                            species.get("ion_z"),
+                            species.get("ion_mass"),
+                            species.get("ion_dens"),
+                            species.get("ion_temp"),
+                            local_evs.get("ion_temp_ev"),
+                            species.get("ion_tprim"),
+                            species.get("ion_fprim"),
+                            species.get("ion_vnewk"),
+                            row_id,
+                        ),
+                    )
+                    inserted += 1
         conn.commit()
     finally:
         conn.close()

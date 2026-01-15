@@ -4,7 +4,11 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 newbatch_root="$(cd "${script_dir}/.." && pwd)"
 newbatch_dir="${newbatch_root}/new"
-parent_dir="$(cd "${newbatch_root}/.." && pwd)"
+if [[ -n "${BASE_DIR:-}" ]]; then
+  parent_dir="$BASE_DIR"
+else
+  parent_dir="$(cd "${newbatch_root}/.." && pwd)"
+fi
 hpc_dir="${script_dir}"
 
 job_submit="${hpc_dir}/job_submit.sh"

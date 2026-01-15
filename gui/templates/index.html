@@ -235,9 +235,6 @@
         <button class="tab{% if selected_panel == 'tables' %} active{% endif %}" type="button" data-tab="tables">
           Tables
         </button>
-        <button class="tab{% if selected_panel == 'batch' %} active{% endif %}" type="button" data-tab="batch">
-          Batch db
-        </button>
         <button class="tab{% if selected_panel == 'edit' %} active{% endif %}" type="button" data-tab="edit">
           Edit GK Input
         </button>
@@ -316,61 +313,6 @@
           </div>
         {% else %}
           <div>No table selected.</div>
-        {% endif %}
-      </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'batch' %} panel-hidden{% endif %}" data-panel="batch">
-        <form method="get">
-          <input type="hidden" name="db" value="{{ db_path }}" />
-          <input type="hidden" name="panel" value="batch" />
-          <div class="row">
-            <label for="batch_view">Folder</label>
-            <select id="batch_view" name="batch_view" onchange="this.form.submit()">
-              <option value="new" {% if batch_view == 'new' %}selected{% endif %}>new</option>
-              <option value="sent" {% if batch_view == 'sent' %}selected{% endif %}>sent</option>
-            </select>
-            <label for="batch_db">Batch database</label>
-            <select id="batch_db" name="batch_db" onchange="this.form.submit()">
-              {% for batch_db in batch_dbs %}
-                <option value="{{ batch_db }}" {% if batch_db == selected_batch_db %}selected{% endif %}>
-                  {{ batch_db }}
-                </option>
-              {% endfor %}
-            </select>
-            <noscript><button type="submit">View</button></noscript>
-          </div>
-        </form>
-        {% if batch_dbs|length == 0 %}
-          <div class="panel-note">No batch databases found in the batch folder.</div>
-        {% elif batch_error %}
-          <div class="error">{{ batch_error }}</div>
-        {% else %}
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  {% for column in batch_columns %}
-                    <th>{{ column }}</th>
-                  {% endfor %}
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in batch_rows %}
-                  <tr>
-                    {% for column in batch_columns %}
-                      <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
-                        {{ row[column]|default('', true) }}
-                      </td>
-                    {% endfor %}
-                  </tr>
-                {% endfor %}
-                {% if batch_rows|length == 0 %}
-                  <tr>
-                    <td colspan="{{ batch_columns|length }}">No rows</td>
-                  </tr>
-                {% endif %}
-              </tbody>
-            </table>
-          </div>
         {% endif %}
       </section>
       <section class="panel panel-tabbed{% if selected_panel != 'edit' %} panel-hidden{% endif %}" data-panel="edit">
@@ -591,82 +533,169 @@
         </div>
       </section>
       <section class="panel panel-tabbed{% if selected_panel != 'action' %} panel-hidden{% endif %}" data-panel="action">
-        <div class="chart-wrap">
-          <div class="chart-title">Actions</div>
-          {% if action_status and action_status.message %}
-            <div class="notice">{{ action_status.message }}</div>
+        <div class="workflow-grid">
+          <div class="chart-wrap">
+            <div class="chart-title">Script</div>
+            {% if action_status and action_status.message %}
+              <div class="notice">{{ action_status.message }}</div>
+            {% endif %}
+            <div class="chart-empty">
+              <ol>
+                <li>First step: populating the database with equilibria and filter which ones are valid to process.</li>
+                <li>Second step: generating local gyrokinetic inputs for these cases at various radial location.</li>
+                <li>Third step: launching the job on remote supercomputer.</li>
+                <li>Fourth step: collecting back the data.</li>
+              </ol>
+            </div>
+            <div class="row">
+              <span>Mate Kinetic EFIT</span>
+              {% if actions.get("populate_mate") %}
+                <form method="post" action="/action/populate_mate">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("populate_mate").label }}
+                  </button>
+                </form>
+              {% endif %}
+              {% if actions.get("create_inputs_mate") %}
+                <form method="post" action="/action/create_inputs_mate">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("create_inputs_mate").label }}
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+            <div class="row">
+              <span>Alexei Transp 09</span>
+              {% if actions.get("populate_alexei") %}
+                <form method="post" action="/action/populate_alexei">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("populate_alexei").label }}
+                  </button>
+                </form>
+              {% endif %}
+              {% if actions.get("create_inputs_transp") %}
+                <form method="post" action="/action/create_inputs_transp">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("create_inputs_transp").label }}
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+            <div class="row">
+              <span>Batch</span>
+              {% if actions.get("create_batch_db") %}
+                <form method="post" action="/action/create_batch_db">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("create_batch_db").label }}
+                  </button>
+                </form>
+              {% endif %}
+              {% if actions.get("deploy_batch_db") %}
+                <form method="post" action="/action/deploy_batch_db">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("deploy_batch_db").label }}
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart-title">GK Model Templates</div>
+            {% if gk_model_rows|length == 0 %}
+              <div class="panel-note">No gk_model rows found.</div>
+            {% else %}
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      {% for column in gk_model_columns %}
+                        <th>{{ column }}</th>
+                      {% endfor %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in gk_model_rows %}
+                      <tr>
+                        {% for column in gk_model_columns %}
+                          <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
+                            {{ row[column]|default('', true) }}
+                          </td>
+                        {% endfor %}
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="chart-wrap" style="margin-top:16px;">
+          <div class="chart-title">Batch DB</div>
+          <form method="get">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <div class="row">
+              <label for="batch_view">Folder</label>
+              <select id="batch_view" name="batch_view" onchange="this.form.submit()">
+                <option value="new" {% if batch_view == 'new' %}selected{% endif %}>new</option>
+                <option value="sent" {% if batch_view == 'sent' %}selected{% endif %}>sent</option>
+              </select>
+              <label for="batch_db">Batch database</label>
+              <select id="batch_db" name="batch_db" onchange="this.form.submit()">
+                {% for batch_db in batch_dbs %}
+                  <option value="{{ batch_db }}" {% if batch_db == selected_batch_db %}selected{% endif %}>
+                    {{ batch_db }}
+                  </option>
+                {% endfor %}
+              </select>
+              <noscript><button type="submit">View</button></noscript>
+            </div>
+          </form>
+          {% if batch_dbs|length == 0 %}
+            <div class="panel-note">No batch databases found in the batch folder.</div>
+          {% elif batch_error %}
+            <div class="error">{{ batch_error }}</div>
+          {% else %}
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    {% for column in batch_columns %}
+                      <th>{{ column }}</th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in batch_rows %}
+                    <tr>
+                      {% for column in batch_columns %}
+                        <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
+                          {{ row[column]|default('', true) }}
+                        </td>
+                      {% endfor %}
+                    </tr>
+                  {% endfor %}
+                  {% if batch_rows|length == 0 %}
+                    <tr>
+                      <td colspan="{{ batch_columns|length }}">No rows</td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
           {% endif %}
-          <div class="chart-empty">
-            <ol>
-              <li>First step: populating the database with equilibria and filter which ones are valid to process.</li>
-              <li>Second step: generating local gyrokinetic inputs for these cases at various radial location.</li>
-              <li>Third step: launching the job on remote supercomputer.</li>
-              <li>Fourth step: collecting back the data.</li>
-            </ol>
-          </div>
-          <div class="row">
-            <span>Mate Kinetic EFIT</span>
-            {% if actions.get("populate_mate") %}
-              <form method="post" action="/action/populate_mate">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("populate_mate").label }}
-                </button>
-              </form>
-            {% endif %}
-            {% if actions.get("create_inputs_mate") %}
-              <form method="post" action="/action/create_inputs_mate">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("create_inputs_mate").label }}
-                </button>
-              </form>
-            {% endif %}
-          </div>
-          <div class="row">
-            <span>Alexei Transp 09</span>
-            {% if actions.get("populate_alexei") %}
-              <form method="post" action="/action/populate_alexei">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("populate_alexei").label }}
-                </button>
-              </form>
-            {% endif %}
-            {% if actions.get("create_inputs_transp") %}
-              <form method="post" action="/action/create_inputs_transp">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("create_inputs_transp").label }}
-                </button>
-              </form>
-            {% endif %}
-          </div>
-          <div class="row">
-            <span>Batch</span>
-            {% if actions.get("create_batch_db") %}
-              <form method="post" action="/action/create_batch_db">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("create_batch_db").label }}
-                </button>
-              </form>
-            {% endif %}
-            {% if actions.get("deploy_batch_db") %}
-              <form method="post" action="/action/deploy_batch_db">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("deploy_batch_db").label }}
-                </button>
-              </form>
-            {% endif %}
-          </div>
         </div>
         <div class="workflow-grid">
           <div class="chart-wrap">
@@ -692,7 +721,7 @@ Manually set gk_input.status = TORUN (use the Tables panel)</pre>
           </div>
           <div class="chart-wrap">
             <div class="chart-title">Batch Workflow</div>
-            <pre class="panel-note">gk_input (gyrokinetic_simulations.db)
+                <pre class="panel-note">gk_input (gyrokinetic_simulations.db)
   | status=TORUN
   v
 create_batch_database.py --copy-torun
@@ -945,7 +974,38 @@ Execute
       tab.addEventListener("click", () => {
         setActiveTab(tab.dataset.tab);
         updateStickyOffset();
+        if (tab.dataset.tab === "tables") {
+          restoreTablesScroll();
+        }
       });
     });
+    const tablesPanel = document.querySelector('[data-panel="tables"]');
+    const tablesWrapper = tablesPanel
+      ? tablesPanel.querySelector(".table-wrapper")
+      : null;
+    const saveTablesScroll = () => {
+      if (!tablesWrapper) {
+        return;
+      }
+      sessionStorage.setItem("tablesScrollTop", String(tablesWrapper.scrollTop));
+      sessionStorage.setItem("tablesScrollLeft", String(tablesWrapper.scrollLeft));
+    };
+    const restoreTablesScroll = () => {
+      if (!tablesWrapper) {
+        return;
+      }
+      const top = Number(sessionStorage.getItem("tablesScrollTop") || 0);
+      const left = Number(sessionStorage.getItem("tablesScrollLeft") || 0);
+      tablesWrapper.scrollTop = top;
+      tablesWrapper.scrollLeft = left;
+    };
+    if (tablesPanel) {
+      tablesPanel.querySelectorAll("form").forEach((form) => {
+        form.addEventListener("submit", saveTablesScroll);
+      });
+      window.addEventListener("load", () => {
+        restoreTablesScroll();
+      });
+    }
   </script>
 </html>

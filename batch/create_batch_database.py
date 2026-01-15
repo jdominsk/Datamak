@@ -23,8 +23,13 @@ def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
           nb_nodes INTEGER,
           job_id TEXT,
           status TEXT,
+          gk_batch_id INTEGER NOT NULL DEFAULT 0,
+          synced INTEGER NOT NULL DEFAULT 0,
           t_max_initial REAL NOT NULL DEFAULT 0,
-          t_max REAL NOT NULL DEFAULT 0
+          t_max REAL NOT NULL DEFAULT 0,
+          ky_abs_mean REAL,
+          gamma_max REAL,
+          diffusion REAL
         );
         """
     )
@@ -33,10 +38,20 @@ def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gk_run ADD COLUMN input_content TEXT")
     if "job_id" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN job_id TEXT")
+    if "gk_batch_id" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN gk_batch_id INTEGER NOT NULL DEFAULT 0")
+    if "synced" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN synced INTEGER NOT NULL DEFAULT 0")
     if "t_max_initial" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max_initial REAL NOT NULL DEFAULT 0")
     if "t_max" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max REAL NOT NULL DEFAULT 0")
+    if "ky_abs_mean" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN ky_abs_mean REAL")
+    if "gamma_max" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN gamma_max REAL")
+    if "diffusion" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN diffusion REAL")
 
 
 def ensure_gk_convergence_timeseries_table(conn: sqlite3.Connection) -> None:
@@ -55,6 +70,9 @@ def ensure_gk_convergence_timeseries_table(conn: sqlite3.Connection) -> None:
             slope_norm REAL,
             method TEXT NOT NULL DEFAULT 'A',
             r2 REAL,
+            ky_abs_mean REAL,
+            gamma_max REAL,
+            diffusion REAL,
             is_converged INTEGER NOT NULL DEFAULT 0 CHECK (is_converged IN (0, 1)),
             creation_date TEXT NOT NULL DEFAULT (datetime('now'))
         )
@@ -118,10 +136,10 @@ def ensure_gk_batch_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gk_batch ADD COLUMN remote_host TEXT")
 
 
-def log_batch_created(source_db: str, batch_db: str) -> None:
+def log_batch_created(source_db: str, batch_db: str) -> int:
     with sqlite3.connect(source_db) as conn:
         ensure_gk_batch_table(conn)
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO gk_batch (batch_database_name, remote_folder, status)
             VALUES (?, ?, 'CREATED')
@@ -129,6 +147,7 @@ def log_batch_created(source_db: str, batch_db: str) -> None:
             (os.path.basename(batch_db), 'N/A'),
         )
         conn.commit()
+        return int(cursor.lastrowid)
 
 
 def main() -> None:
@@ -171,7 +190,11 @@ def main() -> None:
     print(
         f"Created/verified {args.db} with tables gk_run and gk_convergence_timeseries."
     )
-    log_batch_created(args.source_db, args.db)
+    gk_batch_id = log_batch_created(args.source_db, args.db)
+    with sqlite3.connect(args.db) as conn:
+        ensure_gk_run_table(conn)
+        conn.execute("UPDATE gk_run SET gk_batch_id = ? WHERE gk_batch_id = 0", (gk_batch_id,))
+        conn.commit()
 
     if args.copy_torun:
         copied = copy_torun_rows(args.source_db, args.db)

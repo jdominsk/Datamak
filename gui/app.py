@@ -486,6 +486,8 @@ def index():
     rows: List[sqlite3.Row] = []
     batch_columns: List[str] = []
     batch_rows: List[sqlite3.Row] = []
+    gk_model_columns: List[str] = []
+    gk_model_rows: List[sqlite3.Row] = []
     batch_dir = BATCH_NEW_DIR if batch_view == "new" else BATCH_SENT_DIR
     batch_dbs = list_batch_databases(batch_dir)
     batch_error: Optional[str] = None
@@ -527,6 +529,8 @@ def index():
             batch_columns=batch_columns,
             batch_rows=batch_rows,
             batch_error=None,
+            gk_model_columns=gk_model_columns,
+            gk_model_rows=gk_model_rows,
             edit_gk_input_id=edit_gk_input_id,
             edit_gk_input_content=edit_gk_input_content,
             edit_status=edit_status,
@@ -562,6 +566,8 @@ def index():
                 else:
                     edit_gk_input_content = str(row["content"])
                     edit_status = str(row["status"])
+        if "gk_model" in tables:
+            gk_model_columns, gk_model_rows = get_table_rows(conn, "gk_model", False)
     finally:
         conn.close()
 
@@ -597,6 +603,8 @@ def index():
         batch_columns=batch_columns,
         batch_rows=batch_rows,
         batch_error=batch_error,
+        gk_model_columns=gk_model_columns,
+        gk_model_rows=gk_model_rows,
         edit_gk_input_id=edit_gk_input_id,
         edit_gk_input_content=edit_gk_input_content,
         edit_status=edit_status,

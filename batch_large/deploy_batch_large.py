@@ -21,7 +21,7 @@ def main() -> None:
     parser.add_argument(
         "--remote-dir",
         default="/pscratch/sd/j/jdominsk/DTwin/newbatch",
-        help="Remote folder containing prepare_newbatch.sh.",
+        help="Remote folder containing prepare_newbatch_large.sh.",
     )
     parser.add_argument(
         "--base-dir",
@@ -51,9 +51,9 @@ def main() -> None:
     batch_sent = batch_root / "sent"
     hpc_dir = batch_root / "hpc"
     scripts = [
-        hpc_dir / "job_submit.sh",
+        hpc_dir / "job_submit_large.sh",
         hpc_dir / "job_execute.sh",
-        hpc_dir / "prepare_newbatch.sh",
+        hpc_dir / "prepare_newbatch_large.sh",
         hpc_dir / "gx_analyze.py",
         hpc_dir / "linear_convergence.py",
         hpc_dir / "ky_growth_rates.py",
@@ -148,8 +148,8 @@ set -euo pipefail
 mkdir -p {args.remote_dir}
 tar -xf - -C {args.remote_dir}
 cd {args.remote_dir}/hpc
-chmod +x ./prepare_newbatch.sh
-BASE_DIR="{args.base_dir}" bash ./prepare_newbatch.sh
+chmod +x ./prepare_newbatch_large.sh
+BASE_DIR="{args.base_dir}" bash ./prepare_newbatch_large.sh
 shopt -s nullglob
 count=0
 manifest="{args.remote_dir}/new_runs.txt"
@@ -159,7 +159,7 @@ if [ ! -f "$manifest" ]; then
 fi
 while IFS= read -r run_dir; do
   [ -d "$run_dir" ] || continue
-  job="$run_dir/job_submit.sh"
+  job="$run_dir/job_submit_large.sh"
   [ -f "$job" ] || continue
   db_path="$(ls "$run_dir"/batch_database_*.db 2>/dev/null | head -n 1 || true)"
   db_name=""

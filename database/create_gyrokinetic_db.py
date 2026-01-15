@@ -64,6 +64,21 @@ def create_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # Model configuration templates for GK inputs
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gk_model (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1)),
+            gk_code_id INTEGER NOT NULL,
+            is_linear INTEGER NOT NULL DEFAULT 0 CHECK (is_linear IN (0, 1)),
+            is_adiabatic INTEGER NOT NULL DEFAULT 0 CHECK (is_adiabatic IN (0, 1, 2)),
+            is_electrostatic INTEGER NOT NULL DEFAULT 1 CHECK (is_electrostatic IN (0, 1)),
+            input_template TEXT NOT NULL,
+            creation_date TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
 
     # This refers to a study of an equilrium with a given gyrokinetic code
     conn.execute(
@@ -86,12 +101,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS gk_input (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             gk_study_id INTEGER NOT NULL,
+            gk_model_id INTEGER NOT NULL,
             file_name TEXT NOT NULL,
             file_path TEXT NOT NULL,
             content TEXT NOT NULL,
             psin REAL NOT NULL,
-            is_linear INTEGER NOT NULL DEFAULT 0 CHECK (is_linear IN (0, 1)),
-            is_adiabatic_electron INTEGER NOT NULL DEFAULT 0 CHECK (is_adiabatic_electron IN (0, 1)),
             status TEXT NOT NULL CHECK (status IN ('WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS')),
             comment TEXT NOT NULL DEFAULT '',
             geo_option TEXT,
@@ -124,11 +138,14 @@ def create_schema(conn: sqlite3.Connection) -> None:
             ion_fprim REAL,
             ion_vnewk REAL,
             creation_date TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (gk_study_id) REFERENCES gk_study(id) ON DELETE CASCADE
+            FOREIGN KEY (gk_study_id) REFERENCES gk_study(id) ON DELETE CASCADE,
+            FOREIGN KEY (gk_model_id) REFERENCES gk_model(id)
         )
         """
     )
     columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_input)").fetchall()}
+    if "gk_model_id" not in columns:
+        conn.execute("ALTER TABLE gk_input ADD COLUMN gk_model_id INTEGER")
     if "beta" not in columns:
         conn.execute("ALTER TABLE gk_input ADD COLUMN beta REAL")
 
@@ -147,7 +164,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS gk_run (
-            id INTEGER NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            remote_id INTEGER NOT NULL,
             gk_input_id INTEGER,
             gk_batch_id INTEGER,
             input_folder TEXT,
@@ -160,7 +178,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
             input_content TEXT,
             remote_host TEXT,
             remote_folder TEXT,
-            creation_date TEXT NOT NULL DEFAULT (datetime('now'))
+            creation_date TEXT NOT NULL DEFAULT (datetime('now')),
+            t_max REAL,
+            ky_abs_mean REAL,
+            gamma_max REAL,
+            diffusion REAL
         )
         """
     )
@@ -170,6 +192,23 @@ def create_schema(conn: sqlite3.Connection) -> None:
         ON gk_run (remote_host, remote_folder, input_name)
         """
     )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_gk_run_remote_id_batch
+        ON gk_run (remote_id, gk_batch_id)
+        """
+    )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_run)")}
+    if "remote_id" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN remote_id INTEGER NOT NULL DEFAULT 0")
+    if "ky_abs_mean" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN ky_abs_mean REAL")
+    if "gamma_max" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN gamma_max REAL")
+    if "diffusion" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN diffusion REAL")
+    if "t_max" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN t_max REAL")
 
     conn.execute(
         """
@@ -227,6 +266,9 @@ def create_schema(conn: sqlite3.Connection) -> None:
             slope_norm REAL,
             method TEXT NOT NULL DEFAULT 'A',
             r2 REAL,
+            ky_abs_mean REAL,
+            gamma_max REAL,
+            diffusion REAL,
             is_converged INTEGER NOT NULL DEFAULT 0 CHECK (is_converged IN (0, 1)),
             creation_date TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (gk_run_id) REFERENCES gk_run(id) ON DELETE CASCADE,
@@ -307,16 +349,30 @@ def seed_gk_code(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def seed_gk_model(conn: sqlite3.Connection) -> None:
+    sql_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "insert_gk_model_templates.sql",
+    )
+    if not os.path.exists(sql_path):
+        return
+    with open(sql_path, "r", encoding="utf-8") as handle:
+        conn.executescript(handle.read())
+    conn.commit()
+
+
 def main() -> None:
     args = parse_args()
     conn = sqlite3.connect(args.db)
     try:
         create_schema(conn)
         seed_gk_code(conn)
+        seed_gk_model(conn)
     finally:
         conn.close()
     print(
-        f"Created {args.db} with tables data_origin, data_equil, gk_code, and gk_study."
+        "Created "
+        f"{args.db} with tables data_origin, data_equil, gk_code, gk_model, and gk_study."
     )
 
 

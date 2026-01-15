@@ -7,6 +7,7 @@ FORCE_RUNNING_TORUN=0
 ANALYZE_ALL_NC=0
 DB_PATH=""
 NODES="${NODES:-4}"
+WORKERS="${WORKERS:-1}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --analyze-only)
@@ -20,6 +21,10 @@ while [[ $# -gt 0 ]]; do
     --analyze-all-nc)
       ANALYZE_ALL_NC=1
       shift
+      ;;
+    --workers)
+      WORKERS="$2"
+      shift 2
       ;;
     *)
       if [[ -z "$DB_PATH" ]]; then
@@ -51,6 +56,7 @@ OUTPUT_DIR="${OUTPUT_DIR:-$PWD}"
 echo "Using DB: $DB_PATH"
 echo "Working dir: $PWD"
 echo "Nodes: $NODES  Total GPUs: $TOTAL_GPUS"
+echo "Workers: $WORKERS"
 
 if [[ ! -f "$DB_PATH" ]]; then
   echo "Batch database not found: $DB_PATH"
@@ -218,177 +224,42 @@ try:
     restart = conn.execute(
         "SELECT COUNT(*) FROM gk_run WHERE status = 'RESTART'"
     ).fetchone()[0]
-    print(f"gk_run rows: TORUN={torun}, RUNNING={running}, RESTART={restart}")
+print(f"gk_run rows: TORUN={torun}, RUNNING={running}, RESTART={restart}")
 finally:
     conn.close()
 PY
 
-while true; do
-  analyze_state="$(python3 - "$DB_PATH" <<'PY'
-import sqlite3
-import sys
+if [[ "$WORKERS" -lt 1 ]]; then
+  echo "Workers must be >= 1."
+  exit 1
+fi
+if (( NODES % WORKERS != 0 )); then
+  echo "Nodes ($NODES) must be divisible by workers ($WORKERS)."
+  exit 1
+fi
+NODES_PER_WORKER=$((NODES / WORKERS))
 
-db_path = sys.argv[1]
-conn = sqlite3.connect(db_path)
-try:
-    torun = conn.execute(
-        "SELECT COUNT(*) FROM gk_run WHERE status = 'TORUN'"
-    ).fetchone()[0]
-    success = conn.execute(
-        "SELECT COUNT(*) FROM gk_run WHERE status = 'SUCCESS'"
-    ).fetchone()[0]
-    if torun == 0 and success > 0:
-        print("ANALYZE")
-finally:
-    conn.close()
-PY
-)"
-  if [[ "$analyze_state" == "ANALYZE" ]]; then
-    analyze_jobs="$(python3 - "$DB_PATH" <<'PY'
-import sqlite3
-import sys
+run_worker() {
+  local worker_id="$1"
+  local nodes_per_worker="$2"
+  local gpus_per_worker=$((nodes_per_worker * 4))
+  while true; do
+    result="$(python3 "$(dirname "$0")/claim_next_run.py" "$DB_PATH" "$OUTPUT_DIR")"
+    if [[ "$result" == "NO_TORUN" || -z "$result" ]]; then
+      echo "Worker ${worker_id}: no TORUN entries remaining."
+      break
+    fi
 
-db_path = sys.argv[1]
-conn = sqlite3.connect(db_path)
-try:
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT id, input_name FROM gk_run WHERE status = 'SUCCESS' ORDER BY id"
-    ).fetchall()
-    for row in rows:
-        run_id = row["id"]
-        input_name = row["input_name"] or ""
-        print(f"{run_id}\t{input_name}")
-finally:
-    conn.close()
-PY
-)"
-    run_gx_analyze "$analyze_jobs"
-    continue
-  fi
+    IFS=$'\t' read -r run_id input_path <<<"$result"
+    if [[ -z "$run_id" || -z "$input_path" ]]; then
+      echo "Worker ${worker_id}: failed to parse run id and input path."
+      break
+    fi
 
-  result="$(python3 - "$DB_PATH" "$OUTPUT_DIR" <<'PY'
-import os
-import re
-import sqlite3
-import sys
+    export GX_INPUT="$input_path"
+    echo "Worker ${worker_id}: launching run_id=$run_id with input $GX_INPUT"
 
-db_path = sys.argv[1]
-output_dir = sys.argv[2]
-
-def update_restart_input(content: str) -> str:
-    lines = content.splitlines()
-    restart_updated = False
-    restart_re = re.compile(r"^(\s*restart\s*=\s*)(.+)$", re.IGNORECASE)
-    for i, line in enumerate(lines):
-        m = restart_re.match(line)
-        if m:
-            lines[i] = f"{m.group(1)}true"
-            restart_updated = True
-            continue
-    if not restart_updated:
-        lines.append("restart = true")
-    return "\n".join(lines) + "\n"
-
-conn = sqlite3.connect(db_path)
-conn.row_factory = sqlite3.Row
-try:
-    conn.execute("BEGIN IMMEDIATE")
-    row = conn.execute(
-        "SELECT id, gk_input_id, gk_batch_id, input_content, t_max_initial, t_max "
-        "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
-    ).fetchone()
-    if row is None:
-        restart_rows = conn.execute(
-            "SELECT id, input_content "
-            "FROM gk_run WHERE status = 'RESTART' ORDER BY id"
-        ).fetchall()
-        if restart_rows:
-            for run_id, content in restart_rows:
-                updated_content = update_restart_input(content)
-                conn.execute(
-                    "UPDATE gk_run SET input_content = ?, status = 'TORUN', synced = 0 WHERE id = ?",
-                    (updated_content, int(run_id)),
-                )
-            row = conn.execute(
-                "SELECT id, gk_input_id, gk_batch_id, input_content, t_max_initial, t_max "
-                "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
-            ).fetchone()
-    if row is None:
-        print("NO_TORUN")
-        conn.commit()
-        sys.exit(2)
-    run_id = int(row["id"])
-    gk_input_id = int(row["gk_input_id"]) if row["gk_input_id"] is not None else 0
-    gk_batch_id = int(row["gk_batch_id"]) if row["gk_batch_id"] is not None else 0
-    content = row["input_content"]
-    tmax_initial = float(row["t_max_initial"] or 0)
-    tmax_current = float(row["t_max"] or 0)
-
-    tmax_re = re.compile(r"(\bt_max\s*=\s*)([-+0-9.eE]+)", re.IGNORECASE)
-
-    match = tmax_re.search(content)
-    if match is None:
-        raise ValueError("t_max not found in input_content for initial capture.")
-    tmax_in_content = float(match.group(2))
-    if tmax_initial == 0:
-        tmax_initial = tmax_in_content
-    if tmax_current == 0:
-        tmax_current = tmax_in_content
-    else:
-        tmax_current = max(tmax_current, tmax_in_content)
-
-    restart_true = bool(re.search(r"^\s*restart\s*=\s*true\b", content, re.IGNORECASE | re.MULTILINE))
-    if restart_true:
-        tmax_current += tmax_initial
-    tmax_str = f"{tmax_current:.1f}"
-    def repl(m):
-        return f"{m.group(1)}{tmax_str}"
-
-    content, count = tmax_re.subn(repl, content, count=1)
-    if count == 0:
-        raise ValueError("t_max not found in input_content for update.")
-
-    filename = f"input_batchid{gk_batch_id}_gkinputid{gk_input_id}_runid{run_id}.in"
-    filepath = os.path.join(output_dir, filename)
-    with open(filepath, "w", encoding="utf-8") as handle:
-        handle.write(content)
-    conn.execute(
-        "UPDATE gk_run "
-        "SET status = 'RUNNING', input_name = ?, job_id = ?, synced = 0, "
-        "input_content = ?, t_max_initial = ?, t_max = ? "
-        "WHERE id = ?",
-        (
-            filename,
-            os.environ.get("SLURM_JOB_ID", ""),
-            content,
-            tmax_initial,
-            tmax_current,
-            run_id,
-        ),
-    )
-    conn.commit()
-    print(f"{run_id}\t{filepath}")
-finally:
-    conn.close()
-PY
-)"
-
-  if [[ "$result" == "NO_TORUN" || -z "$result" ]]; then
-    echo "No TORUN entries found in $DB_PATH."
-    break
-  fi
-
-  IFS=$'\t' read -r run_id input_path <<<"$result"
-  if [[ -z "$run_id" || -z "$input_path" ]]; then
-    echo "Failed to parse run id and input path from database."
-    exit 1
-  fi
-
-  export GX_INPUT="$input_path"
-  echo "Launching run_id=$run_id with input $GX_INPUT"
-
-  tasks_per_node="$(python3 - "$GX_INPUT" "$NODES" <<'PY'
+    tasks_per_node="$(python3 - "$GX_INPUT" "$nodes_per_worker" <<'PY'
 import re
 import sys
 
@@ -416,20 +287,21 @@ print(1)
 PY
 )"
 
-  if [[ $ANALYZE_ONLY -eq 1 ]]; then
-    echo "Analyze-only mode; skipping srun for run_id=$run_id."
-    srun_status=0
-  else
-    echo "Using ntasks-per-node=${tasks_per_node}"
-    set +e
-    srun --nodes="${NODES}" --ntasks-per-node="${tasks_per_node}" --gpus="${TOTAL_GPUS}" --gpus-per-node=4 "${GX_PATH}/gx" "${GX_INPUT}"
-    srun_status=$?
-    set -e
-  fi
+    if [[ $ANALYZE_ONLY -eq 1 ]]; then
+      echo "Worker ${worker_id}: analyze-only mode; skipping srun for run_id=$run_id."
+      srun_status=0
+    else
+      echo "Worker ${worker_id}: using ntasks-per-node=${tasks_per_node}"
+      set +e
+      srun --exclusive --nodes="${nodes_per_worker}" --ntasks-per-node="${tasks_per_node}" \
+        --gpus="${gpus_per_worker}" --gpus-per-node=4 "${GX_PATH}/gx" "${GX_INPUT}"
+      srun_status=$?
+      set -e
+    fi
 
-  if [[ $srun_status -ne 0 ]]; then
-    echo "srun failed for run_id=$run_id (exit $srun_status); marking CRASHED."
-    python3 - "$DB_PATH" "$run_id" <<'PY'
+    if [[ $srun_status -ne 0 ]]; then
+      echo "Worker ${worker_id}: srun failed for run_id=$run_id (exit $srun_status); marking CRASHED."
+      python3 - "$DB_PATH" "$run_id" <<'PY'
 import sqlite3
 import sys
 
@@ -446,11 +318,11 @@ try:
 finally:
     conn.close()
 PY
-    continue
-  fi
+      continue
+    fi
 
-  echo "srun completed for run_id=$run_id; marking SUCCESS."
-  python3 - "$DB_PATH" "$run_id" <<'PY'
+    echo "Worker ${worker_id}: srun completed for run_id=$run_id; marking SUCCESS."
+    python3 - "$DB_PATH" "$run_id" <<'PY'
 import sqlite3
 import sys
 
@@ -468,17 +340,29 @@ finally:
     conn.close()
 PY
 
-  nc_path="${OUTPUT_DIR}/${input_path##*/}"
-  nc_path="${nc_path%.in}.out.nc"
-  if [[ -f "$nc_path" ]]; then
-    echo "Running gx_analyze on $nc_path"
-    python3 "$(dirname "$0")/gx_analyze.py" "$DB_PATH" "$run_id" "$nc_path" --save-plot || \
-      echo "gx_analyze failed for run_id=$run_id"
-    if [[ -f "$(dirname "$0")/ky_growth_rates.py" ]]; then
-      python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save || \
-        echo "ky_growth_rates failed for run_id=$run_id"
+    nc_path="${OUTPUT_DIR}/${input_path##*/}"
+    nc_path="${nc_path%.in}.out.nc"
+    if [[ -f "$nc_path" ]]; then
+      echo "Worker ${worker_id}: running gx_analyze on $nc_path"
+      python3 "$(dirname "$0")/gx_analyze.py" "$DB_PATH" "$run_id" "$nc_path" --save-plot || \
+        echo "gx_analyze failed for run_id=$run_id"
+      if [[ -f "$(dirname "$0")/ky_growth_rates.py" ]]; then
+        python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save || \
+          echo "ky_growth_rates failed for run_id=$run_id"
+      fi
+    else
+      echo "Worker ${worker_id}: gx_analyze skipped; output not found at $nc_path"
     fi
-  else
-    echo "gx_analyze skipped; output not found at $nc_path"
-  fi
+  done
+}
+
+echo "Launching ${WORKERS} workers with ${NODES_PER_WORKER} nodes each."
+workers=()
+for worker_id in $(seq 1 "$WORKERS"); do
+  run_worker "$worker_id" "$NODES_PER_WORKER" &
+  workers+=("$!")
+done
+
+for pid in "${workers[@]}"; do
+  wait "$pid"
 done

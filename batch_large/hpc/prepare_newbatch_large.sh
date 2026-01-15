@@ -11,10 +11,10 @@ else
 fi
 hpc_dir="${script_dir}"
 
-job_submit="${hpc_dir}/job_submit.sh"
-job_execute="${hpc_dir}/job_execute.sh"
+job_submit="${hpc_dir}/job_submit_large.sh"
+job_execute="${hpc_dir}/job_execute_large.sh"
 gx_analyze="${hpc_dir}/gx_analyze.py"
-job_interactive="${hpc_dir}/job_interactive.sh"
+job_interactive="${hpc_dir}/job_interactive_large.sh"
 linear_conv="${hpc_dir}/linear_convergence.py"
 ky_growth="${hpc_dir}/ky_growth_rates.py"
 

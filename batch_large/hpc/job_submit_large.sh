@@ -3,7 +3,7 @@
 #SBATCH -C gpu
 #SBATCH -q regular
 #SBATCH -t 4:00:00
-#SBATCH -N 1
+#SBATCH -N 32
 #SBATCH --job-name=TO_BE_CHANGED
 
 GX_PATH=/global/homes/j/jdominsk/GX/gx_next6
@@ -21,9 +21,11 @@ else
   fi
   DB_PATH="$newest_db"
 fi
-NODES="${2:-${SLURM_JOB_NUM_NODES:-4}}"
+NODES="${2:-${SLURM_JOB_NUM_NODES:-32}}"
+WORKERS="${WORKERS:-$NODES}"
 
 export GX_PATH
 export NODES
+export WORKERS
 
-bash "$(dirname "$0")/job_execute.sh" "$DB_PATH" "$NODES"
+bash "$(dirname "$0")/job_execute_large.sh" "$DB_PATH" "$NODES" --workers "$WORKERS"

@@ -1,15 +1,13 @@
 #!/bin/bash
-#SBATCH -A m4564
-#SBATCH -C gpu
-#SBATCH -q regular
-#SBATCH -t 4:00:00
-#SBATCH -N 1
-#SBATCH --job-name=TO_BE_CHANGED
+set -euo pipefail
 
 GX_PATH=/global/homes/j/jdominsk/GX/gx_next6
 source ${GX_PATH}/module.sh
 module load cray-python/3.11.7
-cd "$SLURM_SUBMIT_DIR"
+WORK_DIR="${PWD}"
+
+cd "$WORK_DIR"
+echo "Running from: $WORK_DIR"
 
 if [[ $# -ge 1 ]]; then
   DB_PATH="$1"
@@ -22,8 +20,12 @@ else
   DB_PATH="$newest_db"
 fi
 NODES="${2:-${SLURM_JOB_NUM_NODES:-4}}"
+WORKERS="${WORKERS:-$NODES}"
 
 export GX_PATH
 export NODES
+export WORKERS
 
-bash "$(dirname "$0")/job_execute.sh" "$DB_PATH" "$NODES"
+echo "Using DB: $DB_PATH"
+echo "Nodes: $NODES"
+bash "$(dirname "$0")/job_execute_large.sh" "$DB_PATH" "$NODES" --workers "$WORKERS"

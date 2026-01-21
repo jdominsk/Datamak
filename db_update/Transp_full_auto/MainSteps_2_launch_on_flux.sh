@@ -1,0 +1,55 @@
+#!/bin/bash
+set -euo pipefail
+
+FLUX_DB="${1:?Usage: MainSteps_2_launch_on_flux.sh /path/to/flux_equil_inputs_TIMESTAMP.db}"
+ORIGIN_NAME="${ORIGIN_NAME:-Alexei Transp 09 (full-auto)}"
+REMOTE_PATH="${REMOTE_PATH:-/p/transparch/result/NSTX/09}"
+PSIN_START="${PSIN_START:-0.1}"
+PSIN_END="${PSIN_END:-0.9}"
+PSIN_STEP="${PSIN_STEP:-0.1}"
+BATCH_SIZE="${BATCH_SIZE:-200}"
+MAX_MEM_GB="${MAX_MEM_GB:-4}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+timestamp() {
+  date +"%Y-%m-%d %H:%M:%S"
+}
+
+log() {
+  printf "[%s] %s\n" "$(timestamp)" "$*"
+}
+
+log "Starting flux step 2"
+log "DB: ${FLUX_DB}"
+log "Origin: ${ORIGIN_NAME}"
+log "Remote path: ${REMOTE_PATH}"
+log "Psin range: ${PSIN_START}..${PSIN_END} step ${PSIN_STEP}"
+log "Batch size: ${BATCH_SIZE}"
+log "Max mem (GB): ${MAX_MEM_GB}"
+
+/u/jdominsk/pyrokinetics/.venv/bin/python \
+  "${SCRIPT_DIR}/build_flux_equil_inputs.py" \
+  --flux-db "${FLUX_DB}" \
+  --populate-equil \
+  --create-studies \
+  --origin-name "${ORIGIN_NAME}" \
+  --remote-path "${REMOTE_PATH}"
+log "Finished populate data_equil + transp_timeseries"
+
+/u/jdominsk/pyrokinetics/.venv/bin/python \
+  "${SCRIPT_DIR}/build_flux_equil_inputs.py" \
+  --flux-db "${FLUX_DB}" \
+  --create-gk-inputs \
+  --origin-name "${ORIGIN_NAME}" \
+  --psin-start "${PSIN_START}" \
+  --psin-end "${PSIN_END}" \
+  --psin-step "${PSIN_STEP}"
+log "Finished build_flux_equil_inputs.py"
+
+/u/jdominsk/pyrokinetics/.venv/bin/python \
+  "${SCRIPT_DIR}/flux/run_flux_gk_inputs.py" \
+  --db "${FLUX_DB}" \
+  --batch-size "${BATCH_SIZE}" \
+  --loop \
+  --max-mem-gb "${MAX_MEM_GB}"
+log "Finished run_flux_gk_inputs.py"

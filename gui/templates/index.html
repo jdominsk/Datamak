@@ -24,15 +24,16 @@
         margin-bottom: 16px;
       }
       .top-logo {
-        position: fixed;
-        top: 0;
-        right: 24px;
+        text-align: right;
       }
       .top-left {
-        padding-right: 184px;
+        padding-right: 0;
+      }
+      .top-right {
+        position: relative;
       }
       .logo {
-        max-height: 144px;
+        max-height: 120px;
         width: auto;
       }
       .row {
@@ -40,6 +41,39 @@
         gap: 12px;
         align-items: center;
         margin-bottom: 16px;
+      }
+      .row.row-compact {
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .row.row-compact label {
+        font-size: 11px;
+      }
+      .row.row-compact input[type="text"] {
+        padding: 4px 6px;
+        font-size: 11px;
+      }
+      .row.row-compact button {
+        padding: 4px 8px;
+        font-size: 11px;
+      }
+      .table-controls {
+        position: sticky;
+        top: calc(var(--sticky-panel-height) + 8px);
+        z-index: 6;
+        background: #ffffff;
+        padding: 8px 0;
+        margin-bottom: 16px;
+      }
+      .top-section {
+        position: relative;
+        display: grid;
+        grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+      .top-left form .row {
+        margin-bottom: 0;
       }
       .panel-hidden {
         display: none;
@@ -101,6 +135,7 @@
       .tab-bar {
         display: flex;
         gap: 4px;
+        margin-top: 24px;
         margin-bottom: -1px;
       }
       .tab {
@@ -203,6 +238,33 @@
         padding: 8px 10px;
         border: 1px solid #bee3f8;
       }
+      .assistant-panel {
+        border: 1px solid #d9e2ec;
+        background: #f8fafc;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 12px;
+        margin-bottom: 12px;
+      }
+      .assistant-title {
+        font-size: 14px;
+        margin: 0 0 8px;
+      }
+      .assistant-list {
+        margin: 0;
+        padding-left: 18px;
+        color: #334e68;
+        font-size: 13px;
+      }
+      .assistant-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .assistant-text {
+        flex: 1;
+      }
     </style>
   </head>
   <body>
@@ -210,10 +272,6 @@
       <header>
         <h2> </h2>
       </header>
-
-      {% if error %}
-        <div class="error">{{ error }}</div>
-      {% endif %}
 
       <div class="top-section">
         <div class="top-left">
@@ -223,23 +281,48 @@
               <input id="db" name="db" type="text" size="60" value="{{ db_path }}" />
             </div>
           </form>
+          {% if ai_suggestions and ai_suggestions|length > 0 %}
+            <div class="assistant-panel">
+              <div class="assistant-title">Workflow Suggestions (AI generated)</div>
+              <ul class="assistant-list">
+                {% for suggestion in ai_suggestions %}
+                  <li class="assistant-item">
+                    <span class="assistant-text">{{ suggestion.text }}</span>
+                    {% if suggestion.action and actions.get(suggestion.action) %}
+                      <form method="post" action="/suggestion_action">
+                        <input type="hidden" name="db" value="{{ db_path }}" />
+                        <input type="hidden" name="suggestion_id" value="{{ suggestion.id }}" />
+                        <input type="hidden" name="action_name" value="{{ suggestion.action }}" />
+                        <button type="submit">{{ actions.get(suggestion.action).label }}</button>
+                      </form>
+                    {% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
         </div>
-        <div class="top-logo">
-          <img class="logo" src="{{ url_for('static', filename='Slide1.png') }}" alt="Logo" />
+        <div class="top-right">
+          <div class="top-logo">
+            <img class="logo" src="{{ url_for('static', filename='Slide1.png') }}" alt="Logo" />
+          </div>
         </div>
       </div>
+      {% if error %}
+        <div class="error">{{ error }}</div>
+      {% endif %}
       <div class="tab-bar">
-        <button class="tab{% if selected_panel == 'statistics' %} active{% endif %}" type="button" data-tab="statistics">
-          Statistics
+        <button class="tab{% if selected_panel == 'results' %} active{% endif %}" type="button" data-tab="results">
+          Results
+        </button>
+        <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
+          Action
         </button>
         <button class="tab{% if selected_panel == 'tables' %} active{% endif %}" type="button" data-tab="tables">
           Tables
         </button>
         <button class="tab{% if selected_panel == 'edit' %} active{% endif %}" type="button" data-tab="edit">
           Edit GK Input
-        </button>
-        <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
-          Action
         </button>
         <button class="tab{% if selected_panel == 'schema' %} active{% endif %}" type="button" data-tab="schema">
           Schema
@@ -253,7 +336,7 @@
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="tables" />
-            <div class="row">
+            <div class="row table-controls">
               <label for="table">Table</label>
               <select id="table" name="table" onchange="this.form.submit()">
                 {% for table in tables %}
@@ -262,6 +345,28 @@
                   </option>
                 {% endfor %}
               </select>
+              {% if selected_table in ['data_equil', 'gk_input'] and data_origins %}
+                <label for="table_origin_id">Origin</label>
+                <select id="table_origin_id" name="table_origin_id" onchange="this.form.submit()">
+                  <option value="" {% if table_origin_id is none %}selected{% endif %}>All</option>
+                  {% for origin_id, origin_name in data_origins %}
+                    <option value="{{ origin_id }}" {% if table_origin_id == origin_id %}selected{% endif %}>
+                      {{ origin_id }} - {{ origin_name }}
+                    </option>
+                  {% endfor %}
+                </select>
+              {% endif %}
+              {% if selected_table == 'data_equil' and data_origins %}
+                <label for="table_transpfile_regex">transpfile</label>
+                <input
+                  id="table_transpfile_regex"
+                  name="table_transpfile_regex"
+                  type="text"
+                  size="14"
+                  value="{{ table_transpfile_regex|default('', true) }}"
+                />
+                <button type="submit">Filter</button>
+              {% endif %}
               <label for="only_active">Active</label>
               <input
                 id="only_active"
@@ -271,9 +376,21 @@
                 {% if only_active %}checked{% endif %}
                 onchange="this.form.submit()"
               />
+              <label for="table_limit">Rows</label>
+              <select id="table_limit" name="table_limit" onchange="this.form.submit()">
+                {% for val in [10, 20, 50, 100, 200, 500] %}
+                  <option value="{{ val }}" {% if table_limit == val %}selected{% endif %}>
+                    {{ val }}
+                  </option>
+                {% endfor %}
+              </select>
               <noscript><button type="submit">View</button></noscript>
             </div>
           </form>
+          <div class="panel-note table-counts">
+            Rows shown: {{ rows|length }} of {{ "{:,}".format(table_filtered_count) }}
+            filtered ({{ "{:,}".format(table_total_count) }} total).
+          </div>
           <div class="table-wrapper">
             <table>
             <thead>
@@ -347,23 +464,22 @@
           </div>
         </form>
       </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'statistics' %} panel-hidden{% endif %}" data-panel="statistics">
+      <section class="panel panel-tabbed{% if selected_panel != 'results' %} panel-hidden{% endif %}" data-panel="results">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
-            <input type="hidden" name="y_col" value="{{ stats_y_col }}" />
             <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
-            <input type="hidden" name="y2_col" value="{{ stats_y2_col }}" />
             <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
-            <input type="hidden" name="y3_col" value="{{ stats_y3_col }}" />
             <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
-            <input type="hidden" name="y4_col" value="{{ stats_y4_col }}" />
+            <input type="hidden" name="results_y2_col" value="{{ results_y2_col }}" />
+            <input type="hidden" name="results_y3_col" value="{{ results_y3_col }}" />
+            <input type="hidden" name="results_y4_col" value="{{ results_y4_col }}" />
             <div class="row">
-              <label for="origin_id">Data origin</label>
-              <select id="origin_id" name="origin_id" onchange="this.form.submit()">
+              <label for="origin_id_results">Data origin</label>
+              <select id="origin_id_results" name="origin_id" onchange="this.form.submit()">
                 <option value="" {% if selected_origin_id is none %}selected{% endif %}>
                   All
                 </option>
@@ -373,160 +489,273 @@
                   </option>
                 {% endfor %}
               </select>
+              <label for="results_only_finished">
+                <input type="hidden" name="results_only_finished" value="0" />
+                <input
+                  id="results_only_finished"
+                  name="results_only_finished"
+                  type="checkbox"
+                  value="1"
+                  {% if results_only_finished %}checked{% endif %}
+                  onchange="this.form.submit()"
+                />
+                Finished only
+              </label>
               <noscript><button type="submit">Filter</button></noscript>
             </div>
           </form>
         </div>
+        {% if results_report %}
+          <div class="panel-note" style="margin-bottom:20px; padding-left:16px;">
+            {{ results_report }}
+          </div>
+        {% endif %}
         <div class="stats-grid">
         <div class="chart-wrap">
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
-            <input type="hidden" name="y2_col" value="{{ stats_y2_col }}" />
             <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
-            <input type="hidden" name="y3_col" value="{{ stats_y3_col }}" />
             <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
-            <input type="hidden" name="y4_col" value="{{ stats_y4_col }}" />
+            <input type="hidden" name="results_only_finished" value="{% if results_only_finished %}1{% else %}0{% endif %}" />
+            <input type="hidden" name="results_y2_col" value="{{ results_y2_col }}" />
+            <input type="hidden" name="results_y3_col" value="{{ results_y3_col }}" />
+            <input type="hidden" name="results_y4_col" value="{{ results_y4_col }}" />
+            <input type="hidden" name="results_x2_min" value="{{ results_x2_min|default('', true) }}" />
+            <input type="hidden" name="results_x2_max" value="{{ results_x2_max|default('', true) }}" />
+            <input type="hidden" name="results_y2_min" value="{{ results_y2_min|default('', true) }}" />
+            <input type="hidden" name="results_y2_max" value="{{ results_y2_max|default('', true) }}" />
+            <input type="hidden" name="results_x3_min" value="{{ results_x3_min|default('', true) }}" />
+            <input type="hidden" name="results_x3_max" value="{{ results_x3_max|default('', true) }}" />
+            <input type="hidden" name="results_y3_min" value="{{ results_y3_min|default('', true) }}" />
+            <input type="hidden" name="results_y3_max" value="{{ results_y3_max|default('', true) }}" />
+            <input type="hidden" name="results_x4_min" value="{{ results_x4_min|default('', true) }}" />
+            <input type="hidden" name="results_x4_max" value="{{ results_x4_max|default('', true) }}" />
+            <input type="hidden" name="results_y4_min" value="{{ results_y4_min|default('', true) }}" />
+            <input type="hidden" name="results_y4_max" value="{{ results_y4_max|default('', true) }}" />
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
-              <label for="x_col">X-axis</label>
-              <select id="x_col" name="x_col" onchange="this.form.submit()">
+              <label for="x_col_results">X-axis</label>
+              <select id="x_col_results" name="x_col" onchange="this.form.submit()">
                 {% for column in stats_columns %}
                   <option value="{{ column }}" {% if column == stats_x_col %}selected{% endif %}>
                     {{ column }}
                   </option>
                 {% endfor %}
               </select>
-              <label for="y_col">Y-axis</label>
-              <select id="y_col" name="y_col" onchange="this.form.submit()">
-                {% for column in stats_columns %}
-                  <option value="{{ column }}" {% if column == stats_y_col %}selected{% endif %}>
-                    {{ column }}
+              <label for="y_col_results">Y-axis</label>
+              <select id="y_col_results" name="results_y_col" onchange="this.form.submit()">
+                {% for column in results_columns %}
+                  <option value="{{ column.value }}" {% if column.value == results_y_col %}selected{% endif %}>
+                    {{ column.label }}
                   </option>
                 {% endfor %}
               </select>
               <noscript><button type="submit">Update Figure 1</button></noscript>
             </div>
+            <div class="row row-compact">
+              <label for="results_x_min">X min</label>
+              <input id="results_x_min" name="results_x_min" type="text" size="6" value="{{ results_x_min|default('', true) }}" />
+              <label for="results_x_max">X max</label>
+              <input id="results_x_max" name="results_x_max" type="text" size="6" value="{{ results_x_max|default('', true) }}" />
+              <label for="results_y_min">Y min</label>
+              <input id="results_y_min" name="results_y_min" type="text" size="6" value="{{ results_y_min|default('', true) }}" />
+              <label for="results_y_max">Y max</label>
+              <input id="results_y_max" name="results_y_max" type="text" size="6" value="{{ results_y_max|default('', true) }}" />
+              <button type="submit">Apply Limits</button>
+            </div>
           </form>
-          <div class="chart-title">{{ stats_x_col }} vs {{ stats_y_col }}</div>
-          <div id="stats-chart"></div>
-          <div id="stats-empty" class="chart-empty" style="display:none;">
+          <div class="chart-title">{{ stats_x_col }} vs {{ results_y_col }}</div>
+          <div id="stats-chart-results"></div>
+          <div id="stats-empty-results" class="chart-empty" style="display:none;">
             No data available.
           </div>
         </div>
         <div class="chart-wrap">
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
-            <input type="hidden" name="y_col" value="{{ stats_y_col }}" />
             <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
-            <input type="hidden" name="y3_col" value="{{ stats_y3_col }}" />
             <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
-            <input type="hidden" name="y4_col" value="{{ stats_y4_col }}" />
+            <input type="hidden" name="results_only_finished" value="{% if results_only_finished %}1{% else %}0{% endif %}" />
+            <input type="hidden" name="results_y_col" value="{{ results_y_col }}" />
+            <input type="hidden" name="results_y3_col" value="{{ results_y3_col }}" />
+            <input type="hidden" name="results_y4_col" value="{{ results_y4_col }}" />
+            <input type="hidden" name="results_x_min" value="{{ results_x_min|default('', true) }}" />
+            <input type="hidden" name="results_x_max" value="{{ results_x_max|default('', true) }}" />
+            <input type="hidden" name="results_y_min" value="{{ results_y_min|default('', true) }}" />
+            <input type="hidden" name="results_y_max" value="{{ results_y_max|default('', true) }}" />
+            <input type="hidden" name="results_x3_min" value="{{ results_x3_min|default('', true) }}" />
+            <input type="hidden" name="results_x3_max" value="{{ results_x3_max|default('', true) }}" />
+            <input type="hidden" name="results_y3_min" value="{{ results_y3_min|default('', true) }}" />
+            <input type="hidden" name="results_y3_max" value="{{ results_y3_max|default('', true) }}" />
+            <input type="hidden" name="results_x4_min" value="{{ results_x4_min|default('', true) }}" />
+            <input type="hidden" name="results_x4_max" value="{{ results_x4_max|default('', true) }}" />
+            <input type="hidden" name="results_y4_min" value="{{ results_y4_min|default('', true) }}" />
+            <input type="hidden" name="results_y4_max" value="{{ results_y4_max|default('', true) }}" />
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
-              <label for="x2_col">X-axis</label>
-              <select id="x2_col" name="x2_col" onchange="this.form.submit()">
+              <label for="x2_col_results">X-axis</label>
+              <select id="x2_col_results" name="x2_col" onchange="this.form.submit()">
                 {% for column in stats_columns %}
                   <option value="{{ column }}" {% if column == stats_x2_col %}selected{% endif %}>
                     {{ column }}
                   </option>
                 {% endfor %}
               </select>
-              <label for="y2_col">Y-axis</label>
-              <select id="y2_col" name="y2_col" onchange="this.form.submit()">
-                {% for column in stats_columns %}
-                  <option value="{{ column }}" {% if column == stats_y2_col %}selected{% endif %}>
-                    {{ column }}
+              <label for="y2_col_results">Y-axis</label>
+              <select id="y2_col_results" name="results_y2_col" onchange="this.form.submit()">
+                {% for column in results_columns %}
+                  <option value="{{ column.value }}" {% if column.value == results_y2_col %}selected{% endif %}>
+                    {{ column.label }}
                   </option>
                 {% endfor %}
               </select>
               <noscript><button type="submit">Update Figure 2</button></noscript>
             </div>
+            <div class="row row-compact">
+              <label for="results_x2_min">X min</label>
+              <input id="results_x2_min" name="results_x2_min" type="text" size="6" value="{{ results_x2_min|default('', true) }}" />
+              <label for="results_x2_max">X max</label>
+              <input id="results_x2_max" name="results_x2_max" type="text" size="6" value="{{ results_x2_max|default('', true) }}" />
+              <label for="results_y2_min">Y min</label>
+              <input id="results_y2_min" name="results_y2_min" type="text" size="6" value="{{ results_y2_min|default('', true) }}" />
+              <label for="results_y2_max">Y max</label>
+              <input id="results_y2_max" name="results_y2_max" type="text" size="6" value="{{ results_y2_max|default('', true) }}" />
+              <button type="submit">Apply Limits</button>
+            </div>
           </form>
-          <div class="chart-title">{{ stats_x2_col }} vs {{ stats_y2_col }}</div>
-          <div id="stats-chart-2"></div>
-          <div id="stats-empty-2" class="chart-empty" style="display:none;">
+          <div class="chart-title">{{ stats_x2_col }} vs {{ results_y2_col }}</div>
+          <div id="stats-chart-2-results"></div>
+          <div id="stats-empty-2-results" class="chart-empty" style="display:none;">
             No data available.
           </div>
         </div>
         <div class="chart-wrap">
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
-            <input type="hidden" name="y_col" value="{{ stats_y_col }}" />
             <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
-            <input type="hidden" name="y2_col" value="{{ stats_y2_col }}" />
             <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
-            <input type="hidden" name="y4_col" value="{{ stats_y4_col }}" />
+            <input type="hidden" name="results_only_finished" value="{% if results_only_finished %}1{% else %}0{% endif %}" />
+            <input type="hidden" name="results_y_col" value="{{ results_y_col }}" />
+            <input type="hidden" name="results_y2_col" value="{{ results_y2_col }}" />
+            <input type="hidden" name="results_y4_col" value="{{ results_y4_col }}" />
+            <input type="hidden" name="results_x_min" value="{{ results_x_min|default('', true) }}" />
+            <input type="hidden" name="results_x_max" value="{{ results_x_max|default('', true) }}" />
+            <input type="hidden" name="results_y_min" value="{{ results_y_min|default('', true) }}" />
+            <input type="hidden" name="results_y_max" value="{{ results_y_max|default('', true) }}" />
+            <input type="hidden" name="results_x2_min" value="{{ results_x2_min|default('', true) }}" />
+            <input type="hidden" name="results_x2_max" value="{{ results_x2_max|default('', true) }}" />
+            <input type="hidden" name="results_y2_min" value="{{ results_y2_min|default('', true) }}" />
+            <input type="hidden" name="results_y2_max" value="{{ results_y2_max|default('', true) }}" />
+            <input type="hidden" name="results_x4_min" value="{{ results_x4_min|default('', true) }}" />
+            <input type="hidden" name="results_x4_max" value="{{ results_x4_max|default('', true) }}" />
+            <input type="hidden" name="results_y4_min" value="{{ results_y4_min|default('', true) }}" />
+            <input type="hidden" name="results_y4_max" value="{{ results_y4_max|default('', true) }}" />
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
-              <label for="x3_col">X-axis</label>
-              <select id="x3_col" name="x3_col" onchange="this.form.submit()">
+              <label for="x3_col_results">X-axis</label>
+              <select id="x3_col_results" name="x3_col" onchange="this.form.submit()">
                 {% for column in stats_columns %}
                   <option value="{{ column }}" {% if column == stats_x3_col %}selected{% endif %}>
                     {{ column }}
                   </option>
                 {% endfor %}
               </select>
-              <label for="y3_col">Y-axis</label>
-              <select id="y3_col" name="y3_col" onchange="this.form.submit()">
-                {% for column in stats_columns %}
-                  <option value="{{ column }}" {% if column == stats_y3_col %}selected{% endif %}>
-                    {{ column }}
+              <label for="y3_col_results">Y-axis</label>
+              <select id="y3_col_results" name="results_y3_col" onchange="this.form.submit()">
+                {% for column in results_columns %}
+                  <option value="{{ column.value }}" {% if column.value == results_y3_col %}selected{% endif %}>
+                    {{ column.label }}
                   </option>
                 {% endfor %}
               </select>
               <noscript><button type="submit">Update Figure 3</button></noscript>
             </div>
+            <div class="row row-compact">
+              <label for="results_x3_min">X min</label>
+              <input id="results_x3_min" name="results_x3_min" type="text" size="6" value="{{ results_x3_min|default('', true) }}" />
+              <label for="results_x3_max">X max</label>
+              <input id="results_x3_max" name="results_x3_max" type="text" size="6" value="{{ results_x3_max|default('', true) }}" />
+              <label for="results_y3_min">Y min</label>
+              <input id="results_y3_min" name="results_y3_min" type="text" size="6" value="{{ results_y3_min|default('', true) }}" />
+              <label for="results_y3_max">Y max</label>
+              <input id="results_y3_max" name="results_y3_max" type="text" size="6" value="{{ results_y3_max|default('', true) }}" />
+              <button type="submit">Apply Limits</button>
+            </div>
           </form>
-          <div class="chart-title">{{ stats_x3_col }} vs {{ stats_y3_col }}</div>
-          <div id="stats-chart-3"></div>
-          <div id="stats-empty-3" class="chart-empty" style="display:none;">
+          <div class="chart-title">{{ stats_x3_col }} vs {{ results_y3_col }}</div>
+          <div id="stats-chart-3-results"></div>
+          <div id="stats-empty-3-results" class="chart-empty" style="display:none;">
             No data available.
           </div>
         </div>
         <div class="chart-wrap">
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="statistics" />
+            <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
-            <input type="hidden" name="y_col" value="{{ stats_y_col }}" />
             <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
-            <input type="hidden" name="y2_col" value="{{ stats_y2_col }}" />
             <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
-            <input type="hidden" name="y3_col" value="{{ stats_y3_col }}" />
+            <input type="hidden" name="results_only_finished" value="{% if results_only_finished %}1{% else %}0{% endif %}" />
+            <input type="hidden" name="results_y_col" value="{{ results_y_col }}" />
+            <input type="hidden" name="results_y2_col" value="{{ results_y2_col }}" />
+            <input type="hidden" name="results_y3_col" value="{{ results_y3_col }}" />
+            <input type="hidden" name="results_x_min" value="{{ results_x_min|default('', true) }}" />
+            <input type="hidden" name="results_x_max" value="{{ results_x_max|default('', true) }}" />
+            <input type="hidden" name="results_y_min" value="{{ results_y_min|default('', true) }}" />
+            <input type="hidden" name="results_y_max" value="{{ results_y_max|default('', true) }}" />
+            <input type="hidden" name="results_x2_min" value="{{ results_x2_min|default('', true) }}" />
+            <input type="hidden" name="results_x2_max" value="{{ results_x2_max|default('', true) }}" />
+            <input type="hidden" name="results_y2_min" value="{{ results_y2_min|default('', true) }}" />
+            <input type="hidden" name="results_y2_max" value="{{ results_y2_max|default('', true) }}" />
+            <input type="hidden" name="results_x3_min" value="{{ results_x3_min|default('', true) }}" />
+            <input type="hidden" name="results_x3_max" value="{{ results_x3_max|default('', true) }}" />
+            <input type="hidden" name="results_y3_min" value="{{ results_y3_min|default('', true) }}" />
+            <input type="hidden" name="results_y3_max" value="{{ results_y3_max|default('', true) }}" />
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
-              <label for="x4_col">X-axis</label>
-              <select id="x4_col" name="x4_col" onchange="this.form.submit()">
+              <label for="x4_col_results">X-axis</label>
+              <select id="x4_col_results" name="x4_col" onchange="this.form.submit()">
                 {% for column in stats_columns %}
                   <option value="{{ column }}" {% if column == stats_x4_col %}selected{% endif %}>
                     {{ column }}
                   </option>
                 {% endfor %}
               </select>
-              <label for="y4_col">Y-axis</label>
-              <select id="y4_col" name="y4_col" onchange="this.form.submit()">
-                {% for column in stats_columns %}
-                  <option value="{{ column }}" {% if column == stats_y4_col %}selected{% endif %}>
-                    {{ column }}
+              <label for="y4_col_results">Y-axis</label>
+              <select id="y4_col_results" name="results_y4_col" onchange="this.form.submit()">
+                {% for column in results_columns %}
+                  <option value="{{ column.value }}" {% if column.value == results_y4_col %}selected{% endif %}>
+                    {{ column.label }}
                   </option>
                 {% endfor %}
               </select>
               <noscript><button type="submit">Update Figure 4</button></noscript>
             </div>
+            <div class="row row-compact">
+              <label for="results_x4_min">X min</label>
+              <input id="results_x4_min" name="results_x4_min" type="text" size="6" value="{{ results_x4_min|default('', true) }}" />
+              <label for="results_x4_max">X max</label>
+              <input id="results_x4_max" name="results_x4_max" type="text" size="6" value="{{ results_x4_max|default('', true) }}" />
+              <label for="results_y4_min">Y min</label>
+              <input id="results_y4_min" name="results_y4_min" type="text" size="6" value="{{ results_y4_min|default('', true) }}" />
+              <label for="results_y4_max">Y max</label>
+              <input id="results_y4_max" name="results_y4_max" type="text" size="6" value="{{ results_y4_max|default('', true) }}" />
+              <button type="submit">Apply Limits</button>
+            </div>
           </form>
-          <div class="chart-title">{{ stats_x4_col }} vs {{ stats_y4_col }}</div>
-          <div id="stats-chart-4"></div>
-          <div id="stats-empty-4" class="chart-empty" style="display:none;">
+          <div class="chart-title">{{ stats_x4_col }} vs {{ results_y4_col }}</div>
+          <div id="stats-chart-4-results"></div>
+          <div id="stats-empty-4-results" class="chart-empty" style="display:none;">
             No data available.
           </div>
         </div>
@@ -569,7 +798,7 @@
               {% endif %}
             </div>
             <div class="row">
-              <span>Alexei Transp 09</span>
+              <span>Alexei Transp 09 (semi-auto)</span>
               {% if actions.get("populate_alexei") %}
                 <form method="post" action="/action/populate_alexei">
                   <input type="hidden" name="db" value="{{ db_path }}" />
@@ -590,6 +819,39 @@
               {% endif %}
             </div>
             <div class="row">
+              <span>Alexei Transp 09 (full-auto)</span>
+              {% if actions.get("populate_alexei_fullauto") %}
+                <form method="post" action="/action/populate_alexei_fullauto">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("populate_alexei_fullauto").label }}
+                  </button>
+                </form>
+              {% endif %}
+              {% if actions.get("create_inputs_transp_fullauto") %}
+                <form method="post" action="/action/create_inputs_transp_fullauto">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("create_inputs_transp_fullauto").label }}
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+            <div class="row">
+              <span>Alexei Transp 10 (full-auto)</span>
+              {% if actions.get("populate_alexei_fullauto_10") %}
+                <form method="post" action="/action/populate_alexei_fullauto_10">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="action" />
+                  <button type="submit">
+                    {{ actions.get("populate_alexei_fullauto_10").label }}
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+            <div class="row">
               <span>Batch</span>
               {% if actions.get("create_batch_db") %}
                 <form method="post" action="/action/create_batch_db">
@@ -600,17 +862,35 @@
                   </button>
                 </form>
               {% endif %}
-              {% if actions.get("deploy_batch_db") %}
-                <form method="post" action="/action/deploy_batch_db">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("deploy_batch_db").label }}
-                  </button>
-                </form>
-              {% endif %}
-            </div>
+            {% if actions.get("deploy_batch_db") %}
+              <form method="post" action="/action/deploy_batch_db">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("deploy_batch_db").label }}
+                </button>
+              </form>
+            {% endif %}
+            {% if actions.get("deploy_batch_db_large") %}
+              <form method="post" action="/action/deploy_batch_db_large">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("deploy_batch_db_large").label }}
+                </button>
+              </form>
+            {% endif %}
+            {% if actions.get("check_launched_batches") %}
+              <form method="post" action="/action/check_launched_batches">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="action" />
+                <button type="submit">
+                  {{ actions.get("check_launched_batches").label }}
+                </button>
+              </form>
+            {% endif %}
           </div>
+        </div>
           <div class="chart-wrap">
             <div class="chart-title">GK Model Templates</div>
             {% if gk_model_rows|length == 0 %}
@@ -710,7 +990,7 @@ db_update/create_gk_input_from_pyrokinetic_with_pfile_and_gfile.py
 Manually set gk_input.status = TORUN (use the Tables panel)
 
 
-Alexei Transp 09
+Alexei Transp 09 (semi-auto)
   | -> db_update/populate_data_equil_from_Alexei_Transp_09.py
   | -> data_origin + data_equil rows (data_equil.active = 0)
   v
@@ -773,6 +1053,24 @@ Execute
   - on failure: status CRASHED
   - on success: status SUCCESS, run gx_analyze.py to set CONVERGED/RESTART</pre>
         </div>
+        <div class="chart-wrap">
+          <div class="chart-title">Remote GK Inputs Workflow</div>
+          <pre class="panel-note">Step 1: Build remote bundle (local)
+  - db_update/build_remote_gk_inputs.py
+  - creates remote_gk_inputs_TIMESTAMP.db + templates/
+
+Step 2: Send bundle to Flux
+  - rsync remote_gk_inputs_TIMESTAMP/ -> /u/jdominsk/DTwin/remote_gk_inputs/
+
+Step 3: Generate inputs on Flux
+  - run_remote_gk_inputs_flux.py
+  - writes .in files in /u/jdominsk/DTwin/tmp_inputs
+  - updates remote DB status/content
+
+Step 4: Sync back to main DB
+  - sync_remote_gk_inputs_from_flux.py
+  - inserts/updates gk_input rows</pre>
+        </div>
       </section>
       <section class="panel panel-tabbed{% if selected_panel != 'schema' %} panel-hidden{% endif %}" data-panel="schema">
         <div class="chart-wrap borderless">
@@ -801,7 +1099,11 @@ Execute
     const statsPoints2 = {{ stats_points_2|tojson }};
     const statsPoints3 = {{ stats_points_3|tojson }};
     const statsPoints4 = {{ stats_points_4|tojson }};
-    const renderStatsChart = (chartId, emptyId, points, xLabelText, yLabelText) => {
+    const resultsPoints = {{ results_points|tojson }};
+    const resultsPoints2 = {{ results_points_2|tojson }};
+    const resultsPoints3 = {{ results_points_3|tojson }};
+    const resultsPoints4 = {{ results_points_4|tojson }};
+    const renderStatsChart = (chartId, emptyId, points, xLabelText, yLabelText, limits = {}) => {
       const chart = document.querySelector(chartId);
       const empty = document.querySelector(emptyId);
       if (!chart || !empty) {
@@ -815,20 +1117,43 @@ Execute
       empty.style.display = "none";
       const width = 640;
       const height = 360;
-      const pad = 40;
+      const padLeft = 64;
+      const padRight = 24;
+      const padTop = 24;
+      const padBottom = 40;
       const xs = points.map((p) => p.x);
       const ys = points.map((p) => p.y);
-      const minX = Math.min(...xs);
-      const maxX = Math.max(...xs);
-      const minY = Math.min(...ys);
-      const maxY = Math.max(...ys);
+      let minX = Math.min(...xs);
+      let maxX = Math.max(...xs);
+      let minY = Math.min(...ys);
+      let maxY = Math.max(...ys);
+      if (Number.isFinite(limits.xMin)) {
+        minX = limits.xMin;
+      }
+      if (Number.isFinite(limits.xMax)) {
+        maxX = limits.xMax;
+      }
+      if (Number.isFinite(limits.yMin)) {
+        minY = limits.yMin;
+      }
+      if (Number.isFinite(limits.yMax)) {
+        maxY = limits.yMax;
+      }
+      if (minX === maxX) {
+        minX -= 1;
+        maxX += 1;
+      }
+      if (minY === maxY) {
+        minY -= 1;
+        maxY += 1;
+      }
       const scaleX = (x) => {
         if (maxX === minX) return width / 2;
-        return pad + ((x - minX) / (maxX - minX)) * (width - 2 * pad);
+        return padLeft + ((x - minX) / (maxX - minX)) * (width - padLeft - padRight);
       };
       const scaleY = (y) => {
         if (maxY === minY) return height / 2;
-        return height - pad - ((y - minY) / (maxY - minY)) * (height - 2 * pad);
+        return height - padBottom - ((y - minY) / (maxY - minY)) * (height - padTop - padBottom);
       };
       const ns = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(ns, "svg");
@@ -840,26 +1165,26 @@ Execute
       svg.style.height = "auto";
 
       const axis = document.createElementNS(ns, "line");
-      axis.setAttribute("x1", pad);
-      axis.setAttribute("y1", height - pad);
-      axis.setAttribute("x2", width - pad);
-      axis.setAttribute("y2", height - pad);
+      axis.setAttribute("x1", padLeft);
+      axis.setAttribute("y1", height - padBottom);
+      axis.setAttribute("x2", width - padRight);
+      axis.setAttribute("y2", height - padBottom);
       axis.setAttribute("stroke", "#9fb3c8");
       svg.appendChild(axis);
 
       const axisY = document.createElementNS(ns, "line");
-      axisY.setAttribute("x1", pad);
-      axisY.setAttribute("y1", pad);
-      axisY.setAttribute("x2", pad);
-      axisY.setAttribute("y2", height - pad);
+      axisY.setAttribute("x1", padLeft);
+      axisY.setAttribute("y1", padTop);
+      axisY.setAttribute("x2", padLeft);
+      axisY.setAttribute("y2", height - padBottom);
       axisY.setAttribute("stroke", "#9fb3c8");
       svg.appendChild(axisY);
 
       const ticks = 5;
       for (let i = 0; i <= ticks; i++) {
         const t = i / ticks;
-        const x = pad + t * (width - 2 * pad);
-        const y = height - pad;
+        const x = padLeft + t * (width - padLeft - padRight);
+        const y = height - padBottom;
         const tick = document.createElementNS(ns, "line");
         tick.setAttribute("x1", x);
         tick.setAttribute("y1", y);
@@ -881,8 +1206,8 @@ Execute
 
       for (let i = 0; i <= ticks; i++) {
         const t = i / ticks;
-        const y = height - pad - t * (height - 2 * pad);
-        const x = pad;
+        const y = height - padBottom - t * (height - padTop - padBottom);
+        const x = padLeft;
         const tick = document.createElementNS(ns, "line");
         tick.setAttribute("x1", x);
         tick.setAttribute("y1", y);
@@ -894,7 +1219,7 @@ Execute
         const label = document.createElementNS(ns, "text");
         const value = (minY + t * (maxY - minY)).toFixed(2);
         label.textContent = value;
-        label.setAttribute("x", x - 10);
+        label.setAttribute("x", x - 12);
         label.setAttribute("y", y + 4);
         label.setAttribute("text-anchor", "end");
         label.setAttribute("fill", "#52606d");
@@ -913,12 +1238,12 @@ Execute
 
       const yLabel = document.createElementNS(ns, "text");
       yLabel.textContent = yLabelText;
-      yLabel.setAttribute("x", 12);
+      yLabel.setAttribute("x", 8);
       yLabel.setAttribute("y", height / 2);
       yLabel.setAttribute("text-anchor", "middle");
       yLabel.setAttribute("fill", "#1f2933");
       yLabel.setAttribute("font-size", "12");
-      yLabel.setAttribute("transform", `rotate(-90 12 ${height / 2})`);
+      yLabel.setAttribute("transform", `rotate(-90 8 ${height / 2})`);
       svg.appendChild(yLabel);
 
       points.forEach((p) => {
@@ -960,6 +1285,58 @@ Execute
         statsPoints4,
         "{{ stats_x4_col }}",
         "{{ stats_y4_col }}"
+      );
+      renderStatsChart(
+        "#stats-chart-results",
+        "#stats-empty-results",
+        resultsPoints,
+        "{{ stats_x_col }}",
+        "{{ results_y_col }}",
+        {
+          xMin: {{ results_x_min|tojson }},
+          xMax: {{ results_x_max|tojson }},
+          yMin: {{ results_y_min|tojson }},
+          yMax: {{ results_y_max|tojson }}
+        }
+      );
+      renderStatsChart(
+        "#stats-chart-2-results",
+        "#stats-empty-2-results",
+        resultsPoints2,
+        "{{ stats_x2_col }}",
+        "{{ results_y2_col }}",
+        {
+          xMin: {{ results_x2_min|tojson }},
+          xMax: {{ results_x2_max|tojson }},
+          yMin: {{ results_y2_min|tojson }},
+          yMax: {{ results_y2_max|tojson }}
+        }
+      );
+      renderStatsChart(
+        "#stats-chart-3-results",
+        "#stats-empty-3-results",
+        resultsPoints3,
+        "{{ stats_x3_col }}",
+        "{{ results_y3_col }}",
+        {
+          xMin: {{ results_x3_min|tojson }},
+          xMax: {{ results_x3_max|tojson }},
+          yMin: {{ results_y3_min|tojson }},
+          yMax: {{ results_y3_max|tojson }}
+        }
+      );
+      renderStatsChart(
+        "#stats-chart-4-results",
+        "#stats-empty-4-results",
+        resultsPoints4,
+        "{{ stats_x4_col }}",
+        "{{ results_y4_col }}",
+        {
+          xMin: {{ results_x4_min|tojson }},
+          xMax: {{ results_x4_max|tojson }},
+          yMin: {{ results_y4_min|tojson }},
+          yMax: {{ results_y4_max|tojson }}
+        }
       );
     });
     const setActiveTab = (name) => {

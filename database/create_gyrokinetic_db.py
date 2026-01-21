@@ -46,11 +46,32 @@ def create_schema(conn: sqlite3.Connection) -> None:
             gfile_content TEXT,
             transpfile TEXT,
             shot_number TEXT,
-            time REAL,
+            shot_time REAL,
+            shot_variant TEXT,
             active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1)),
             creation_date TEXT NOT NULL DEFAULT (datetime('now')),
+            comment TEXT,
             FOREIGN KEY (data_origin_id) REFERENCES data_origin(id)
         )
+        """
+    )
+    equil_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(data_equil)").fetchall()
+    }
+    if "shot_time" not in equil_columns and "time" in equil_columns:
+        conn.execute("ALTER TABLE data_equil RENAME COLUMN time TO shot_time")
+        equil_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(data_equil)").fetchall()
+        }
+    if "shot_variant" not in equil_columns:
+        conn.execute("ALTER TABLE data_equil ADD COLUMN shot_variant TEXT")
+        equil_columns.add("shot_variant")
+    if "comment" not in equil_columns:
+        conn.execute("ALTER TABLE data_equil ADD COLUMN comment TEXT")
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_data_equil_shot_variant_time
+        ON data_equil (data_origin_id, shot_number, shot_variant, shot_time)
         """
     )
     # Gyrokinetic codes used to compute the QL or turbulent transport
@@ -106,7 +127,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             file_path TEXT NOT NULL,
             content TEXT NOT NULL,
             psin REAL NOT NULL,
-            status TEXT NOT NULL CHECK (status IN ('WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS')),
+            status TEXT NOT NULL CHECK (status IN ('NEW', 'WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS')),
             comment TEXT NOT NULL DEFAULT '',
             geo_option TEXT,
             rhoc REAL,
@@ -313,6 +334,18 @@ def create_schema(conn: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_gk_input_gk_study_id
         ON gk_input (gk_study_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_gk_study_key
+        ON gk_study (data_equil_id, gk_code_id)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_gk_input_key
+        ON gk_input (gk_study_id, gk_model_id, psin)
         """
     )
     conn.execute(

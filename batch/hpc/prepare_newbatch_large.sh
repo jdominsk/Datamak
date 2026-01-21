@@ -17,6 +17,7 @@ gx_analyze="${hpc_dir}/gx_analyze.py"
 job_interactive="${hpc_dir}/job_interactive_large.sh"
 linear_conv="${hpc_dir}/linear_convergence.py"
 ky_growth="${hpc_dir}/ky_growth_rates.py"
+claim_next_run="${hpc_dir}/claim_next_run.py"
 
 if [[ ! -f "$job_submit" || ! -f "$job_execute" ]]; then
   echo "Missing job scripts in ${hpc_dir}."
@@ -63,6 +64,9 @@ for db_path in "${db_files[@]}"; do
   fi
   if [[ -f "$ky_growth" ]]; then
     cp -p "$ky_growth" "${run_dir}/"
+  fi
+  if [[ -f "$claim_next_run" ]]; then
+    cp -p "$claim_next_run" "${run_dir}/"
   fi
   rm -f "$db_path"
   echo "Created ${run_dir} from $(basename "$db_path")"

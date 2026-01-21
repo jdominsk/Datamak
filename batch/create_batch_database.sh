@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS gk_run (
   archive_folder TEXT,
   input_name TEXT,
   nb_nodes INTEGER,
-  status TEXT
+  status TEXT,
+  nb_restart INTEGER NOT NULL DEFAULT 0
 );
 SQL
 

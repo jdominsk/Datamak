@@ -3,7 +3,7 @@
 #SBATCH -C gpu
 #SBATCH -q regular
 #SBATCH -t 4:00:00
-#SBATCH -N 32
+#SBATCH -N 4
 #SBATCH --job-name=TO_BE_CHANGED
 
 GX_PATH=/global/homes/j/jdominsk/GX/gx_next6

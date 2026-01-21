@@ -6,6 +6,8 @@ source ${GX_PATH}/module.sh
 module load cray-python/3.11.7
 WORK_DIR="${PWD}"
 
+# To save the main log while streaming it: ./job_interactive_large.sh 2>&1 | tee -a job_main.log
+
 cd "$WORK_DIR"
 echo "Running from: $WORK_DIR"
 

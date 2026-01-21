@@ -3,7 +3,7 @@ import argparse
 import os
 import sqlite3
 import subprocess
-from typing import List
+from typing import List, Optional, Tuple
 
 
 DEFAULT_DB = os.path.join(
@@ -11,7 +11,7 @@ DEFAULT_DB = os.path.join(
     ".",
     "gyrokinetic_simulations.db",
 )
-DEFAULT_ORIGIN_NAME = "Alexei Transp 09"
+DEFAULT_ORIGIN_NAME = "Alexei Transp 09 (semi-auto)"
 DEFAULT_ORIGIN = "/p/transparch/result/NSTX/09"
 DEFAULT_COPY = "/Users/jdominsk/Documents/Projects/AIML_database/Digital_twin/tmp_copy_transp/NSTX/09"
 DEFAULT_REMOTE = "jdominsk@flux"
@@ -60,6 +60,15 @@ def get_or_create_origin_id(conn: sqlite3.Connection, name: str, origin: str, co
     return int(cur.lastrowid)
 
 
+def parse_transpfile(transpfile: str) -> Tuple[Optional[str], Optional[str]]:
+    if not transpfile or not transpfile.upper().endswith(".CDF"):
+        return None, None
+    base = transpfile[:-4]
+    if len(base) <= 3:
+        return None, None
+    return base[:-3], base[-3:]
+
+
 def insert_equil_rows(conn: sqlite3.Connection, origin_id: int, folder_path: str, files: List[str]) -> int:
     existing = conn.execute(
         "SELECT transpfile FROM data_equil WHERE data_origin_id = ?",
@@ -67,7 +76,17 @@ def insert_equil_rows(conn: sqlite3.Connection, origin_id: int, folder_path: str
     ).fetchall()
     existing_files = {row[0] for row in existing if row[0]}
     rows_to_insert = [
-        (origin_id, folder_path, None, None, None, None, file, 0)
+        (
+            origin_id,
+            folder_path,
+            None,
+            None,
+            None,
+            None,
+            file,
+            *parse_transpfile(file),
+            0,
+        )
         for file in files
         if file not in existing_files
     ]
@@ -82,9 +101,11 @@ def insert_equil_rows(conn: sqlite3.Connection, origin_id: int, folder_path: str
                 gfile,
                 gfile_content,
                 transpfile,
+                shot_number,
+                shot_variant,
                 active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows_to_insert,
         )

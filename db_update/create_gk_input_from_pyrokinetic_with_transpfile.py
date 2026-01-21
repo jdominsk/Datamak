@@ -20,7 +20,7 @@ DEFAULT_TEMPLATE_DIR = os.path.join(
 )
 DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gk_inputs")
 DEFAULT_REMOTE = "jdominsk@flux"
-DEFAULT_ORIGIN_NAME = "Alexei Transp 09"
+DEFAULT_ORIGIN_NAME = "Alexei Transp 09 (semi-auto)"
 
 
 def parse_args() -> argparse.Namespace:
@@ -403,7 +403,7 @@ def fetch_active_transp_studies(
 ) -> List[Tuple[int, int, str, str, str, str, float]]:
     rows = conn.execute(
         """
-        SELECT gs.id, gs.gk_code_id, de.transpfile, do.origin, do.copy, gc.name, de.time
+        SELECT gs.id, gs.gk_code_id, de.transpfile, do.origin, do.copy, gc.name, de.shot_time
         FROM gk_study AS gs
         JOIN data_equil AS de ON de.id = gs.data_equil_id
         JOIN data_origin AS do ON do.id = de.data_origin_id

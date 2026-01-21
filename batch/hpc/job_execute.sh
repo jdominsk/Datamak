@@ -73,6 +73,8 @@ try:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max_initial REAL NOT NULL DEFAULT 0")
     if "t_max" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max REAL NOT NULL DEFAULT 0")
+    if "nb_restart" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN nb_restart INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 finally:
     conn.close()
@@ -105,7 +107,9 @@ try:
             lines.append("restart = true")
         new_content = "\n".join(lines) + "\n"
         conn.execute(
-            "UPDATE gk_run SET status = 'TORUN', input_content = ?, synced = 0 WHERE id = ?",
+            "UPDATE gk_run "
+            "SET status = 'TORUN', input_content = ?, synced = 0, nb_restart = nb_restart + 1 "
+            "WHERE id = ?",
             (new_content, run_id),
         )
         updated += 1
@@ -421,26 +425,42 @@ PY
     srun_status=0
   else
     echo "Using ntasks-per-node=${tasks_per_node}"
+    log_base="${OUTPUT_DIR}/${GX_INPUT##*/}"
+    log_base="${log_base%.in}"
+    stdout_log="${log_base}.log"
+    stderr_log="${log_base}.err"
     set +e
-    srun --nodes="${NODES}" --ntasks-per-node="${tasks_per_node}" --gpus="${TOTAL_GPUS}" --gpus-per-node=4 "${GX_PATH}/gx" "${GX_INPUT}"
+    srun --nodes="${NODES}" --ntasks-per-node="${tasks_per_node}" --gpus="${TOTAL_GPUS}" --gpus-per-node=4 \
+      --output="${stdout_log}" --error="${stderr_log}" \
+      "${GX_PATH}/gx" "${GX_INPUT}"
     srun_status=$?
     set -e
   fi
 
   if [[ $srun_status -ne 0 ]]; then
-    echo "srun failed for run_id=$run_id (exit $srun_status); marking CRASHED."
-    python3 - "$DB_PATH" "$run_id" <<'PY'
+    status="CRASHED"
+    if [[ -f "$stderr_log" ]]; then
+      if grep -qiE "time limit|due to time limit|cancelled at|job .*cancelled" "$stderr_log"; then
+        status="INTERRUPTED"
+      fi
+    fi
+    if [[ "$srun_status" -eq 137 || "$srun_status" -eq 143 ]]; then
+      status="INTERRUPTED"
+    fi
+    echo "srun failed for run_id=$run_id (exit $srun_status); marking ${status}."
+    python3 - "$DB_PATH" "$run_id" "$status" <<'PY'
 import sqlite3
 import sys
 
 db_path = sys.argv[1]
 run_id = int(sys.argv[2])
+status = sys.argv[3]
 
 conn = sqlite3.connect(db_path)
 try:
     conn.execute(
-        "UPDATE gk_run SET status = 'CRASHED' WHERE id = ?",
-        (run_id,),
+        "UPDATE gk_run SET status = ? WHERE id = ?",
+        (status, run_id),
     )
     conn.commit()
 finally:

@@ -52,12 +52,13 @@ def main() -> None:
     hpc_dir = batch_root / "hpc"
     scripts = [
         hpc_dir / "job_submit_large.sh",
-        hpc_dir / "job_execute.sh",
+        hpc_dir / "job_execute_large.sh",
         hpc_dir / "prepare_newbatch_large.sh",
+        hpc_dir / "claim_next_run.py",
         hpc_dir / "gx_analyze.py",
         hpc_dir / "linear_convergence.py",
         hpc_dir / "ky_growth_rates.py",
-        hpc_dir / "job_interactive.sh",
+        hpc_dir / "job_interactive_large.sh",
     ]
 
     missing_scripts = [str(path) for path in scripts if not path.is_file()]

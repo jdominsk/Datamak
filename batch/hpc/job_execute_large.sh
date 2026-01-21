@@ -79,6 +79,33 @@ try:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max_initial REAL NOT NULL DEFAULT 0")
     if "t_max" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max REAL NOT NULL DEFAULT 0")
+    if "nb_restart" not in columns:
+        conn.execute("ALTER TABLE gk_run ADD COLUMN nb_restart INTEGER NOT NULL DEFAULT 0")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gk_scheduler (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gk_run_id INTEGER NOT NULL,
+            worker_id INTEGER NOT NULL,
+            event TEXT NOT NULL,
+            nb_restart INTEGER NOT NULL DEFAULT 0,
+            t_max_initial REAL,
+            t_max REAL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    scheduler_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(gk_scheduler)").fetchall()
+    }
+    if "nb_restart" not in scheduler_columns:
+        conn.execute(
+            "ALTER TABLE gk_scheduler ADD COLUMN nb_restart INTEGER NOT NULL DEFAULT 0"
+        )
+    if "t_max_initial" not in scheduler_columns:
+        conn.execute("ALTER TABLE gk_scheduler ADD COLUMN t_max_initial REAL")
+    if "t_max" not in scheduler_columns:
+        conn.execute("ALTER TABLE gk_scheduler ADD COLUMN t_max REAL")
     conn.commit()
 finally:
     conn.close()
@@ -111,7 +138,9 @@ try:
             lines.append("restart = true")
         new_content = "\n".join(lines) + "\n"
         conn.execute(
-            "UPDATE gk_run SET status = 'TORUN', input_content = ?, synced = 0 WHERE id = ?",
+            "UPDATE gk_run "
+            "SET status = 'TORUN', input_content = ?, synced = 0, nb_restart = nb_restart + 1 "
+            "WHERE id = ?",
             (new_content, run_id),
         )
         updated += 1
@@ -159,7 +188,9 @@ run_gx_analyze() {
       python3 "$(dirname "$0")/gx_analyze.py" "$DB_PATH" "$run_id" "$nc_path" --save-plot || \
         echo "gx_analyze failed for run_id=$run_id"
       if [[ -f "$(dirname "$0")/ky_growth_rates.py" ]]; then
-        python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save || \
+        ky_log="${nc_path%.out.nc}.ky.log"
+        ky_err="${nc_path%.out.nc}.ky.err"
+        python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save >>"$ky_log" 2>>"$ky_err" || \
           echo "ky_growth_rates failed for run_id=$run_id"
       fi
     else
@@ -192,7 +223,9 @@ if [[ $ANALYZE_ONLY -eq 1 && $ANALYZE_ALL_NC -eq 1 ]]; then
           echo "gx_analyze failed for $nc_path"
       fi
       if [[ -f "$(dirname "$0")/ky_growth_rates.py" ]]; then
-        python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save || \
+        ky_log="${nc_path%.out.nc}.ky.log"
+        ky_err="${nc_path%.out.nc}.ky.err"
+        python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save >>"$ky_log" 2>>"$ky_err" || \
           echo "ky_growth_rates failed for $nc_path"
       fi
     done
@@ -224,7 +257,7 @@ try:
     restart = conn.execute(
         "SELECT COUNT(*) FROM gk_run WHERE status = 'RESTART'"
     ).fetchone()[0]
-print(f"gk_run rows: TORUN={torun}, RUNNING={running}, RESTART={restart}")
+    print(f"gk_run rows: TORUN={torun}, RUNNING={running}, RESTART={restart}")
 finally:
     conn.close()
 PY
@@ -256,8 +289,60 @@ run_worker() {
       break
     fi
 
+    info="$(python3 - "$DB_PATH" "$run_id" <<'PY'
+import sqlite3
+import sys
+
+db_path = sys.argv[1]
+run_id = int(sys.argv[2])
+
+conn = sqlite3.connect(db_path)
+try:
+    row = conn.execute(
+        "SELECT nb_restart, t_max_initial, t_max FROM gk_run WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    if row is None:
+        print("0\t0\t0")
+    else:
+        nb_restart = int(row[0] or 0)
+        t_max_initial = float(row[1] or 0)
+        t_max = float(row[2] or 0)
+        print(f"{nb_restart}\t{t_max_initial}\t{t_max}")
+finally:
+    conn.close()
+PY
+)"
+    IFS=$'\t' read -r nb_restart t_max_initial t_max <<<"$info"
+    is_restart=0
+    if [[ "${nb_restart:-0}" -gt 0 ]]; then
+      is_restart=1
+    fi
+
     export GX_INPUT="$input_path"
-    echo "Worker ${worker_id}: launching run_id=$run_id with input $GX_INPUT"
+    echo "Worker ${worker_id}: launching run_id=$run_id (restart=$is_restart, t_max=${t_max}) with input $GX_INPUT"
+    python3 - "$DB_PATH" "$run_id" "$worker_id" "${nb_restart:-0}" "${t_max_initial:-0}" "${t_max:-0}" <<'PY'
+import sqlite3
+import sys
+
+db_path = sys.argv[1]
+run_id = int(sys.argv[2])
+worker_id = int(sys.argv[3])
+nb_restart = int(float(sys.argv[4]))
+t_max_initial = float(sys.argv[5])
+t_max = float(sys.argv[6])
+
+conn = sqlite3.connect(db_path)
+try:
+    conn.execute(
+        "INSERT INTO gk_scheduler (gk_run_id, worker_id, event, nb_restart, t_max_initial, t_max) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, worker_id, "START", nb_restart, t_max_initial, t_max),
+    )
+    conn.commit()
+finally:
+    conn.close()
+PY
 
     tasks_per_node="$(python3 - "$GX_INPUT" "$nodes_per_worker" <<'PY'
 import re
@@ -291,28 +376,54 @@ PY
       echo "Worker ${worker_id}: analyze-only mode; skipping srun for run_id=$run_id."
       srun_status=0
     else
-      echo "Worker ${worker_id}: using ntasks-per-node=${tasks_per_node}"
+      start_ts="$(date '+%Y-%m-%d %H:%M:%S')"
+      echo "Worker ${worker_id}: starting srun for run_id=$run_id (t_max=${t_max}, nb_restart=${nb_restart}, ntasks-per-node=${tasks_per_node}, time=${start_ts})"
+      log_base="${OUTPUT_DIR}/${input_path##*/}"
+      log_base="${log_base%.in}"
+      stdout_log="${log_base}.log"
+      stderr_log="${log_base}.err"
       set +e
       srun --exclusive --nodes="${nodes_per_worker}" --ntasks-per-node="${tasks_per_node}" \
-        --gpus="${gpus_per_worker}" --gpus-per-node=4 "${GX_PATH}/gx" "${GX_INPUT}"
+        --gpus="${gpus_per_worker}" --gpus-per-node=4 \
+        --output="${stdout_log}" --error="${stderr_log}" --open-mode=append \
+        "${GX_PATH}/gx" "${GX_INPUT}"
       srun_status=$?
       set -e
     fi
 
     if [[ $srun_status -ne 0 ]]; then
-      echo "Worker ${worker_id}: srun failed for run_id=$run_id (exit $srun_status); marking CRASHED."
-      python3 - "$DB_PATH" "$run_id" <<'PY'
+      status="CRASHED"
+      if [[ -f "$stderr_log" ]]; then
+        if grep -qiE "time limit|due to time limit|cancelled at|job .*cancelled" "$stderr_log"; then
+          status="INTERRUPTED"
+        fi
+      fi
+      if [[ "$srun_status" -eq 137 || "$srun_status" -eq 143 ]]; then
+        status="INTERRUPTED"
+      fi
+      echo "Worker ${worker_id}: srun failed for run_id=$run_id (exit $srun_status); marking ${status}."
+      python3 - "$DB_PATH" "$run_id" "$status" "$worker_id" "${nb_restart:-0}" "${t_max_initial:-0}" "${t_max:-0}" <<'PY'
 import sqlite3
 import sys
 
 db_path = sys.argv[1]
 run_id = int(sys.argv[2])
+status = sys.argv[3]
+worker_id = int(sys.argv[4])
+nb_restart = int(float(sys.argv[5]))
+t_max_initial = float(sys.argv[6])
+t_max = float(sys.argv[7])
 
 conn = sqlite3.connect(db_path)
 try:
     conn.execute(
-        "UPDATE gk_run SET status = 'CRASHED' WHERE id = ?",
-        (run_id,),
+        "UPDATE gk_run SET status = ? WHERE id = ?",
+        (status, run_id),
+    )
+    conn.execute(
+        "INSERT INTO gk_scheduler (gk_run_id, worker_id, event, nb_restart, t_max_initial, t_max) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, worker_id, status, nb_restart, t_max_initial, t_max),
     )
     conn.commit()
 finally:
@@ -322,18 +433,27 @@ PY
     fi
 
     echo "Worker ${worker_id}: srun completed for run_id=$run_id; marking SUCCESS."
-    python3 - "$DB_PATH" "$run_id" <<'PY'
+    python3 - "$DB_PATH" "$run_id" "$worker_id" "${nb_restart:-0}" "${t_max_initial:-0}" "${t_max:-0}" <<'PY'
 import sqlite3
 import sys
 
 db_path = sys.argv[1]
 run_id = int(sys.argv[2])
+worker_id = int(sys.argv[3])
+nb_restart = int(float(sys.argv[4]))
+t_max_initial = float(sys.argv[5])
+t_max = float(sys.argv[6])
 
 conn = sqlite3.connect(db_path)
 try:
     conn.execute(
         "UPDATE gk_run SET status = 'SUCCESS' WHERE id = ?",
         (run_id,),
+    )
+    conn.execute(
+        "INSERT INTO gk_scheduler (gk_run_id, worker_id, event, nb_restart, t_max_initial, t_max) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (run_id, worker_id, "SUCCESS", nb_restart, t_max_initial, t_max),
     )
     conn.commit()
 finally:
@@ -347,7 +467,9 @@ PY
       python3 "$(dirname "$0")/gx_analyze.py" "$DB_PATH" "$run_id" "$nc_path" --save-plot || \
         echo "gx_analyze failed for run_id=$run_id"
       if [[ -f "$(dirname "$0")/ky_growth_rates.py" ]]; then
-        python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save || \
+        ky_log="${nc_path%.out.nc}.ky.log"
+        ky_err="${nc_path%.out.nc}.ky.err"
+        python3 "$(dirname "$0")/ky_growth_rates.py" "$nc_path" --save >>"$ky_log" 2>>"$ky_err" || \
           echo "ky_growth_rates failed for run_id=$run_id"
       fi
     else

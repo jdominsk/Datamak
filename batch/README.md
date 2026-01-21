@@ -23,14 +23,14 @@ Notes:
 From inside `batch/` (or anywhere; it defaults to `batch/new`):
 
 ```
-python3 deploy_batch.py
+python3 deploy_batch_large.py
 ```
 
 What it does:
 - Filters `gk_batch` rows with status `CREATED` and matches them to files in `batch/new`.
 - Renames empty DBs with the prefix `empty_`.
 - Sends non-empty DBs + `hpc/*.sh` to NERSC in a single SSH session.
-- Runs `prepare_newbatch.sh` and submits the jobs.
+- Runs `prepare_newbatch_large.sh` and submits the jobs.
 - Updates `gk_batch` to `SENT` and `LAUNCHED`.
 - Moves sent DBs to `batch/sent`.
 
@@ -53,15 +53,15 @@ create_batch_database.py --copy-torun
   |  -> gk_input.status = BATCH
   |  -> gk_batch.status = CREATED
   v
-deploy_batch.py
+deploy_batch_large.py
   |  -> sends DBs from batch/new + hpc scripts to NERSC newbatch
   |  -> gk_batch.status = SENT
   v
-prepare_newbatch.sh (NERSC, newbatch/new)
+prepare_newbatch_large.sh (NERSC, newbatch/new)
   |  -> ../runXXXX/ + copy DB + scripts
   v
-deploy_batch.py (remote)
-  |  -> sbatch runXXXX/job_submit.sh
+deploy_batch_large.py (remote)
+  |  -> sbatch runXXXX/job_submit_large.sh
   |  -> gk_batch.status = LAUNCHED
   v
 job_execute.sh (NERSC)

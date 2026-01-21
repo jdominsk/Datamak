@@ -32,8 +32,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--status",
-        default="SUCCESS",
-        help="Status to treat as finished (default: SUCCESS).",
+        default="SUCCESS,CONVERGED",
+        help="Comma-separated statuses to treat as finished (default: SUCCESS,CONVERGED).",
     )
     parser.add_argument(
         "--timeout",
@@ -118,6 +118,7 @@ def main() -> None:
         "status",
         "input_content",
         "t_max",
+        "nb_restart",
         "ky_abs_mean",
         "gamma_max",
         "diffusion",
@@ -155,6 +156,7 @@ def main() -> None:
                     status TEXT,
                     input_content TEXT,
                     t_max REAL,
+                    nb_restart INTEGER,
                     ky_abs_mean REAL,
                     gamma_max REAL,
                     diffusion REAL,
@@ -171,6 +173,8 @@ def main() -> None:
             conn.execute("ALTER TABLE gk_run ADD COLUMN gk_batch_id INTEGER")
         if "t_max" not in columns:
             conn.execute("ALTER TABLE gk_run ADD COLUMN t_max REAL")
+        if "nb_restart" not in columns:
+            conn.execute("ALTER TABLE gk_run ADD COLUMN nb_restart INTEGER")
         if "ky_abs_mean" not in columns:
             conn.execute("ALTER TABLE gk_run ADD COLUMN ky_abs_mean REAL")
         if "gamma_max" not in columns:
@@ -263,6 +267,7 @@ PY
                 print(f"=== {db_name} ===")
                 print(f"missing: {path}")
 
+            missing_names = {name for name, _ in missing}
             for db_name, rows_data in batch_rows.items():
                 remote_folder = next(
                     (p for n, p in items if n == db_name), ""
@@ -281,10 +286,10 @@ PY
                         INSERT OR REPLACE INTO gk_run (
                             remote_id, gk_input_id, gk_batch_id, input_folder, job_folder, archive_folder,
                             input_name, nb_nodes, job_id, status, input_content,
-                            t_max, ky_abs_mean, gamma_max, diffusion,
+                            t_max, nb_restart, ky_abs_mean, gamma_max, diffusion,
                             remote_host, remote_folder
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             row.get("id"),
@@ -299,6 +304,7 @@ PY
                             row.get("status"),
                             row.get("input_content"),
                             row.get("t_max"),
+                            row.get("nb_restart"),
                             row.get("ky_abs_mean"),
                             row.get("gamma_max"),
                             row.get("diffusion"),
@@ -325,7 +331,8 @@ PY
                         )
                         print(line.rstrip())
                 else:
-                    count = sum(1 for r in rows_data if r.get("status") == args.status)
+                    status_set = {s.strip() for s in args.status.split(",") if s.strip()}
+                    count = sum(1 for r in rows_data if r.get("status") in status_set)
                     total = len(rows_data)
                     print(f"{db_name}: fetched={total}, {args.status}={count}")
 
@@ -378,6 +385,12 @@ PY
                     print(f"{db_name}: synchronizing {len(rows_data)} runs")
                 else:
                     print(f"{db_name}: already synced")
+                if db_name not in missing_names:
+                    local_conn.execute(
+                        "UPDATE gk_batch SET status = 'SYNCED' WHERE batch_database_name = ?",
+                        (db_name,),
+                    )
+                    local_conn.commit()
     finally:
         local_conn.close()
 

@@ -31,8 +31,14 @@ def main() -> int:
     try:
         conn.execute("PRAGMA busy_timeout = 5000")
         conn.execute("BEGIN IMMEDIATE")
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_run)")}
+        if "nb_restart" not in columns:
+            conn.execute(
+                "ALTER TABLE gk_run ADD COLUMN nb_restart INTEGER NOT NULL DEFAULT 0"
+            )
         row = conn.execute(
-            "SELECT id, gk_input_id, gk_batch_id, input_content, t_max_initial, t_max "
+            "SELECT id, gk_input_id, gk_batch_id, input_content, "
+            "t_max_initial, t_max, nb_restart "
             "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
         ).fetchone()
         if row is None:
@@ -44,11 +50,15 @@ def main() -> int:
                 for run_id, content in restart_rows:
                     updated_content = update_restart_input(content)
                     conn.execute(
-                        "UPDATE gk_run SET input_content = ?, status = 'TORUN', synced = 0 WHERE id = ?",
+                        "UPDATE gk_run "
+                        "SET input_content = ?, status = 'TORUN', synced = 0, "
+                        "nb_restart = nb_restart + 1 "
+                        "WHERE id = ?",
                         (updated_content, int(run_id)),
                     )
                 row = conn.execute(
-                    "SELECT id, gk_input_id, gk_batch_id, input_content, t_max_initial, t_max "
+                    "SELECT id, gk_input_id, gk_batch_id, input_content, "
+                    "t_max_initial, t_max, nb_restart "
                     "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
                 ).fetchone()
         if row is None:
@@ -62,6 +72,7 @@ def main() -> int:
         content = row["input_content"]
         tmax_initial = float(row["t_max_initial"] or 0)
         tmax_current = float(row["t_max"] or 0)
+        nb_restart = int(row["nb_restart"] or 0)
 
         tmax_re = re.compile(r"(\bt_max\s*=\s*)([-+0-9.eE]+)", re.IGNORECASE)
         match = tmax_re.search(content)
@@ -72,14 +83,7 @@ def main() -> int:
             tmax_initial = tmax_in_content
         if tmax_current == 0:
             tmax_current = tmax_in_content
-        else:
-            tmax_current = max(tmax_current, tmax_in_content)
-
-        restart_true = bool(
-            re.search(r"^\s*restart\s*=\s*true\b", content, re.IGNORECASE | re.MULTILINE)
-        )
-        if restart_true:
-            tmax_current += tmax_initial
+        tmax_current = tmax_initial * (1 + nb_restart)
         tmax_str = f"{tmax_current:.1f}"
 
         def repl(m):
@@ -96,7 +100,7 @@ def main() -> int:
         conn.execute(
             "UPDATE gk_run "
             "SET status = 'RUNNING', input_name = ?, job_id = ?, synced = 0, "
-            "input_content = ?, t_max_initial = ?, t_max = ? "
+            "input_content = ?, t_max_initial = ?, t_max = ?, nb_restart = ? "
             "WHERE id = ?",
             (
                 filename,
@@ -104,6 +108,7 @@ def main() -> int:
                 content,
                 tmax_initial,
                 tmax_current,
+                nb_restart,
                 run_id,
             ),
         )

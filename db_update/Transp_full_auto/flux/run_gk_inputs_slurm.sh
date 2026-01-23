@@ -17,4 +17,5 @@ set -euo pipefail
 module load sqlite
 
 mkdir -p logs
+export PYTHONUNBUFFERED=1
 ./run_gk_inputs_local.sh "$@"

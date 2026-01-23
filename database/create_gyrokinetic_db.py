@@ -55,6 +55,26 @@ def create_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS flux_action_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_origin_id INTEGER,
+            data_origin_name TEXT,
+            flux_db_name TEXT NOT NULL,
+            remote_host TEXT NOT NULL,
+            remote_dir TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (data_origin_id) REFERENCES data_origin(id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_flux_action_log_origin
+        ON flux_action_log (data_origin_id, created_at)
+        """
+    )
     equil_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(data_equil)").fetchall()
     }

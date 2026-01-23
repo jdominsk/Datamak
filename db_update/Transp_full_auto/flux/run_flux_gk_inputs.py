@@ -8,6 +8,7 @@ import sqlite3
 import tempfile
 import time
 import warnings
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import pyrokinetics as pk
@@ -65,6 +66,11 @@ def get_rss_gb() -> float:
     except OSError:
         return 0.0
     return 0.0
+
+
+def log(msg: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {msg}", flush=True)
 
 
 def drop_gx_nkx_nky(content: str) -> Tuple[str, bool]:
@@ -327,6 +333,11 @@ def process_rows(
             )
         return processed_rows, stop_early
 
+    log(
+        "Initializing equilibrium: "
+        f"transpfile={transpfile} shot_time={transp_time} template={template_name}"
+    )
+    init_start = time.monotonic()
     try:
         with warnings.catch_warnings(record=True) as caught_init:
             warnings.simplefilter("always")
@@ -339,6 +350,8 @@ def process_rows(
                 kinetics_kwargs={"time": float(transp_time)},
                 gk_file=template_path,
             )
+        init_elapsed = time.monotonic() - init_start
+        log(f"Equilibrium init finished in {init_elapsed:.1f}s")
         if caught_init:
             warning_msgs = [str(w.message).strip() for w in caught_init if str(w.message).strip()]
             if warning_msgs:
@@ -435,7 +448,8 @@ def process_rows(
         print(
             f"progress {processed_rows}/{max_rows} ({total_rows}): "
             f"row_id={row_id} psin={psin:.3f} elapsed={elapsed:.1f}s "
-            f"eta={remaining:.1f}s rss={rss_gb:.2f}GB"
+            f"eta={remaining:.1f}s rss={rss_gb:.2f}GB",
+            flush=True,
         )
         if processed_rows % 100 == 0:
             commit_with_retry(conn)

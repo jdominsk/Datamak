@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument(
         "--base-dir",
         default="/pscratch/sd/j/jdominsk/DTwin",
-        help="Remote base folder containing runXXXX directories.",
+        help="Remote base folder containing batchXXXX directories.",
     )
     parser.add_argument(
         "--max-submit",

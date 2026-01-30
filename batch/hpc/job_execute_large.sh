@@ -8,6 +8,7 @@ ANALYZE_ALL_NC=0
 DB_PATH=""
 NODES="${NODES:-4}"
 WORKERS="${WORKERS:-1}"
+MIN_TIME_LEFT_SEC="${MIN_TIME_LEFT_SEC:-600}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --analyze-only)
@@ -37,6 +38,45 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+parse_slurm_time() {
+  local value="$1"
+  if [[ -z "$value" || "$value" == "UNLIMITED" || "$value" == "NOT_SET" ]]; then
+    echo "-1"
+    return 0
+  fi
+  local days=0
+  local time_part="$value"
+  if [[ "$value" == *-* ]]; then
+    days="${value%%-*}"
+    time_part="${value#*-}"
+  fi
+  local h=0 m=0 s=0
+  IFS=':' read -r a b c <<<"$time_part"
+  if [[ -n "$c" ]]; then
+    h="$a"
+    m="$b"
+    s="$c"
+  else
+    m="$a"
+    s="$b"
+  fi
+  echo $((days*86400 + h*3600 + m*60 + s))
+}
+
+time_left_sec() {
+  if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+    echo "-1"
+    return 0
+  fi
+  local remaining
+  remaining="$(squeue -h -j "$SLURM_JOB_ID" -o %L 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$remaining" ]]; then
+    echo "-1"
+    return 0
+  fi
+  parse_slurm_time "$remaining"
+}
+
 if [[ -z "$DB_PATH" ]]; then
   newest_db="$(ls -t "$PWD"/batch_database_*.db 2>/dev/null | head -n 1 || true)"
   if [[ -z "$newest_db" ]]; then
@@ -55,6 +95,11 @@ OUTPUT_DIR="${OUTPUT_DIR:-$PWD}"
 
 echo "Using DB: $DB_PATH"
 echo "Working dir: $PWD"
+if [[ $ANALYZE_ONLY -eq 1 ]]; then
+  NODES=1
+  WORKERS=1
+  TOTAL_GPUS=0
+fi
 echo "Nodes: $NODES  Total GPUs: $TOTAL_GPUS"
 echo "Workers: $WORKERS"
 
@@ -277,6 +322,11 @@ run_worker() {
   local nodes_per_worker="$2"
   local gpus_per_worker=$((nodes_per_worker * 4))
   while true; do
+    remaining_sec="$(time_left_sec)"
+    if [[ "$remaining_sec" -ge 0 && "$remaining_sec" -le "$MIN_TIME_LEFT_SEC" ]]; then
+      echo "Worker ${worker_id}: only ${remaining_sec}s left in allocation; stopping new launches."
+      break
+    fi
     result="$(python3 "$(dirname "$0")/claim_next_run.py" "$DB_PATH" "$OUTPUT_DIR")"
     if [[ "$result" == "NO_TORUN" || -z "$result" ]]; then
       echo "Worker ${worker_id}: no TORUN entries remaining."
@@ -397,6 +447,10 @@ PY
         if grep -qiE "time limit|due to time limit|cancelled at|job .*cancelled" "$stderr_log"; then
           status="INTERRUPTED"
         fi
+        if grep -qiE "job/step already completing|job step already completing|job step already completed" "$stderr_log"; then
+          echo "Worker ${worker_id}: allocation is completing; stopping new launches."
+          status="INTERRUPTED"
+        fi
       fi
       if [[ "$srun_status" -eq 137 || "$srun_status" -eq 143 ]]; then
         status="INTERRUPTED"
@@ -429,6 +483,9 @@ try:
 finally:
     conn.close()
 PY
+      if [[ -f "$stderr_log" ]] && grep -qiE "job/step already completing|job step already completing|job step already completed" "$stderr_log"; then
+        break
+      fi
       continue
     fi
 

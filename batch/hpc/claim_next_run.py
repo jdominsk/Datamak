@@ -3,6 +3,7 @@ import os
 import re
 import sqlite3
 import sys
+from typing import List, Tuple
 
 
 def update_restart_input(content: str) -> str:
@@ -20,11 +21,63 @@ def update_restart_input(content: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _find_invalid_lines(content: str) -> List[Tuple[int, str]]:
+    bad_lines: List[Tuple[int, str]] = []
+    header_re = re.compile(r"^\s*\[.+\]\s*$")
+    for idx, line in enumerate(content.splitlines(), start=1):
+        if not line.strip():
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        if header_re.match(line):
+            continue
+        if "=" in line:
+            continue
+        bad_lines.append((idx, line.strip()))
+    return bad_lines
+
+
+def _update_param_in_section(
+    content: str, section: str, key: str, value: str
+) -> str:
+    lines = content.splitlines()
+    section_re = re.compile(rf"^\s*\[{re.escape(section)}\]\s*$", re.IGNORECASE)
+    header_re = re.compile(r"^\s*\[.+\]\s*$")
+    key_re = re.compile(rf"^(\s*{re.escape(key)}\s*=\s*)(.+)$", re.IGNORECASE)
+
+    section_idx = None
+    for idx, line in enumerate(lines):
+        if section_re.match(line):
+            section_idx = idx
+            break
+
+    if section_idx is None:
+        return f"{key} = {value}\n" + content
+
+    insert_idx = section_idx + 1
+    for idx in range(section_idx + 1, len(lines)):
+        line = lines[idx]
+        if header_re.match(line):
+            break
+        if key_re.match(line):
+            lines[idx] = key_re.sub(rf"\1{value}", line, count=1)
+            return "\n".join(lines) + "\n"
+        insert_idx = idx + 1
+
+    lines.insert(insert_idx, f"{key} = {value}")
+    if key.lower() == "nstep":
+        if insert_idx + 1 < len(lines) and lines[insert_idx + 1].strip():
+            lines.insert(insert_idx + 1, "")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         raise SystemExit("Usage: claim_next_run.py DB_PATH OUTPUT_DIR")
     db_path = sys.argv[1]
     output_dir = sys.argv[2]
+    nwrite_override = os.environ.get("GX_NWRITE_OVERRIDE", "").strip()
+    nstep_override = os.environ.get("GX_NSTEP_OVERRIDE", "").strip()
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -39,7 +92,8 @@ def main() -> int:
         row = conn.execute(
             "SELECT id, gk_input_id, gk_batch_id, input_content, "
             "t_max_initial, t_max, nb_restart "
-            "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
+            "FROM gk_run WHERE status = 'TORUN' "
+            "ORDER BY nb_restart ASC, id ASC LIMIT 1"
         ).fetchone()
         if row is None:
             restart_rows = conn.execute(
@@ -59,7 +113,8 @@ def main() -> int:
                 row = conn.execute(
                     "SELECT id, gk_input_id, gk_batch_id, input_content, "
                     "t_max_initial, t_max, nb_restart "
-                    "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
+                    "FROM gk_run WHERE status = 'TORUN' "
+                    "ORDER BY nb_restart ASC, id ASC LIMIT 1"
                 ).fetchone()
         if row is None:
             print("NO_TORUN")
@@ -93,8 +148,31 @@ def main() -> int:
         if count == 0:
             raise ValueError("t_max not found in input_content for update.")
 
+        if nwrite_override:
+            content = _update_param_in_section(
+                content, "Time", "nwrite", nwrite_override
+            )
+        if nstep_override:
+            content = _update_param_in_section(
+                content, "Time", "nstep", nstep_override
+            )
+
         filename = f"input_batchid{gk_batch_id}_gkinputid{gk_input_id}_runid{run_id}.in"
         filepath = os.path.join(output_dir, filename)
+
+        invalid_lines = _find_invalid_lines(content)
+        if invalid_lines:
+            lines_preview = ", ".join(
+                f"{idx}:{text}" for idx, text in invalid_lines[:5]
+            )
+            print(
+                f"Invalid GX input for run_id={run_id}; would write {filepath}"
+            )
+            raise ValueError(
+                f"Invalid GX input: bare tokens without '=' found. "
+                f"Examples: {lines_preview}. "
+                f"Input file: {filepath}"
+            )
         with open(filepath, "w", encoding="utf-8") as handle:
             handle.write(content)
         conn.execute(

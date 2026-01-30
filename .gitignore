@@ -8,3 +8,8 @@ db_update/gk_inputs/
 tmp_copy_transp/
 sandbox/
 db_update/Transp_full_auto_remote/
+db_analysis/*.json
+batch/plots/
+batch/plots/**
+*_growth_rate.png
+*_gamma_vs_ky.png

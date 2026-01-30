@@ -24,7 +24,7 @@ fapar = 0.0
 fbpar = 0.0
 
 [Time]
-t_max = 30.0
+t_max = 10.0
 cfl = 0.8
 scheme = "rk4"
 dt = 0.05

@@ -177,6 +177,9 @@ def upsert_gk_input(
         status,
         comment,
     ) = row
+    content_str = str(content or "").strip()
+    if not content_str:
+        status = "ERROR"
     main_gk_study_id = study_id_map.get(int(flux_gk_study_id))
     if not main_gk_study_id:
         return
@@ -200,14 +203,14 @@ def upsert_gk_input(
             content = excluded.content,
             status = excluded.status,
             comment = excluded.comment
-        WHERE gk_input.status = 'WAIT'
+        WHERE gk_input.status IN ('WAIT', 'ERROR')
         """,
         (
             main_gk_study_id,
             gk_model_id,
             file_name,
             file_path,
-            content,
+            content_str,
             psin,
             status,
             comment,

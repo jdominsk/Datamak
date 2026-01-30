@@ -1,10 +1,13 @@
 {
   "counts": {
-    "batch_launched": 11
+    "batch_created": 2,
+    "batch_created_large": 1,
+    "batch_launched": 24,
+    "gk_input_torun": 2
   },
   "last_action": {
     "action": "check_launched_batches",
     "suggestion_id": "batch_launched",
-    "timestamp": "2026-01-17T20:44:11"
+    "timestamp": "2026-01-29T21:00:24"
   }
 }

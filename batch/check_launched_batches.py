@@ -51,6 +51,22 @@ def main() -> None:
         action="store_true",
         help="Dump full gk_run content from remote batch databases.",
     )
+    parser.add_argument(
+        "--sync-plots",
+        action="store_true",
+        help="Rsync growth rate plots from remote batch folders.",
+    )
+    parser.add_argument(
+        "--plots-dir",
+        default=str(ROOT_DIR / "batch" / "plots"),
+        help="Local folder to store synced plots.",
+    )
+    parser.add_argument(
+        "--plots-limit",
+        type=int,
+        default=50,
+        help="Maximum number of plot files to sync per batch database.",
+    )
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)
@@ -59,7 +75,7 @@ def main() -> None:
         """
         SELECT batch_database_name, remote_folder, remote_host
         FROM gk_batch
-        WHERE status = 'LAUNCHED'
+        WHERE status IN ('LAUNCHED', 'SYNCED')
         """
     ).fetchall()
     conn.close()
@@ -335,6 +351,114 @@ PY
                     count = sum(1 for r in rows_data if r.get("status") in status_set)
                     total = len(rows_data)
                     print(f"{db_name}: fetched={total}, {args.status}={count}")
+
+            if args.sync_plots:
+                plots_root = Path(args.plots_dir)
+                plots_root.mkdir(parents=True, exist_ok=True)
+                for db_name, remote_path in items:
+                    target_dir = plots_root / db_name.replace(".db", "")
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    rows_data = batch_rows.get(db_name, [])
+                    basenames = set()
+                    for row in rows_data:
+                        input_name = (row.get("input_name") or "").strip()
+                        if not input_name:
+                            continue
+                        stem = input_name
+                        if stem.endswith(".in"):
+                            stem = stem[: -len(".in")]
+                        basenames.add(f"{stem}_growth_rate.png")
+                        basenames.add(f"{stem}_gamma_vs_ky.png")
+                    if basenames:
+                        basenames = sorted(basenames)
+                        if args.plots_limit > 0:
+                            basenames = basenames[: args.plots_limit]
+                        print(
+                            f"{db_name}: syncing pngs for {len(basenames)} updated runs "
+                            f"from {host}:{remote_path} -> {target_dir}"
+                        )
+                        list_payload = f"""
+python3 - <<'PY'
+import json
+import os
+
+remote_path = {json.dumps(remote_path)}
+basenames = {json.dumps(basenames)}
+existing = []
+for name in basenames:
+    if os.path.exists(os.path.join(remote_path, name)):
+        existing.append(name)
+for name in existing:
+    print(name)
+PY
+"""
+                    else:
+                        print(
+                            f"{db_name}: syncing up to {args.plots_limit} png files "
+                            f"from {host}:{remote_path} -> {target_dir}"
+                        )
+                        list_payload = f"""
+python3 - <<'PY'
+import glob
+import os
+
+remote_path = {json.dumps(remote_path)}
+limit = {int(args.plots_limit)}
+patterns = ("*_growth_rate.png", "*_gamma_vs_ky.png")
+files = []
+for pattern in patterns:
+    files.extend(glob.glob(os.path.join(remote_path, pattern)))
+files = sorted(set(files))
+if limit > 0:
+    files = files[:limit]
+for path in files:
+    print(os.path.basename(path))
+PY
+"""
+                    list_result = subprocess.run(
+                        ["ssh", host, "bash", "-c", list_payload],
+                        text=True,
+                        capture_output=True,
+                        timeout=args.timeout,
+                    )
+                    if list_result.returncode != 0:
+                        if list_result.stderr:
+                            print(list_result.stderr.strip())
+                        print(f"{db_name}: plot list failed.")
+                        continue
+                    basenames = [
+                        line.strip()
+                        for line in list_result.stdout.splitlines()
+                        if line.strip()
+                    ]
+                    if not basenames:
+                        print(f"{db_name}: no plot files found.")
+                        continue
+                    rsync_cmd = [
+                        "rsync",
+                        "-av",
+                        "--update",
+                        "--no-perms",
+                        "--no-owner",
+                        "--no-group",
+                        "--files-from=-",
+                        f"{host}:{remote_path.rstrip('/')}/",
+                        str(target_dir) + "/",
+                    ]
+                    rsync_input = "\n".join(basenames) + "\n"
+                    rsync_result = subprocess.run(
+                        rsync_cmd,
+                        input=rsync_input,
+                        text=True,
+                        capture_output=True,
+                        timeout=args.timeout,
+                    )
+                    if rsync_result.returncode != 0:
+                        if rsync_result.stderr:
+                            print(rsync_result.stderr.strip())
+                        print(f"{db_name}: rsync failed.")
+                        continue
+                    print(f"{db_name}: rsynced {len(basenames)} png files.")
 
             if batch_rows:
                 ids_by_db = {

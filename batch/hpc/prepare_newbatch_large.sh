@@ -34,10 +34,13 @@ if [[ ${#db_files[@]} -eq 0 ]]; then
 fi
 
 max_run=0
-for dir in "${parent_dir}"/run[0-9][0-9][0-9][0-9]; do
+for dir in "${parent_dir}"/run[0-9][0-9][0-9][0-9] "${parent_dir}"/batch[0-9][0-9][0-9][0-9]; do
   [[ -d "$dir" ]] || continue
   base="$(basename "$dir")"
   num="${base#run}"
+  if [[ "$base" == batch* ]]; then
+    num="${base#batch}"
+  fi
   if [[ "$num" =~ ^[0-9]{4}$ ]]; then
     if ((10#$num > max_run)); then
       max_run=$((10#$num))
@@ -49,7 +52,7 @@ next_run=$((max_run + 1))
 manifest="${newbatch_root}/new_runs.txt"
 rm -f "$manifest"
 for db_path in "${db_files[@]}"; do
-  run_dir="${parent_dir}/run$(printf "%04d" "$next_run")"
+  run_dir="${parent_dir}/batch$(printf "%04d" "$next_run")"
   mkdir -p "$run_dir"
   cp -p "$db_path" "${run_dir}/"
   cp -p "$job_submit" "$job_execute" "${run_dir}/"

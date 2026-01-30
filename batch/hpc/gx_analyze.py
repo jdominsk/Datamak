@@ -133,10 +133,20 @@ def metric_gamma_over_abs_kymean2(ky, gamma):
     if not np.any(mask):
         return np.nan, np.nan, np.nan
     w = gamma[mask]
+    ky_mask = np.isfinite(ky)
     x = np.abs(ky[mask])
     ky_abs_mean = np.sum(w * x) / np.sum(w)
     gamma_max = np.max(w)
-    metric = np.inf if ky_abs_mean == 0 else gamma_max / ky_abs_mean**2
+    if not np.isfinite(ky_abs_mean) or ky_abs_mean <= 0:
+        ky_valid = np.abs(ky[ky_mask])
+        ky_valid = ky_valid[np.isfinite(ky_valid) & (ky_valid > 0)]
+        if ky_valid.size > 0:
+            ky_abs_mean = float(np.mean(ky_valid))
+    metric = (
+        np.inf
+        if not np.isfinite(ky_abs_mean) or ky_abs_mean == 0
+        else gamma_max / ky_abs_mean**2
+    )
     return metric, ky_abs_mean, gamma_max
 
 
@@ -240,7 +250,14 @@ def main() -> int:
     except Exception:
         pass
 
-    if ky_abs_mean is not None and gamma_max is not None and gamma_metric is not None:
+    if (
+        ky_abs_mean is not None
+        and gamma_max is not None
+        and gamma_metric is not None
+        and np.isfinite(ky_abs_mean)
+        and np.isfinite(gamma_max)
+        and np.isfinite(gamma_metric)
+    ):
         print(
             f"<|ky|> = {ky_abs_mean:.6g}, gamma_max = {gamma_max:.6g}, "
             f"D = {gamma_metric:.6g}"
@@ -333,7 +350,7 @@ def main() -> int:
             )
         conn.execute(insert_sql, insert_params)
         conn.execute(
-            "UPDATE gk_run SET ky_abs_mean = ?, gamma_max = ?, diffusion = ? "
+            "UPDATE gk_run SET ky_abs_mean = ?, gamma_max = ?, diffusion = ?, synced = 0 "
             "WHERE id = ?",
             (
                 None if ky_abs_mean is None else float(ky_abs_mean),
@@ -343,7 +360,7 @@ def main() -> int:
             ),
         )
         conn.execute(
-            "UPDATE gk_run SET status = ? WHERE id = ?",
+            "UPDATE gk_run SET status = ?, synced = 0 WHERE id = ?",
             (status, args.run_id),
         )
         conn.commit()

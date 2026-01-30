@@ -82,5 +82,8 @@ python3 "${DTWIN_ROOT}/db_update/Transp_full_auto/sync_flux_equil_inputs_to_main
   --main-db "${MAIN_DB}" \
   --flux-db "${FLUX_DB_LOCAL}"
 
+python3 "${DTWIN_ROOT}/db_update/mark_empty_gk_input_error.py" \
+  --db "${MAIN_DB}"
+
 python3 "${DTWIN_ROOT}/db_update/backfill_gk_input_physics.py" \
   --db "${MAIN_DB}"

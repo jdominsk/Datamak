@@ -147,7 +147,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
             file_path TEXT NOT NULL,
             content TEXT NOT NULL,
             psin REAL NOT NULL,
-            status TEXT NOT NULL CHECK (status IN ('NEW', 'WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS')),
+            status TEXT NOT NULL CHECK (status IN ('NEW', 'WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS', 'ERROR')),
             comment TEXT NOT NULL DEFAULT '',
             geo_option TEXT,
             rhoc REAL,

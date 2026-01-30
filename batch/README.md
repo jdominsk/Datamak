@@ -58,10 +58,10 @@ deploy_batch_large.py
   |  -> gk_batch.status = SENT
   v
 prepare_newbatch_large.sh (NERSC, newbatch/new)
-  |  -> ../runXXXX/ + copy DB + scripts
+  |  -> ../batchXXXX/ + copy DB + scripts
   v
 deploy_batch_large.py (remote)
-  |  -> sbatch runXXXX/job_submit_large.sh
+  |  -> sbatch batchXXXX/job_submit_large.sh
   |  -> gk_batch.status = LAUNCHED
   v
 job_execute.sh (NERSC)

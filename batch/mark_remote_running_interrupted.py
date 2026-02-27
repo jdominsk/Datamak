@@ -6,6 +6,8 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
+from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout
+
 
 ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
 
@@ -51,6 +53,12 @@ def main() -> int:
         default="",
         help="Username to pass to monitor_remote_runs.py.",
     )
+    parser.add_argument(
+        "--monitor-timeout",
+        type=int,
+        default=None,
+        help="Timeout in seconds to pass to monitor_remote_runs.py.",
+    )
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)
@@ -88,8 +96,10 @@ PY
 """
     payload = payload.replace("<<<REMOTE_DB>>>", remote_db)
 
+    connect_timeout = get_ssh_connect_timeout(min(10, max(1, args.timeout)))
+    ssh_cmd = [*build_ssh_base_args(host, connect_timeout), "bash", "-s"]
     result = subprocess.run(
-        ["ssh", host, "bash", "-s"],
+        ssh_cmd,
         input=payload,
         text=True,
         capture_output=True,
@@ -106,6 +116,8 @@ PY
         cmd = ["python3", str(monitor_path), "--db", args.db]
         if args.monitor_user:
             cmd.extend(["--user", args.monitor_user])
+        if args.monitor_timeout is not None:
+            cmd.extend(["--timeout", str(args.monitor_timeout)])
         try:
             subprocess.run(cmd, check=True)
         except subprocess.CalledProcessError as exc:

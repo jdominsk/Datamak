@@ -26,4 +26,5 @@ NODES="${2:-${SLURM_JOB_NUM_NODES:-4}}"
 export GX_PATH
 export NODES
 
-bash "$(dirname "$0")/job_execute.sh" "$DB_PATH" "$NODES"
+submit_dir="${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
+bash "${submit_dir}/job_execute.sh" "$DB_PATH" "$NODES"

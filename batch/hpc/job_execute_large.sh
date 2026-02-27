@@ -9,6 +9,9 @@ DB_PATH=""
 NODES="${NODES:-4}"
 WORKERS="${WORKERS:-1}"
 MIN_TIME_LEFT_SEC="${MIN_TIME_LEFT_SEC:-600}"
+NAN_ABORT="${GX_ABORT_ON_NAN:-1}"
+NAN_SCAN_INTERVAL="${GX_NAN_SCAN_INTERVAL:-10}"
+NAN_PATTERN="${GX_NAN_PATTERN:-nan}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --analyze-only)
@@ -60,7 +63,7 @@ parse_slurm_time() {
     m="$a"
     s="$b"
   fi
-  echo $((days*86400 + h*3600 + m*60 + s))
+  echo $((10#$days*86400 + 10#$h*3600 + 10#$m*60 + 10#$s))
 }
 
 time_left_sec() {
@@ -432,27 +435,63 @@ PY
       log_base="${log_base%.in}"
       stdout_log="${log_base}.log"
       stderr_log="${log_base}.err"
+      nan_flag="${log_base}.nan"
       set +e
+      rm -f "$nan_flag"
       srun --exclusive --nodes="${nodes_per_worker}" --ntasks-per-node="${tasks_per_node}" \
         --gpus="${gpus_per_worker}" --gpus-per-node=4 \
         --output="${stdout_log}" --error="${stderr_log}" --open-mode=append \
-        "${GX_PATH}/gx" "${GX_INPUT}"
+        "${GX_PATH}/gx" "${GX_INPUT}" &
+      srun_pid=$!
+      nan_watch_pid=""
+      if [[ "$NAN_ABORT" -eq 1 ]]; then
+        (
+          while kill -0 "$srun_pid" 2>/dev/null; do
+            if [[ -f "$stdout_log" ]] && grep -qiE "$NAN_PATTERN" "$stdout_log"; then
+              echo "Worker ${worker_id}: NaN detected in ${stdout_log}; aborting run_id=$run_id."
+              touch "$nan_flag"
+              kill "$srun_pid" 2>/dev/null || true
+              break
+            fi
+            if [[ -f "$stderr_log" ]] && grep -qiE "$NAN_PATTERN" "$stderr_log"; then
+              echo "Worker ${worker_id}: NaN detected in ${stderr_log}; aborting run_id=$run_id."
+              touch "$nan_flag"
+              kill "$srun_pid" 2>/dev/null || true
+              break
+            fi
+            sleep "$NAN_SCAN_INTERVAL"
+          done
+        ) &
+        nan_watch_pid=$!
+      fi
+      wait "$srun_pid"
       srun_status=$?
+      if [[ -n "$nan_watch_pid" ]]; then
+        wait "$nan_watch_pid" 2>/dev/null || true
+      fi
+      nan_detected=0
+      if [[ -f "$nan_flag" ]]; then
+        nan_detected=1
+        srun_status=1
+      fi
       set -e
     fi
 
     if [[ $srun_status -ne 0 ]]; then
       status="CRASHED"
+      if [[ "${nan_detected:-0}" -eq 1 ]]; then
+        status="ERROR"
+      fi
       if [[ -f "$stderr_log" ]]; then
-        if grep -qiE "time limit|due to time limit|cancelled at|job .*cancelled" "$stderr_log"; then
+        if [[ "$status" == "CRASHED" ]] && grep -qiE "time limit|due to time limit|cancelled at|job .*cancelled" "$stderr_log"; then
           status="INTERRUPTED"
         fi
-        if grep -qiE "job/step already completing|job step already completing|job step already completed" "$stderr_log"; then
+        if [[ "$status" == "CRASHED" ]] && grep -qiE "job/step already completing|job step already completing|job step already completed" "$stderr_log"; then
           echo "Worker ${worker_id}: allocation is completing; stopping new launches."
           status="INTERRUPTED"
         fi
       fi
-      if [[ "$srun_status" -eq 137 || "$srun_status" -eq 143 ]]; then
+      if [[ "$status" == "CRASHED" ]] && [[ "$srun_status" -eq 137 || "$srun_status" -eq 143 ]]; then
         status="INTERRUPTED"
       fi
       echo "Worker ${worker_id}: srun failed for run_id=$run_id (exit $srun_status); marking ${status}."

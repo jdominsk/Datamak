@@ -36,6 +36,12 @@ def main() -> None:
         help="Comma-separated statuses to treat as finished (default: SUCCESS,CONVERGED).",
     )
     parser.add_argument(
+        "--batch",
+        action="append",
+        default=[],
+        help="Limit to specific batch database name(s). Can be used multiple times.",
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         default=60,
@@ -71,6 +77,7 @@ def main() -> None:
 
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
+    batch_filter = {name.strip() for name in args.batch if name.strip()}
     rows = conn.execute(
         """
         SELECT batch_database_name, remote_folder, remote_host
@@ -79,9 +86,14 @@ def main() -> None:
         """
     ).fetchall()
     conn.close()
+    if batch_filter:
+        rows = [row for row in rows if row["batch_database_name"] in batch_filter]
 
     if not rows:
-        print("No LAUNCHED gk_batch rows found.")
+        if batch_filter:
+            print("No matching LAUNCHED gk_batch rows found for batch filter.")
+        else:
+            print("No LAUNCHED gk_batch rows found.")
         return
 
     if not args.remote_check:
@@ -350,7 +362,19 @@ PY
                     status_set = {s.strip() for s in args.status.split(",") if s.strip()}
                     count = sum(1 for r in rows_data if r.get("status") in status_set)
                     total = len(rows_data)
-                    print(f"{db_name}: fetched={total}, {args.status}={count}")
+                    status_counts: dict[str, int] = {}
+                    for row in rows_data:
+                        status = str(row.get("status") or "").strip() or "UNKNOWN"
+                        status_counts[status] = status_counts.get(status, 0) + 1
+                    status_summary = ", ".join(
+                        f"{status}={status_counts[status]}"
+                        for status in sorted(status_counts)
+                    )
+                    print(
+                        f"{db_name}: fetched_unsynced={total}, "
+                        f"finished({args.status})={count}, "
+                        f"status_counts: {status_summary}"
+                    )
 
             if args.sync_plots:
                 plots_root = Path(args.plots_dir)

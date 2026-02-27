@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
+from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout
 
 ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
 
@@ -57,6 +58,12 @@ def main() -> int:
         default="",
         help="Username to pass to monitor_remote_runs.py.",
     )
+    parser.add_argument(
+        "--monitor-timeout",
+        type=int,
+        default=None,
+        help="Timeout in seconds to pass to monitor_remote_runs.py.",
+    )
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)
@@ -93,16 +100,26 @@ import sqlite3
 db_path = "{remote_db}"
 run_ids = [{run_ids_literal}]
 with sqlite3.connect(db_path) as conn:
-    cur = conn.execute(
-        "UPDATE gk_run SET status = 'RESTART' WHERE id IN ({','.join('?' for _ in run_ids)})",
-        run_ids,
+    columns = {{row[1] for row in conn.execute("PRAGMA table_info(gk_run)")}}
+    if "restart_keep_tmax" not in columns:
+        conn.execute(
+            "ALTER TABLE gk_run ADD COLUMN restart_keep_tmax INTEGER NOT NULL DEFAULT 0"
+        )
+    placeholders = ",".join(["?"] * len(run_ids))
+    sql = (
+        "UPDATE gk_run "
+        "SET status = 'RESTART', restart_keep_tmax = 1 "
+        "WHERE id IN (" + placeholders + ")"
     )
+    cur = conn.execute(sql, run_ids)
     conn.commit()
     print(cur.rowcount)
 PY
 """
+    connect_timeout = get_ssh_connect_timeout(min(10, max(1, args.timeout)))
+    ssh_cmd = [*build_ssh_base_args(host, connect_timeout), "bash", "-s"]
     result = subprocess.run(
-        ["ssh", host, "bash", "-s"],
+        ssh_cmd,
         input=payload,
         text=True,
         capture_output=True,
@@ -119,6 +136,8 @@ PY
         cmd = ["python3", str(monitor_path), "--db", args.db]
         if args.monitor_user:
             cmd.extend(["--user", args.monitor_user])
+        if args.monitor_timeout is not None:
+            cmd.extend(["--timeout", str(args.monitor_timeout)])
         try:
             subprocess.run(cmd, check=True)
         except subprocess.CalledProcessError as exc:

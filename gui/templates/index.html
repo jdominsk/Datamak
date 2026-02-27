@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-     <title>Datamak alpha</title>
+     <title>Datamak (alpha)</title>
     <script>
       window.MathJax = {
         tex: {
@@ -26,23 +26,27 @@
         top: 0;
         z-index: 10;
         background: #ffffff;
-        padding-top: 8px;
-        padding-bottom: 8px;
-      }
-      header {
-        margin-bottom: 16px;
-      }
-      .top-logo {
-        text-align: right;
+        padding-top: 4px;
+        padding-bottom: 4px;
       }
       .top-left {
         padding-right: 0;
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        flex: 1;
       }
       .top-right {
         position: relative;
+        flex: 0 0 auto;
       }
-      .logo {
-        max-height: 120px;
+      .tab-logo {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+      }
+      .tab-logo img {
+        max-height: 42px;
         width: auto;
       }
       .row {
@@ -66,6 +70,15 @@
         padding: 4px 8px;
         font-size: 11px;
       }
+      .axis-limits-toggle {
+        margin-left: auto;
+        align-self: flex-start;
+      }
+      .axis-limits-toggle summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: #52606d;
+      }
       .table-controls {
         position: sticky;
         top: calc(var(--sticky-panel-height) + 8px);
@@ -76,10 +89,16 @@
       }
       .top-section {
         position: relative;
-        display: grid;
-        grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 1fr);
+        display: flex;
         gap: 16px;
-        align-items: start;
+        align-items: flex-start;
+      }
+      .top-left form {
+        margin: 0;
+      }
+      .assistant-panel {
+        margin-top: 0;
+        margin-bottom: 0;
       }
       .top-left form .row {
         margin-bottom: 0;
@@ -141,10 +160,17 @@
         margin: 0 0 12px;
         font-size: 16px;
       }
+      .panel[data-panel="results"] label,
+      .panel[data-panel="results"] select,
+      .panel[data-panel="results"] button {
+        font-size: 12px;
+      }
       .tab-bar {
         display: flex;
+        align-items: center;
+        flex-wrap: wrap;
         gap: 4px;
-        margin-top: 24px;
+        margin-top: 8px;
         margin-bottom: -1px;
       }
       .tab {
@@ -163,6 +189,33 @@
         border-color: #a7c4ff;
         font-weight: 600;
         box-shadow: 0 -1px 0 #ffffff, 0 -2px 0 #e6f0ff;
+      }
+      .subtab-bar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 6px;
+      }
+      .subtab {
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #334e68;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .subtab.active {
+        background: #0b3d91;
+        border-color: #0b3d91;
+        color: #ffffff;
+      }
+      .sampling-subpanel {
+        display: none;
+      }
+      .sampling-subpanel.active {
+        display: block;
       }
       .chart-wrap {
         border: 1px solid #d9e2ec;
@@ -311,6 +364,24 @@
         height: auto;
         margin: 0 auto;
       }
+      .schema-overview {
+        margin-top: 16px;
+      }
+      .schema-overview details {
+        border: 1px solid #e5eaf0;
+        border-radius: 8px;
+        padding: 8px 12px;
+        margin-bottom: 10px;
+        background: #fbfdff;
+      }
+      .schema-overview summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: #1f2933;
+      }
+      .schema-overview .table-wrapper {
+        margin-top: 8px;
+      }
       .stats-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -355,6 +426,14 @@
         border-radius: 6px;
         resize: vertical;
       }
+      .color-swatch {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+        margin-right: 6px;
+        background: transparent;
+      }
       .panel-note {
         color: #52606d;
         font-size: 13px;
@@ -376,8 +455,8 @@
         background: #f8fafc;
         border-radius: 8px;
         padding: 12px;
-        margin-top: 12px;
-        margin-bottom: 12px;
+        margin-top: 4px;
+        margin-bottom: 8px;
       }
       .assistant-title {
         font-size: 14px;
@@ -391,54 +470,94 @@
       }
       .assistant-item {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         gap: 12px;
       }
       .assistant-text {
         flex: 1;
       }
+      .assistant-sublist {
+        margin: 6px 0 0;
+        padding-left: 18px;
+        color: #334e68;
+        font-size: 13px;
+      }
+      .assistant-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .suggestions-fab {
+        display: block;
+        position: fixed;
+        right: 0;
+        top: 18%;
+        transform: translateY(-50%);
+        background: #fff3c4;
+        border: 1px solid #f0d37a;
+        border-right: none;
+        border-radius: 8px 0 0 8px;
+        padding: 8px 6px;
+        font-size: 12px;
+        color: #334e68;
+        cursor: pointer;
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+        z-index: 20;
+      }
+      .hpc-fab {
+        display: block;
+        position: fixed;
+        right: 0;
+        top: 28%;
+        transform: translateY(-50%);
+        background: #d3f7dc;
+        border: 1px solid #91d7a5;
+        border-right: none;
+        border-radius: 8px 0 0 8px;
+        padding: 8px 6px;
+        font-size: 12px;
+        color: #1f3d2a;
+        cursor: pointer;
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+        z-index: 20;
+      }
+      .suggestions-panel {
+        display: none;
+      }
+      body.suggestions-expanded .suggestions-panel {
+        display: block;
+        position: fixed;
+        right: 16px;
+        top: 96px;
+        max-width: 420px;
+        max-height: 70vh;
+        overflow: auto;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+        z-index: 21;
+      }
+      .hpc-panel {
+        display: none;
+      }
+      body.hpc-expanded .hpc-panel {
+        display: block;
+        position: fixed;
+        right: 16px;
+        top: 96px;
+        max-width: 420px;
+        max-height: 70vh;
+        overflow: auto;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+        z-index: 21;
+      }
     </style>
   </head>
   <body>
     <div class="sticky-panel">
-      <header>
-        <h2> </h2>
-      </header>
-
       <div class="top-section">
         <div class="top-left">
-          <form method="get">
-            <div class="row">
-              <label for="db">DB path</label>
-              <input id="db" name="db" type="text" size="60" value="{{ db_path }}" />
-            </div>
-          </form>
-          {% if ai_suggestions and ai_suggestions|length > 0 %}
-            <div class="assistant-panel">
-              <div class="assistant-title">Workflow Suggestions (AI generated)</div>
-              <ul class="assistant-list">
-                {% for suggestion in ai_suggestions %}
-                  <li class="assistant-item">
-                    <span class="assistant-text">{{ suggestion.text }}</span>
-                    {% if suggestion.action and actions.get(suggestion.action) %}
-                      <form method="post" action="/suggestion_action">
-                        <input type="hidden" name="db" value="{{ db_path }}" />
-                        <input type="hidden" name="suggestion_id" value="{{ suggestion.id }}" />
-                        <input type="hidden" name="action_name" value="{{ suggestion.action }}" />
-                        <button type="submit">{{ actions.get(suggestion.action).label }}</button>
-                      </form>
-                    {% endif %}
-                  </li>
-                {% endfor %}
-              </ul>
-            </div>
-          {% endif %}
-        </div>
-        <div class="top-right">
-          <div class="top-logo">
-            <img class="logo" src="{{ url_for('static', filename='Slide1.png') }}" alt="Logo" />
-          </div>
         </div>
       </div>
       {% if error %}
@@ -446,40 +565,97 @@
       {% endif %}
       <div class="tab-bar">
         <button class="tab{% if selected_panel == 'results' %} active{% endif %}" type="button" data-tab="results">
-          Results
+          Physics Results
+        </button>
+        <button class="tab{% if selected_panel == 'surrogate' %} active{% endif %}" type="button" data-tab="surrogate">
+          Surrogate Models
         </button>
         <button class="tab{% if selected_panel == 'sampling' %} active{% endif %}" type="button" data-tab="sampling">
-          Equil Sampling
-        </button>
-        <button class="tab{% if selected_panel == 'plasma-sampling' %} active{% endif %}" type="button" data-tab="plasma-sampling">
-          Plasma Sampling
-        </button>
-        <button class="tab{% if selected_panel == 'equil-plasma-sampling' %} active{% endif %}" type="button" data-tab="equil-plasma-sampling">
-          Equil+Plasma Sampling
-        </button>
-        <button class="tab{% if selected_panel == 'sampling-batch' %} active{% endif %}" type="button" data-tab="sampling-batch">
-          Equil Sampling Batch
-        </button>
-        <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
-          Action
+          Data Statistics
         </button>
         <button class="tab{% if selected_panel == 'monitor' %} active{% endif %}" type="button" data-tab="monitor">
-          Run Monitor
+          Batch Monitor
+        </button>
+        <button class="tab{% if selected_panel == 'equil-plasma-sampling' %} active{% endif %}" type="button" data-tab="equil-plasma-sampling">
+          Input Sampling
+        </button>
+        <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
+          Workflow
         </button>
         <button class="tab{% if selected_panel == 'tables' %} active{% endif %}" type="button" data-tab="tables">
-          Tables
-        </button>
-        <button class="tab{% if selected_panel == 'edit' %} active{% endif %}" type="button" data-tab="edit">
-          Edit GK Input
+          Database
         </button>
         <button class="tab{% if selected_panel == 'schema' %} active{% endif %}" type="button" data-tab="schema">
           Schema
         </button>
+        <div class="tab-logo">
+          <img src="{{ url_for('static', filename='datamak_logo_line.png') }}" alt="Datamak logo" />
+        </div>
       </div>
     </div>
+    {% if ai_suggestions and ai_suggestions|length > 0 %}
+      <div class="assistant-panel suggestions-panel">
+        <div class="assistant-title">Workflow Suggestions:</div>
+        <ul class="assistant-list">
+          {% for suggestion in ai_suggestions %}
+            <li class="assistant-item">
+              <div class="assistant-text">
+                <div>{{ suggestion.text }}</div>
+                {% if suggestion.get('items') %}
+                  <ul class="assistant-sublist">
+                    {% for item in suggestion.get('items') %}
+                      <li>{{ item }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+              </div>
+              {% if suggestion.get('actions') %}
+                <div class="assistant-actions">
+                  {% for action in suggestion.get('actions') %}
+                    {% if action.action and actions.get(action.action) %}
+                      <form method="post" action="/suggestion_action">
+                        <input type="hidden" name="db" value="{{ db_path }}" />
+                        <input type="hidden" name="suggestion_id" value="{{ suggestion.id }}" />
+                        <input type="hidden" name="action_name" value="{{ action.action }}" />
+                        {% if action.panel %}
+                          <input type="hidden" name="panel" value="{{ action.panel }}" />
+                        {% endif %}
+                        <button type="submit">{{ actions.get(action.action).label }}</button>
+                      </form>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              {% elif suggestion.action and actions.get(suggestion.action) %}
+                <form method="post" action="/suggestion_action">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="suggestion_id" value="{{ suggestion.id }}" />
+                  <input type="hidden" name="action_name" value="{{ suggestion.action }}" />
+                  {% if suggestion.panel %}
+                    <input type="hidden" name="panel" value="{{ suggestion.panel }}" />
+                  {% endif %}
+                  <button type="submit">{{ actions.get(suggestion.action).label }}</button>
+                </form>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+      <button class="suggestions-fab" type="button" aria-expanded="false">
+        Workflow Suggestions
+      </button>
+    {% endif %}
+    <button class="hpc-fab" type="button" data-tab="hpc">
+      HPC Login
+    </button>
 
     <div class="panel-grid">
       <section class="panel panel-tabbed{% if selected_panel != 'tables' %} panel-hidden{% endif %}" data-panel="tables">
+        <form method="get" style="margin-bottom:12px;">
+          <div class="row">
+            <label for="db">DB path</label>
+            <input id="db" name="db" type="text" size="60" value="{{ db_path }}" />
+          </div>
+        </form>
         {% if selected_table %}
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
@@ -566,7 +742,7 @@
                         </form>
                       {% elif selected_table == 'data_origin' and column == 'color' %}
                         {% set color = row[column]|default('#1f77b4', true) %}
-                        <span style="display:inline-block; width:12px; height:12px; background:{{ color }}; border-radius:2px; margin-right:6px;"></span>
+                        <span class="color-swatch" data-color="{{ color }}"></span>
                         {{ color }}
                       {% else %}
                         {{ row[column]|default('', true) }}
@@ -576,7 +752,7 @@
                   {% if selected_table == 'data_origin' and 'color' not in columns %}
                     {% set color = data_origin_colors.get(row['name'], '#1f77b4') %}
                     <td>
-                      <span style="display:inline-block; width:12px; height:12px; background:{{ color }}; border-radius:2px; margin-right:6px;"></span>
+                      <span class="color-swatch" data-color="{{ color }}"></span>
                       {{ color }}
                     </td>
                   {% endif %}
@@ -593,44 +769,60 @@
         {% else %}
           <div>No table selected.</div>
         {% endif %}
+        <div style="margin-top:20px;">
+          <h4>Edit GK Input</h4>
+          <form method="post" action="/edit_gk_input">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="tables" />
+            <div class="row">
+              <label for="gk_input_id">gk_input id</label>
+              <input
+                id="gk_input_id"
+                name="gk_input_id"
+                type="text"
+                size="10"
+                value="{{ edit_gk_input_id|default('', true) }}"
+              />
+              <button type="submit" name="action" value="load">Load</button>
+              <button type="submit" name="action" value="save" {% if edit_status and edit_status != 'WAIT' %}disabled{% endif %}>Save</button>
+            </div>
+            {% if edit_error %}
+              <div class="error">{{ edit_error }}</div>
+            {% endif %}
+            {% if edit_warning %}
+              <div class="error">{{ edit_warning }}</div>
+            {% endif %}
+            {% if edit_status and edit_status != 'WAIT' %}
+              <div class="error">Editing disabled because status is {{ edit_status }}.</div>
+            {% endif %}
+            {% if edit_message %}
+              <div class="notice">{{ edit_message }}</div>
+            {% endif %}
+            <div style="margin-top:12px;">
+              <textarea class="input-editor" name="gk_input_content" {% if edit_status and edit_status != 'WAIT' %}readonly{% endif %}>{{ edit_gk_input_content|default('', true) }}</textarea>
+            </div>
+          </form>
+        </div>
+        </div>
       </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'edit' %} panel-hidden{% endif %}" data-panel="edit">
-        <form method="post" action="/edit_gk_input">
-          <input type="hidden" name="db" value="{{ db_path }}" />
-          <div class="row">
-            <label for="gk_input_id">gk_input id</label>
-            <input
-              id="gk_input_id"
-              name="gk_input_id"
-              type="text"
-              size="10"
-              value="{{ edit_gk_input_id|default('', true) }}"
-            />
-            <button type="submit" name="action" value="load">Load</button>
-            <button type="submit" name="action" value="save" {% if edit_status and edit_status != 'WAIT' %}disabled{% endif %}>Save</button>
-          </div>
-          {% if edit_error %}
-            <div class="error">{{ edit_error }}</div>
-          {% endif %}
-          {% if edit_warning %}
-            <div class="error">{{ edit_warning }}</div>
-          {% endif %}
-          {% if edit_status and edit_status != 'WAIT' %}
-            <div class="error">Editing disabled because status is {{ edit_status }}.</div>
-          {% endif %}
-          {% if edit_message %}
-            <div class="notice">{{ edit_message }}</div>
-          {% endif %}
-          <div style="margin-top:12px;">
-            <textarea class="input-editor" name="gk_input_content" {% if edit_status and edit_status != 'WAIT' %}readonly{% endif %}>{{ edit_gk_input_content|default('', true) }}</textarea>
-          </div>
-        </form>
-      </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'sampling' %} panel-hidden{% endif %}" data-panel="sampling">
+      <section class="panel panel-tabbed{% if selected_panel != 'sampling' %} panel-hidden{% endif %}" data-panel="sampling" data-sampling-tab="{{ sampling_tab }}">
+        <div class="subtab-bar">
+          <button class="subtab{% if sampling_tab == 'equil' %} active{% endif %}" type="button" data-subtab="equil">
+            Equil DB analysis
+          </button>
+          <button class="subtab{% if sampling_tab == 'plasma' %} active{% endif %}" type="button" data-subtab="plasma">
+            Plasma Sampling
+          </button>
+          <button class="subtab{% if sampling_tab == 'batch' %} active{% endif %}" type="button" data-subtab="batch">
+            Equil Sampling Batch
+          </button>
+        </div>
+        <div class="sampling-subpanel{% if sampling_tab == 'equil' %} active{% endif %}" data-subpanel="equil">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="sampling" />
+            <input type="hidden" name="sampling_tab" value="equil" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <div class="row">
               <label for="origin_id_sampling">Data origin</label>
@@ -959,12 +1151,13 @@
             <div class="panel-note">Not enough data to compute regime coverage.</div>
           {% endif %}
         {% endif %}
-      </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'plasma-sampling' %} panel-hidden{% endif %}" data-panel="plasma-sampling">
+        </div>
+        <div class="sampling-subpanel{% if sampling_tab == 'plasma' %} active{% endif %}" data-subpanel="plasma">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="plasma-sampling" />
+            <input type="hidden" name="panel" value="sampling" />
+            <input type="hidden" name="sampling_tab" value="plasma" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <div class="row">
               <label for="origin_id_plasma">Data origin</label>
@@ -1299,6 +1492,411 @@
             <div class="panel-note">Not enough data to compute regime coverage.</div>
           {% endif %}
         {% endif %}
+        </div>
+        <div class="sampling-subpanel{% if sampling_tab == 'batch' %} active{% endif %}" data-subpanel="batch">
+          <div class="chart-wrap borderless" style="margin-bottom:16px;">
+            <form method="get">
+              <input type="hidden" name="db" value="{{ db_path }}" />
+              <input type="hidden" name="panel" value="sampling" />
+              <input type="hidden" name="sampling_tab" value="batch" />
+              <div class="row">
+                <label for="sampling_report_file">Sampling report</label>
+                <select id="sampling_report_file" name="sampling_report_file" onchange="this.form.submit()">
+                  {% for report in sampling_reports %}
+                    <option value="{{ report }}" {% if sampling_report_file == report %}selected{% endif %}>
+                      {{ report }}
+                    </option>
+                  {% endfor %}
+                </select>
+                {% if sampling_batch_results|length > 0 %}
+                  <label for="sampling_batch_origin_id">Origin detail</label>
+                  <select id="sampling_batch_origin_id" name="sampling_batch_origin_id" onchange="this.form.submit()">
+                    {% for item in sampling_batch_results %}
+                      <option value="{{ item.origin_id }}" {% if sampling_batch_origin_id == item.origin_id %}selected{% endif %}>
+                        {{ item.origin_id }} - {{ item.origin_name }}
+                      </option>
+                    {% endfor %}
+                  </select>
+                {% endif %}
+                <noscript><button type="submit">Load</button></noscript>
+              </div>
+            </form>
+          </div>
+          {% if sampling_batch_error %}
+            <div class="panel-note">{{ sampling_batch_error }}</div>
+          {% endif %}
+          {% if sampling_batch_report %}
+            <div class="panel-note" style="margin-bottom:12px;">
+              Report created: {{ sampling_batch_report.created_at }}
+              | db: {{ sampling_batch_report.db_path }}
+              | analyses: {{ sampling_batch_report.analyses|join(", ") if sampling_batch_report.analyses is defined else "all" }}
+            </div>
+            <div class="table-wrapper" style="max-height:520px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Origin</th>
+                    <th>Total</th>
+                    <th>Complete</th>
+                    <th>A2 Pairwise p95</th>
+                    <th>A2 NN median</th>
+                    <th>A3 Silhouette</th>
+                    <th>A4 PC1 var</th>
+                    <th>A5 Avg NN</th>
+                    <th>A6 Coverage %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in sampling_batch_results %}
+                    <tr>
+                      <td>{{ item.origin_id }} - {{ item.origin_name }}</td>
+                      <td>{{ item.total_rows }}</td>
+                      <td>{{ item.complete_rows }}</td>
+                      <td>
+                        {% if item.analysis_2 and item.analysis_2.pairwise %}
+                          {{ "{:.4g}".format(item.analysis_2.pairwise.p95) }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if item.analysis_2 and item.analysis_2.nearest %}
+                          {{ "{:.4g}".format(item.analysis_2.nearest.median) }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if item.analysis_3 and item.analysis_3.metrics %}
+                          {{ "{:.4g}".format(item.analysis_3.metrics.silhouette) if item.analysis_3.metrics.silhouette is not none else "—" }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if item.analysis_4 and item.analysis_4.components and item.analysis_4.components|length > 0 %}
+                          {{ "{:.3f}".format(item.analysis_4.components[0].ratio) }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if item.analysis_5 and item.analysis_5.metrics %}
+                          {{ "{:.4g}".format(item.analysis_5.metrics.avg_nearest) if item.analysis_5.metrics.avg_nearest is not none else "—" }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if item.analysis_6 and item.analysis_6.coverage %}
+                          {{ "{:.1f}".format(item.analysis_6.coverage.coverage_pct) }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                  {% if sampling_batch_results|length == 0 %}
+                    <tr>
+                      <td colspan="9">No results in report.</td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
+            {% if sampling_batch_detail_error %}
+              <div class="panel-note">{{ sampling_batch_detail_error }}</div>
+            {% endif %}
+            {% if sampling_batch_detail %}
+              <div class="panel-note" style="margin:16px 0 8px;">
+                <strong>Detailed analyses — {{ sampling_batch_detail.origin_id }} - {{ sampling_batch_detail.origin_name }}</strong>
+              </div>
+
+              {% if sampling_batch_detail.analysis_1 %}
+                <div class="panel-note" style="margin-bottom:12px;">
+                  Total rows: {{ "{:,}".format(sampling_batch_detail.analysis_1.total_rows) }}
+                </div>
+                <div class="panel-note" style="margin-bottom:12px;">
+                  <strong>Analysis 1 — basic statistics (MHD parameters)</strong>
+                </div>
+                <div class="panel-note" style="margin-bottom:12px;">
+                  For each parameter $x$, we report count, missing, mean, and standard deviation.
+                  Mean: $\mu = \frac{1}{n}\sum_i x_i$, standard deviation:
+                  $\sigma = \sqrt{\frac{1}{n-1}\sum_i (x_i-\mu)^2}$.
+                </div>
+                <div class="table-wrapper" style="max-height:320px;">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Parameter</th>
+                        <th>Count</th>
+                        <th>Missing</th>
+                        <th>Mean</th>
+                        <th>Std</th>
+                        <th>Min</th>
+                        <th>Median</th>
+                        <th>Max</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for col in sampling_batch_columns %}
+                        {% set stats = sampling_batch_detail.analysis_1.stats[col] %}
+                        <tr>
+                          <td>{{ col }}</td>
+                          <td>{{ stats.count }}</td>
+                          <td>{{ stats.missing }}</td>
+                          <td>{{ "{:.4g}".format(stats.mean) if stats.mean is not none else "—" }}</td>
+                          <td>{{ "{:.4g}".format(stats.std) if stats.std is not none else "—" }}</td>
+                          <td>{{ "{:.4g}".format(stats.min) if stats.min is not none else "—" }}</td>
+                          <td>{{ "{:.4g}".format(stats.median) if stats.median is not none else "—" }}</td>
+                          <td>{{ "{:.4g}".format(stats.max) if stats.max is not none else "—" }}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% endif %}
+
+              {% if sampling_batch_detail.analysis_2 %}
+                <div class="panel-note" style="margin:16px 0 8px;">
+                  <strong>Analysis 2 — coverage diagnostics (standardized space)</strong>
+                </div>
+                <div class="panel-note" style="margin-bottom:8px;">
+                  We standardize each parameter: $z = \frac{x-\mu}{\sigma}$.
+                  Distances are Euclidean in z-space: $d(i, j) = \lVert z_i - z_j \rVert_2$.
+                  We summarize all pairwise distances and nearest-neighbor distances.
+                </div>
+                {% if sampling_batch_detail.analysis_2.pairwise %}
+                  <div class="panel-note" style="margin-bottom:8px;">
+                    Rows used: {{ sampling_batch_detail.analysis_2.used }} {% if sampling_batch_detail.analysis_2.sampled %}(sampled from {{ sampling_batch_detail.analysis_2.total }}){% else %}(total {{ sampling_batch_detail.analysis_2.total }}){% endif %}
+                  </div>
+                  <div class="table-wrapper" style="max-height:220px;">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Metric</th>
+                          <th>Min</th>
+                          <th>Median</th>
+                          <th>P95</th>
+                          <th>Max</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Pairwise distance</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.pairwise.min) }}</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.pairwise.median) }}</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.pairwise.p95) }}</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.pairwise.max) }}</td>
+                        </tr>
+                        <tr>
+                          <td>Nearest-neighbor distance</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.nearest.min) }}</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.nearest.median) }}</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.nearest.p95) }}</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.nearest.max) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                {% else %}
+                  <div class="panel-note">Not enough complete rows to compute coverage.</div>
+                {% endif %}
+              {% endif %}
+
+              {% if sampling_batch_detail.analysis_3 %}
+                <div class="panel-note" style="margin:16px 0 8px;">
+                  <strong>Analysis 3 — clustering quality (k-means, standardized space)</strong>
+                </div>
+                <div class="panel-note" style="margin-bottom:8px;">
+                  K-means minimizes within-cluster sum of squares:
+                  $\arg\min \sum_k \sum_{i \in C_k} \lVert z_i - c_k \rVert^2$.
+                  Silhouette: $s_i = \frac{b_i - a_i}{\max(a_i, b_i)}$, where
+                  $a_i$ is the mean distance to its cluster and $b_i$ to the nearest other cluster.
+                  Davies-Bouldin:
+                  $DB = \frac{1}{k}\sum_i \max_{j\neq i} \frac{S_i + S_j}{\lVert c_i - c_j \rVert}$.
+                </div>
+                {% if sampling_batch_detail.analysis_3.metrics %}
+                  <div class="panel-note" style="margin-bottom:8px;">
+                    Rows used: {{ sampling_batch_detail.analysis_3.used }} {% if sampling_batch_detail.analysis_3.sampled %}(sampled from {{ sampling_batch_detail.analysis_3.total }}){% else %}(total {{ sampling_batch_detail.analysis_3.total }}){% endif %}
+                    | k = {{ sampling_batch_detail.analysis_3.k }}
+                  </div>
+                  <div class="table-wrapper" style="max-height:200px;">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Metric</th>
+                          <th>Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Silhouette</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_3.metrics.silhouette) if sampling_batch_detail.analysis_3.metrics.silhouette is not none else "—" }}</td>
+                        </tr>
+                        <tr>
+                          <td>Davies–Bouldin</td>
+                          <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_3.metrics.davies_bouldin) if sampling_batch_detail.analysis_3.metrics.davies_bouldin is not none else "—" }}</td>
+                        </tr>
+                        <tr>
+                          <td>Cluster size (min/median/max)</td>
+                          <td>
+                            {{ sampling_batch_detail.analysis_3.metrics.min_size if sampling_batch_detail.analysis_3.metrics.min_size is not none else "—" }} /
+                            {{ sampling_batch_detail.analysis_3.metrics.median_size if sampling_batch_detail.analysis_3.metrics.median_size is not none else "—" }} /
+                            {{ sampling_batch_detail.analysis_3.metrics.max_size if sampling_batch_detail.analysis_3.metrics.max_size is not none else "—" }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                {% else %}
+                  <div class="panel-note">Not enough complete rows or invalid k.</div>
+                {% endif %}
+              {% endif %}
+
+              {% if sampling_batch_detail.analysis_4 %}
+                <div class="panel-note" style="margin:16px 0 8px;">
+                  <strong>Analysis 4 — PCA explained variance (standardized)</strong>
+                </div>
+                <div class="panel-note" style="margin-bottom:8px;">
+                  PCA diagonalizes the covariance of standardized data. Components are eigenvectors of
+                  $\mathrm{Cov}(z)$ with eigenvalues $\lambda$.
+                  Explained variance ratio: $\lambda_i / \sum_j \lambda_j$.
+                </div>
+                {% if sampling_batch_detail.analysis_4.components|length > 0 %}
+                  <div class="panel-note" style="margin-bottom:8px;">
+                    Rows used: {{ sampling_batch_detail.analysis_4.used }} {% if sampling_batch_detail.analysis_4.sampled %}(sampled from {{ sampling_batch_detail.analysis_4.total }}){% else %}(total {{ sampling_batch_detail.analysis_4.total }}){% endif %}
+                  </div>
+                  <div class="table-wrapper" style="max-height:200px;">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Component</th>
+                          <th>Eigenvalue</th>
+                          <th>Explained</th>
+                          <th>Cumulative</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for row in sampling_batch_detail.analysis_4.components %}
+                          <tr>
+                            <td>PC{{ row.component }}</td>
+                            <td>{{ "{:.4g}".format(row.eigenvalue) }}</td>
+                            <td>{{ "{:.3f}".format(row.ratio) }}</td>
+                            <td>{{ "{:.3f}".format(row.cumulative) }}</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                {% else %}
+                  <div class="panel-note">Not enough complete rows for PCA.</div>
+                {% endif %}
+              {% endif %}
+
+              {% if sampling_batch_detail.analysis_5 %}
+                <div class="panel-note" style="margin:16px 0 8px;">
+                  <strong>Analysis 5 — representative selection (farthest-point sampling)</strong>
+                </div>
+                <div class="panel-note" style="margin-bottom:8px;">
+                  We iteratively select points to maximize coverage:
+                  start from a seed, then pick the point with the largest distance to its nearest
+                  selected point in standardized space.
+                  Coverage metrics use distances to the nearest selected point.
+                </div>
+                {% if sampling_batch_detail.analysis_5.metrics %}
+                  <div class="panel-note" style="margin-bottom:8px;">
+                    Rows used: {{ sampling_batch_detail.analysis_5.used }} {% if sampling_batch_detail.analysis_5.sampled %}(sampled from {{ sampling_batch_detail.analysis_5.total }}){% else %}(total {{ sampling_batch_detail.analysis_5.total }}){% endif %}
+                    | target = {{ sampling_batch_detail.analysis_5.target }}
+                  </div>
+                  <div class="table-wrapper" style="max-height:200px;">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Metric</th>
+                          <th>Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                    <tr>
+                      <td>Avg distance to nearest selected</td>
+                      <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_5.metrics.avg_nearest) if sampling_batch_detail.analysis_5.metrics.avg_nearest is not none else "—" }}</td>
+                    </tr>
+                    {% if sampling_batch_detail.analysis_5.metrics.p95_nearest is defined %}
+                      <tr>
+                        <td>P95 distance to nearest selected</td>
+                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_5.metrics.p95_nearest) if sampling_batch_detail.analysis_5.metrics.p95_nearest is not none else "—" }}</td>
+                      </tr>
+                    {% endif %}
+                    <tr>
+                      <td>Max distance to nearest selected</td>
+                      <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_5.metrics.max_nearest) }}</td>
+                    </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="panel-note" style="margin-top:8px;">
+                    Selected gk_input ids (first {{ sampling_batch_detail.analysis_5.selected_ids|length }}):
+                    {{ sampling_batch_detail.analysis_5.selected_ids|join(", ") if sampling_batch_detail.analysis_5.selected_ids|length > 0 else "—" }}
+                  </div>
+                {% else %}
+                  <div class="panel-note">Not enough complete rows for selection.</div>
+                {% endif %}
+              {% endif %}
+
+              {% if sampling_batch_detail.analysis_6 %}
+                <div class="panel-note" style="margin:16px 0 8px;">
+                  <strong>Analysis 6 — regime stratification (qinp, shat, beta)</strong>
+                </div>
+                <div class="panel-note" style="margin-bottom:8px;">
+                  Each parameter is split into quantile bins (low/mid/high).
+                  We count occupancy in the 3D grid and report coverage:
+                  $\mathrm{coverage} = \frac{\text{non\_empty}}{\text{total\_bins}}$.
+                </div>
+                {% if sampling_batch_detail.analysis_6.coverage %}
+                  <div class="panel-note" style="margin-bottom:8px;">
+                    Non-empty bins: {{ sampling_batch_detail.analysis_6.coverage.non_empty }} of {{ sampling_batch_detail.analysis_6.coverage.total_bins }}
+                    ({{ "{:.1f}".format(sampling_batch_detail.analysis_6.coverage.coverage_pct) }}% coverage)
+                  </div>
+                  <div class="panel-note" style="margin-bottom:8px;">
+                    Bin counts — min: {{ sampling_batch_detail.analysis_6.coverage.min }},
+                    median: {{ sampling_batch_detail.analysis_6.coverage.median }},
+                    max: {{ sampling_batch_detail.analysis_6.coverage.max }}
+                  </div>
+                  <div class="table-wrapper" style="max-height:220px;">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Bin</th>
+                          <th>Count</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for bin_key, count in sampling_batch_detail.analysis_6.bins %}
+                          <tr>
+                            <td>
+                              {% for idx in bin_key %}
+                                {% if sampling_batch_detail.analysis_6.bin_labels is defined %}
+                                  {{ sampling_batch_detail.analysis_6.bin_labels[idx] }}
+                                {% else %}
+                                  {{ sampling_bin_labels[idx] }}
+                                {% endif %}
+                                {% if not loop.last %} / {% endif %}
+                              {% endfor %}
+                            </td>
+                            <td>{{ count }}</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                {% else %}
+                  <div class="panel-note">Not enough data to compute regime coverage.</div>
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          {% endif %}
+        </div>
       </section>
       <section class="panel panel-tabbed{% if selected_panel != 'equil-plasma-sampling' %} panel-hidden{% endif %}" data-panel="equil-plasma-sampling">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
@@ -1514,26 +2112,43 @@
                 </table>
               </div>
               {% if eqp_selection.selected_ids|length > 0 %}
-                <form method="post" action="/update_status_bulk" style="margin-top:4px;">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="equil-plasma-sampling" />
-                  <input
-                    type="hidden"
-                    name="row_ids"
-                    value="{{ eqp_selection.selected_ids|join(',') }}"
-                  />
-                  <button type="submit">Select these inputs</button>
-                  {% if eqp_status_counts %}
+                {% if action_status and action_status.key == "deploy_batch_db_large" and not action_status.running %}
+                  <form method="get" action="/" style="margin-top:4px;">
+                    <input type="hidden" name="db" value="{{ db_path }}" />
+                    <input type="hidden" name="panel" value="monitor" />
+                    <input type="hidden" name="monitor_autorun" value="1" />
+                    <button type="submit">Go to Batch Monitor</button>
+                  </form>
+                {% elif eqp_status_counts and eqp_status_counts["TORUN"] > 0 %}
+                  <form method="post" action="/action/create_batch_db" style="margin-top:4px;">
+                    <input type="hidden" name="db" value="{{ db_path }}" />
+                    <input type="hidden" name="panel" value="equil-plasma-sampling" />
+                    <button type="submit">Create Batch DB</button>
                     <span style="margin-left:8px;">
                       TORUN: {{ "{:,}".format(eqp_status_counts["TORUN"]) }}
                     </span>
-                    {% if eqp_status_counts["TORUN"] > 0 %}
-                      <span style="margin-left:8px;">
-                        <a href="{{ url_for('index', panel='action', db=db_path) }}">Go to Actions to create batch DB</a>
-                      </span>
-                    {% endif %}
-                  {% endif %}
-                </form>
+                  </form>
+                {% elif batch_dbs and actions.get("deploy_batch_db_large") %}
+                  <form method="post" action="/action/deploy_batch_db_large" style="margin-top:4px;">
+                    <input type="hidden" name="db" value="{{ db_path }}" />
+                    <input type="hidden" name="panel" value="equil-plasma-sampling" />
+                    <button type="submit">Deploy Batch DB (Large)</button>
+                    <span style="margin-left:8px;">
+                      New batch DBs: {{ batch_dbs|length }}
+                    </span>
+                  </form>
+                {% else %}
+                  <form method="post" action="/update_status_bulk" style="margin-top:4px;">
+                    <input type="hidden" name="db" value="{{ db_path }}" />
+                    <input type="hidden" name="panel" value="equil-plasma-sampling" />
+                    <input
+                      type="hidden"
+                      name="row_ids"
+                      value="{{ eqp_selection.selected_ids|join(',') }}"
+                    />
+                    <button type="submit">Select these inputs</button>
+                  </form>
+                {% endif %}
               {% endif %}
             </div>
           {% else %}
@@ -1563,410 +2178,333 @@
           dens_ratio = ion_dens / electron_dens,
           mass_ratio = ion_mass / (electron_mass * 1836).
         </div>
-      </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'sampling-batch' %} panel-hidden{% endif %}" data-panel="sampling-batch">
-        <div class="chart-wrap borderless" style="margin-bottom:16px;">
-          <form method="get">
-            <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="sampling-batch" />
-            <div class="row">
-              <label for="sampling_report_file">Sampling report</label>
-              <select id="sampling_report_file" name="sampling_report_file" onchange="this.form.submit()">
-                {% for report in sampling_reports %}
-                  <option value="{{ report }}" {% if sampling_report_file == report %}selected{% endif %}>
-                    {{ report }}
-                  </option>
-                {% endfor %}
-              </select>
-              {% if sampling_batch_results|length > 0 %}
-                <label for="sampling_batch_origin_id">Origin detail</label>
-                <select id="sampling_batch_origin_id" name="sampling_batch_origin_id" onchange="this.form.submit()">
-                  {% for item in sampling_batch_results %}
-                    <option value="{{ item.origin_id }}" {% if sampling_batch_origin_id == item.origin_id %}selected{% endif %}>
-                      {{ item.origin_id }} - {{ item.origin_name }}
-                    </option>
-                  {% endfor %}
-                </select>
-              {% endif %}
-              <noscript><button type="submit">Load</button></noscript>
-            </div>
-          </form>
         </div>
-        {% if sampling_batch_error %}
-          <div class="panel-note">{{ sampling_batch_error }}</div>
+        </section>
+      <section class="panel panel-tabbed{% if selected_panel != 'surrogate' %} panel-hidden{% endif %}" data-panel="surrogate">
+        <div class="panel-note" style="margin-bottom:12px;">
+          Train and manage surrogate models. Models are saved under <code>db_surrogate/models</code>
+          with JSON metadata.
+        </div>
+        {% if action_status and action_status.message %}
+          <div class="notice">{{ action_status.message }}</div>
         {% endif %}
-        {% if sampling_batch_report %}
-          <div class="panel-note" style="margin-bottom:12px;">
-            Report created: {{ sampling_batch_report.created_at }}
-            | db: {{ sampling_batch_report.db_path }}
-            | analyses: {{ sampling_batch_report.analyses|join(", ") if sampling_batch_report.analyses is defined else "all" }}
+        {% if surrogate_models and surrogate_models|length > 0 %}
+          <div class="panel-note" style="margin-bottom:8px;">
+            Train/Test rows are the counts used for model fitting and validation. MAE/RMSE/R² are
+            computed on the test set (empty if test size = 0).
           </div>
-          <div class="table-wrapper" style="max-height:520px;">
+          <div class="table-wrapper" style="margin-bottom:20px;">
             <table>
               <thead>
                 <tr>
-                  <th>Origin</th>
-                  <th>Total</th>
-                  <th>Complete</th>
-                  <th>A2 Pairwise p95</th>
-                  <th>A2 NN median</th>
-                  <th>A3 Silhouette</th>
-                  <th>A4 PC1 var</th>
-                  <th>A5 Avg NN</th>
-                  <th>A6 Coverage %</th>
+                  <th>Name</th>
+                  <th>Label</th>
+                  <th>Maps to</th>
+                  <th>Created</th>
+                  <th>Status filter</th>
+                  <th>Train rows</th>
+                  <th>Test rows</th>
+                  <th>Test-set MAE</th>
+                  <th>Test-set RMSE</th>
+                  <th>Test-set R²</th>
+                  <th>Run</th>
                 </tr>
               </thead>
               <tbody>
-                {% for item in sampling_batch_results %}
+                {% for model in surrogate_models %}
                   <tr>
-                    <td>{{ item.origin_id }} - {{ item.origin_name }}</td>
-                    <td>{{ item.total_rows }}</td>
-                    <td>{{ item.complete_rows }}</td>
+                    <td>{{ model.name }}</td>
+                    <td>{{ model.sg_label or "" }}</td>
+                    <td>{{ model.mapsto or "" }}</td>
+                    <td>{{ model.created_at or "" }}</td>
+                    <td>{{ model.status_filter or "" }}</td>
+                    <td>{{ model.train_rows if model.train_rows is not none else "" }}</td>
+                    <td>{{ model.test_rows if model.test_rows is not none else "" }}</td>
+                    <td>{{ model.metrics.mae if model.metrics and model.metrics.mae is defined else "" }}</td>
+                    <td>{{ model.metrics.rmse if model.metrics and model.metrics.rmse is defined else "" }}</td>
+                    <td>{{ model.metrics.r2 if model.metrics and model.metrics.r2 is defined else "" }}</td>
                     <td>
-                      {% if item.analysis_2 and item.analysis_2.pairwise %}
-                        {{ "{:.4g}".format(item.analysis_2.pairwise.p95) }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if item.analysis_2 and item.analysis_2.nearest %}
-                        {{ "{:.4g}".format(item.analysis_2.nearest.median) }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if item.analysis_3 and item.analysis_3.metrics %}
-                        {{ "{:.4g}".format(item.analysis_3.metrics.silhouette) if item.analysis_3.metrics.silhouette is not none else "—" }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if item.analysis_4 and item.analysis_4.components and item.analysis_4.components|length > 0 %}
-                        {{ "{:.3f}".format(item.analysis_4.components[0].ratio) }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if item.analysis_5 and item.analysis_5.metrics %}
-                        {{ "{:.4g}".format(item.analysis_5.metrics.avg_nearest) if item.analysis_5.metrics.avg_nearest is not none else "—" }}
-                      {% else %}
-                        —
-                      {% endif %}
-                    </td>
-                    <td>
-                      {% if item.analysis_6 and item.analysis_6.coverage %}
-                        {{ "{:.1f}".format(item.analysis_6.coverage.coverage_pct) }}
-                      {% else %}
-                        —
+                      {% if actions.get("run_surrogate_estimate") %}
+                        <form method="post" action="/action/run_surrogate_estimate">
+                          <input type="hidden" name="db" value="{{ db_path }}" />
+                          <input type="hidden" name="panel" value="surrogate" />
+                          <input type="hidden" name="surrogate_id" value="{{ model.id }}" />
+                          <button type="submit">Run</button>
+                        </form>
                       {% endif %}
                     </td>
                   </tr>
                 {% endfor %}
-                {% if sampling_batch_results|length == 0 %}
-                  <tr>
-                    <td colspan="9">No results in report.</td>
-                  </tr>
-                {% endif %}
               </tbody>
             </table>
           </div>
-          {% if sampling_batch_detail_error %}
-            <div class="panel-note">{{ sampling_batch_detail_error }}</div>
-          {% endif %}
-          {% if sampling_batch_detail %}
-            <div class="panel-note" style="margin:16px 0 8px;">
-              <strong>Detailed analyses — {{ sampling_batch_detail.origin_id }} - {{ sampling_batch_detail.origin_name }}</strong>
-            </div>
+        {% else %}
+          <div class="panel-note" style="margin-bottom:20px;">No surrogate models found yet.</div>
+        {% endif %}
 
-            {% if sampling_batch_detail.analysis_1 %}
-              <div class="panel-note" style="margin-bottom:12px;">
-                Total rows: {{ "{:,}".format(sampling_batch_detail.analysis_1.total_rows) }}
-              </div>
-              <div class="panel-note" style="margin-bottom:12px;">
-                <strong>Analysis 1 — basic statistics (MHD parameters)</strong>
-              </div>
-              <div class="panel-note" style="margin-bottom:12px;">
-                For each parameter $x$, we report count, missing, mean, and standard deviation.
-                Mean: $\mu = \frac{1}{n}\sum_i x_i$, standard deviation:
-                $\sigma = \sqrt{\frac{1}{n-1}\sum_i (x_i-\mu)^2}$.
-              </div>
-              <div class="table-wrapper" style="max-height:320px;">
+        <h4>Estimate Summary</h4>
+        {% if surrogate_models and surrogate_models|length > 0 %}
+          <form method="get" style="margin-bottom:12px;">
+            <input type="hidden" name="panel" value="surrogate" />
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <div class="row">
+              <label for="surrogate_id">Estimates for model</label>
+              <select
+                id="surrogate_id"
+                name="surrogate_id"
+                onchange="this.form.requestSubmit(document.getElementById('surrogate-view-btn'))"
+              >
+                {% for model in surrogate_models %}
+                  <option value="{{ model.id }}" {% if surrogate_id == model.id %}selected{% endif %}>{{ model.name }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" id="surrogate-view-btn">View</button>
+              <button type="submit" formaction="/action/run_surrogate_estimate" formmethod="post">Compute estimates</button>
+              <button
+                type="submit"
+                formaction="/action/delete_surrogate_model"
+                formmethod="post"
+                onclick="return confirm('Delete this surrogate model and all its estimates?');"
+              >
+                Delete model
+              </button>
+            </div>
+          </form>
+        {% endif %}
+        {% if surrogate_estimate_summary %}
+          {% if surrogate_estimate_summary.count == 0 %}
+            <div class="panel-note" style="margin-bottom:20px;">No estimates found for this model.</div>
+          {% else %}
+            <div class="panel-note" style="margin:18px 0; font-size:15px; color:#0b2a5b;">
+              {% if surrogate_estimate_summary.eval_relative_uncertainty_pct is defined %}
+                <strong>~{{ "%.0f"|format(surrogate_estimate_summary.eval_relative_uncertainty_pct) }}% relative uncertainty (median)</strong>
+                |
+              {% elif surrogate_estimate_summary.relative_uncertainty_pct is defined %}
+                <strong>~{{ "%.0f"|format(surrogate_estimate_summary.relative_uncertainty_pct) }}% relative uncertainty (mean)</strong> 
+                |
+              {% endif %}
+              Train rows: {{ surrogate_estimate_summary.train_rows if surrogate_estimate_summary.train_rows is not none else "" }}
+              | Test rows: {{ surrogate_estimate_summary.test_rows if surrogate_estimate_summary.test_rows is not none else "" }}
+              | Estimate rows: {{ surrogate_estimate_summary.count }}
+            </div>
+            <div class="panel-note" style="margin:18px 0; font-size:15px; color:#0b2a5b;">
+              {% if surrogate_estimate_summary.eval_count and surrogate_estimate_summary.eval_count > 0 %}
+                {% if surrogate_estimate_summary.eval_verdict %}
+                  <strong>Verdict:</strong> {{ surrogate_estimate_summary.eval_verdict }}.
+                {% endif %}
+                Based on {{ surrogate_estimate_summary.eval_count }} points with ground truth.
+              {% else %}
+                No ground-truth points available for {{ surrogate_estimate_summary.count }} estimates.
+              {% endif %}
+            </div>
+            {% if surrogate_estimate_summary.eval_count and surrogate_estimate_summary.eval_count > 0 %}
+              <div class="table-wrapper" style="margin-bottom:18px;">
                 <table>
                   <thead>
                     <tr>
-                      <th>Parameter</th>
-                      <th>Count</th>
-                      <th>Missing</th>
-                      <th>Mean</th>
-                      <th>Std</th>
-                      <th>Min</th>
-                      <th>Median</th>
-                      <th>Max</th>
+                      <th>Metric</th>
+                      <th>Value</th>
+                      <th>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {% for col in sampling_batch_columns %}
-                      {% set stats = sampling_batch_detail.analysis_1.stats[col] %}
-                      <tr>
-                        <td>{{ col }}</td>
-                        <td>{{ stats.count }}</td>
-                        <td>{{ stats.missing }}</td>
-                        <td>{{ "{:.4g}".format(stats.mean) if stats.mean is not none else "—" }}</td>
-                        <td>{{ "{:.4g}".format(stats.std) if stats.std is not none else "—" }}</td>
-                        <td>{{ "{:.4g}".format(stats.min) if stats.min is not none else "—" }}</td>
-                        <td>{{ "{:.4g}".format(stats.median) if stats.median is not none else "—" }}</td>
-                        <td>{{ "{:.4g}".format(stats.max) if stats.max is not none else "—" }}</td>
-                      </tr>
-                    {% endfor %}
+                    <tr>
+                      <td>MAE (mean absolute error)</td>
+                      <td>
+                        {% if surrogate_estimate_summary.eval_mae is not none %}
+                          {{ "%.3g"|format(surrogate_estimate_summary.eval_mae) }}
+                        {% else %}n/a{% endif %}
+                      </td>
+                      <td>
+                        {% if surrogate_estimate_summary.eval_mae is not none %}
+                          {% if surrogate_estimate_summary.eval_mae_relative_pct is not none
+                             and surrogate_estimate_summary.eval_mean_truth is not none %}
+                            Suggests a relative error of ~{{ "%.0f"|format(surrogate_estimate_summary.eval_mae_relative_pct) }}%
+                            when compared to the mean true value ({{ "%.3g"|format(surrogate_estimate_summary.eval_mean_truth) }}).
+                          {% else %}
+                            Average absolute difference between estimate and truth.
+                          {% endif %}
+                        {% endif %}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>RMSE (root mean squared error)</td>
+                      <td>
+                        {% if surrogate_estimate_summary.eval_rmse is not none %}
+                          {{ "%.3g"|format(surrogate_estimate_summary.eval_rmse) }}
+                        {% else %}n/a{% endif %}
+                      </td>
+                      <td>Penalizes large errors more strongly than MAE.</td>
+                    </tr>
+                    <tr>
+                      <td>R² (coefficient of determination)</td>
+                      <td>
+                        {% if surrogate_estimate_summary.eval_r2 is not none %}
+                          {{ "%.3g"|format(surrogate_estimate_summary.eval_r2) }}
+                        {% else %}n/a{% endif %}
+                      </td>
+                      <td>1 = perfect fit; 0 = mean predictor; &lt;0 worse.</td>
+                    </tr>
+                    <tr>
+                      <td>Bias (mean error)</td>
+                      <td>
+                        {% if surrogate_estimate_summary.eval_bias is not none %}
+                          {{ "%.3g"|format(surrogate_estimate_summary.eval_bias) }}
+                        {% else %}n/a{% endif %}
+                      </td>
+                      <td>Positive = over-predict; negative = under-predict.</td>
+                    </tr>
+                    <tr>
+                      <td>Median relative error</td>
+                      <td>
+                        {% if surrogate_estimate_summary.eval_median_relative_error is not none %}
+                          {{ "%.0f"|format(100 * surrogate_estimate_summary.eval_median_relative_error) }}%
+                        {% else %}n/a{% endif %}
+                      </td>
+                      <td>Typical error size relative to the true value.</td>
+                    </tr>
+                    <tr>
+                      <td>Coverage (within sg_quality)</td>
+                      <td>
+                        {% if surrogate_estimate_summary.eval_coverage is not none %}
+                          {{ "%.0f"|format(100 * surrogate_estimate_summary.eval_coverage) }}%
+                        {% else %}n/a{% endif %}
+                      </td>
+                      <td>Share of points where |estimate − truth| ≤ sg_quality (not input-space coverage).</td>
+                    </tr>
+                    <tr>
+                      <td>DB truth</td>
+                      <td>—</td>
+                      <td>
+                        Stored value in the target column (e.g., <code>gk_run.gamma_max</code>) for each
+                        <code>gk_input</code> where it exists.
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
             {% endif %}
-
-            {% if sampling_batch_detail.analysis_2 %}
-              <div class="panel-note" style="margin:16px 0 8px;">
-                <strong>Analysis 2 — coverage diagnostics (standardized space)</strong>
-              </div>
-              <div class="panel-note" style="margin-bottom:8px;">
-                We standardize each parameter: $z = \frac{x-\mu}{\sigma}$.
-                Distances are Euclidean in z-space: $d(i, j) = \lVert z_i - z_j \rVert_2$.
-                We summarize all pairwise distances and nearest-neighbor distances.
-              </div>
-              {% if sampling_batch_detail.analysis_2.pairwise %}
-                <div class="panel-note" style="margin-bottom:8px;">
-                  Rows used: {{ sampling_batch_detail.analysis_2.used }} {% if sampling_batch_detail.analysis_2.sampled %}(sampled from {{ sampling_batch_detail.analysis_2.total }}){% else %}(total {{ sampling_batch_detail.analysis_2.total }}){% endif %}
-                </div>
-                <div class="table-wrapper" style="max-height:220px;">
+            <div class="table-wrapper" style="margin-bottom:20px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>Min</th>
+                    <th>Median</th>
+                    <th>Mean</th>
+                    <th>Max</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>sg_estimate</td>
+                    <td>{{ surrogate_estimate_summary.estimate_min }}</td>
+                    <td>{{ surrogate_estimate_summary.estimate_median }}</td>
+                    <td>{{ surrogate_estimate_summary.estimate_mean }}</td>
+                    <td>{{ surrogate_estimate_summary.estimate_max }}</td>
+                  </tr>
+                  <tr>
+                    <td>sg_quality</td>
+                    <td>{{ surrogate_estimate_summary.quality_min }}</td>
+                    <td>{{ surrogate_estimate_summary.quality_median }}</td>
+                    <td>{{ surrogate_estimate_summary.quality_mean }}</td>
+                    <td>{{ surrogate_estimate_summary.quality_max }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            {% if surrogate_estimate_summary.sample_rows and surrogate_estimate_summary.sample_rows|length > 0 %}
+              <details style="margin-bottom:20px;">
+                <summary>Sample estimates (first 20 gk_input rows)</summary>
+                <div class="table-wrapper" style="margin-top:10px;">
                   <table>
                     <thead>
                       <tr>
-                        <th>Metric</th>
-                        <th>Min</th>
-                        <th>Median</th>
-                        <th>P95</th>
-                        <th>Max</th>
+                        <th>gk_input_id</th>
+                        <th>sg_estimate</th>
+                        <th>sg_quality</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td>Pairwise distance</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.pairwise.min) }}</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.pairwise.median) }}</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.pairwise.p95) }}</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.pairwise.max) }}</td>
-                      </tr>
-                      <tr>
-                        <td>Nearest-neighbor distance</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.nearest.min) }}</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.nearest.median) }}</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.nearest.p95) }}</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_2.nearest.max) }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              {% else %}
-                <div class="panel-note">Not enough complete rows to compute coverage.</div>
-              {% endif %}
-            {% endif %}
-
-            {% if sampling_batch_detail.analysis_3 %}
-              <div class="panel-note" style="margin:16px 0 8px;">
-                <strong>Analysis 3 — clustering quality (k-means, standardized space)</strong>
-              </div>
-              <div class="panel-note" style="margin-bottom:8px;">
-                K-means minimizes within-cluster sum of squares:
-                $\arg\min \sum_k \sum_{i \in C_k} \lVert z_i - c_k \rVert^2$.
-                Silhouette: $s_i = \frac{b_i - a_i}{\max(a_i, b_i)}$, where
-                $a_i$ is the mean distance to its cluster and $b_i$ to the nearest other cluster.
-                Davies-Bouldin:
-                $DB = \frac{1}{k}\sum_i \max_{j\neq i} \frac{S_i + S_j}{\lVert c_i - c_j \rVert}$.
-              </div>
-              {% if sampling_batch_detail.analysis_3.metrics %}
-                <div class="panel-note" style="margin-bottom:8px;">
-                  Rows used: {{ sampling_batch_detail.analysis_3.used }} {% if sampling_batch_detail.analysis_3.sampled %}(sampled from {{ sampling_batch_detail.analysis_3.total }}){% else %}(total {{ sampling_batch_detail.analysis_3.total }}){% endif %}
-                  | k = {{ sampling_batch_detail.analysis_3.k }}
-                </div>
-                <div class="table-wrapper" style="max-height:200px;">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Metric</th>
-                        <th>Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>Silhouette</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_3.metrics.silhouette) if sampling_batch_detail.analysis_3.metrics.silhouette is not none else "—" }}</td>
-                      </tr>
-                      <tr>
-                        <td>Davies–Bouldin</td>
-                        <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_3.metrics.davies_bouldin) if sampling_batch_detail.analysis_3.metrics.davies_bouldin is not none else "—" }}</td>
-                      </tr>
-                      <tr>
-                        <td>Cluster size (min/median/max)</td>
-                        <td>
-                          {{ sampling_batch_detail.analysis_3.metrics.min_size if sampling_batch_detail.analysis_3.metrics.min_size is not none else "—" }} /
-                          {{ sampling_batch_detail.analysis_3.metrics.median_size if sampling_batch_detail.analysis_3.metrics.median_size is not none else "—" }} /
-                          {{ sampling_batch_detail.analysis_3.metrics.max_size if sampling_batch_detail.analysis_3.metrics.max_size is not none else "—" }}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              {% else %}
-                <div class="panel-note">Not enough complete rows or invalid k.</div>
-              {% endif %}
-            {% endif %}
-
-            {% if sampling_batch_detail.analysis_4 %}
-              <div class="panel-note" style="margin:16px 0 8px;">
-                <strong>Analysis 4 — PCA explained variance (standardized)</strong>
-              </div>
-              <div class="panel-note" style="margin-bottom:8px;">
-                PCA diagonalizes the covariance of standardized data. Components are eigenvectors of
-                $\mathrm{Cov}(z)$ with eigenvalues $\lambda$.
-                Explained variance ratio: $\lambda_i / \sum_j \lambda_j$.
-              </div>
-              {% if sampling_batch_detail.analysis_4.components|length > 0 %}
-                <div class="panel-note" style="margin-bottom:8px;">
-                  Rows used: {{ sampling_batch_detail.analysis_4.used }} {% if sampling_batch_detail.analysis_4.sampled %}(sampled from {{ sampling_batch_detail.analysis_4.total }}){% else %}(total {{ sampling_batch_detail.analysis_4.total }}){% endif %}
-                </div>
-                <div class="table-wrapper" style="max-height:200px;">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Component</th>
-                        <th>Eigenvalue</th>
-                        <th>Explained</th>
-                        <th>Cumulative</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for row in sampling_batch_detail.analysis_4.components %}
+                      {% for row in surrogate_estimate_summary.sample_rows %}
                         <tr>
-                          <td>PC{{ row.component }}</td>
-                          <td>{{ "{:.4g}".format(row.eigenvalue) }}</td>
-                          <td>{{ "{:.3f}".format(row.ratio) }}</td>
-                          <td>{{ "{:.3f}".format(row.cumulative) }}</td>
+                          <td>{{ row.gk_input_id }}</td>
+                          <td>{{ row.sg_estimate }}</td>
+                          <td>{{ row.sg_quality }}</td>
                         </tr>
                       {% endfor %}
                     </tbody>
                   </table>
                 </div>
-              {% else %}
-                <div class="panel-note">Not enough complete rows for PCA.</div>
-              {% endif %}
-            {% endif %}
-
-            {% if sampling_batch_detail.analysis_5 %}
-              <div class="panel-note" style="margin:16px 0 8px;">
-                <strong>Analysis 5 — representative selection (farthest-point sampling)</strong>
-              </div>
-              <div class="panel-note" style="margin-bottom:8px;">
-                We iteratively select points to maximize coverage:
-                start from a seed, then pick the point with the largest distance to its nearest
-                selected point in standardized space.
-                Coverage metrics use distances to the nearest selected point.
-              </div>
-              {% if sampling_batch_detail.analysis_5.metrics %}
-                <div class="panel-note" style="margin-bottom:8px;">
-                  Rows used: {{ sampling_batch_detail.analysis_5.used }} {% if sampling_batch_detail.analysis_5.sampled %}(sampled from {{ sampling_batch_detail.analysis_5.total }}){% else %}(total {{ sampling_batch_detail.analysis_5.total }}){% endif %}
-                  | target = {{ sampling_batch_detail.analysis_5.target }}
-                </div>
-                <div class="table-wrapper" style="max-height:200px;">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Metric</th>
-                        <th>Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                  <tr>
-                    <td>Avg distance to nearest selected</td>
-                    <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_5.metrics.avg_nearest) if sampling_batch_detail.analysis_5.metrics.avg_nearest is not none else "—" }}</td>
-                  </tr>
-                  {% if sampling_batch_detail.analysis_5.metrics.p95_nearest is defined %}
-                    <tr>
-                      <td>P95 distance to nearest selected</td>
-                      <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_5.metrics.p95_nearest) if sampling_batch_detail.analysis_5.metrics.p95_nearest is not none else "—" }}</td>
-                    </tr>
-                  {% endif %}
-                  <tr>
-                    <td>Max distance to nearest selected</td>
-                    <td>{{ "{:.4g}".format(sampling_batch_detail.analysis_5.metrics.max_nearest) }}</td>
-                  </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div class="panel-note" style="margin-top:8px;">
-                  Selected gk_input ids (first {{ sampling_batch_detail.analysis_5.selected_ids|length }}):
-                  {{ sampling_batch_detail.analysis_5.selected_ids|join(", ") if sampling_batch_detail.analysis_5.selected_ids|length > 0 else "—" }}
-                </div>
-              {% else %}
-                <div class="panel-note">Not enough complete rows for selection.</div>
-              {% endif %}
-            {% endif %}
-
-            {% if sampling_batch_detail.analysis_6 %}
-              <div class="panel-note" style="margin:16px 0 8px;">
-                <strong>Analysis 6 — regime stratification (qinp, shat, beta)</strong>
-              </div>
-              <div class="panel-note" style="margin-bottom:8px;">
-                Each parameter is split into quantile bins (low/mid/high).
-                We count occupancy in the 3D grid and report coverage:
-                $\mathrm{coverage} = \frac{\text{non\_empty}}{\text{total\_bins}}$.
-              </div>
-              {% if sampling_batch_detail.analysis_6.coverage %}
-                <div class="panel-note" style="margin-bottom:8px;">
-                  Non-empty bins: {{ sampling_batch_detail.analysis_6.coverage.non_empty }} of {{ sampling_batch_detail.analysis_6.coverage.total_bins }}
-                  ({{ "{:.1f}".format(sampling_batch_detail.analysis_6.coverage.coverage_pct) }}% coverage)
-                </div>
-                <div class="panel-note" style="margin-bottom:8px;">
-                  Bin counts — min: {{ sampling_batch_detail.analysis_6.coverage.min }},
-                  median: {{ sampling_batch_detail.analysis_6.coverage.median }},
-                  max: {{ sampling_batch_detail.analysis_6.coverage.max }}
-                </div>
-                <div class="table-wrapper" style="max-height:220px;">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Bin</th>
-                        <th>Count</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for bin_key, count in sampling_batch_detail.analysis_6.bins %}
-                        <tr>
-                          <td>
-                            {% for idx in bin_key %}
-                              {{ sampling_bin_labels[idx] }}{% if not loop.last %} / {% endif %}
-                            {% endfor %}
-                          </td>
-                          <td>{{ count }}</td>
-                        </tr>
-                      {% endfor %}
-                      {% if sampling_batch_detail.analysis_6.bins|length == 0 %}
-                        <tr>
-                          <td colspan="2">No bin counts available.</td>
-                        </tr>
-                      {% endif %}
-                    </tbody>
-                  </table>
-                </div>
-              {% else %}
-                <div class="panel-note">Not enough data to compute regime coverage.</div>
-              {% endif %}
+              </details>
             {% endif %}
           {% endif %}
         {% endif %}
+
+        <h4>Train Surrogate Model</h4>
+        <form method="post" action="/action/train_gamma_surrogate">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <input type="hidden" name="panel" value="surrogate" />
+          <div class="row">
+            <label for="surrogate_name">Model name</label>
+            <input id="surrogate_name" name="surrogate_name" type="text" required placeholder="e.g. gamma_v1" />
+            <label for="surrogate_mapsto">Map to</label>
+            <select id="surrogate_mapsto" name="surrogate_mapsto">
+              <option value="ALL">ALL (train gamma_max, ky_abs_mean, diffusion)</option>
+              <option value="gk_run.gamma_max" selected>gk_run.gamma_max</option>
+              <option value="gk_run.ky_abs_mean">gk_run.ky_abs_mean</option>
+              <option value="gk_run.diffusion">gk_run.diffusion</option>
+            </select>
+          </div>
+          <div class="row">
+            <label for="surrogate_origin_id">Data origin</label>
+            <select id="surrogate_origin_id" name="surrogate_origin_id">
+              <option value="">All origins</option>
+              {% if data_origins %}
+                {% for origin_id, origin_name, _ in data_origins %}
+                  <option value="{{ origin_id }}">{{ origin_id }} - {{ origin_name }}</option>
+                {% endfor %}
+              {% endif %}
+            </select>
+            <label for="surrogate_statuses">Runs' status</label>
+            <input id="surrogate_statuses" name="surrogate_statuses" type="text" value="SUCCESS,CONVERGED" />
+            <span class="panel-note" style="margin:0;">Use <code>ALL</code> to include every status.</span>
+          </div>
+          <div class="row">
+            <label for="surrogate_test_size">Test size</label>
+            <input id="surrogate_test_size" name="surrogate_test_size" type="text" value="0.1" />
+            <label for="surrogate_n_estimators">Trees</label>
+            <input id="surrogate_n_estimators" name="surrogate_n_estimators" type="text" value="300" />
+            <label for="surrogate_max_depth">Max depth</label>
+            <input id="surrogate_max_depth" name="surrogate_max_depth" type="text" placeholder="None" />
+            <label for="surrogate_min_samples_leaf">Min samples leaf</label>
+            <input id="surrogate_min_samples_leaf" name="surrogate_min_samples_leaf" type="text" value="2" />
+          </div>
+          <div class="row" style="gap:16px;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#52606d; margin:0;">
+              <input type="checkbox" name="surrogate_log1p" value="1" />
+              log1p(target)
+            </label>
+            <button type="submit">Train Surrogate Model</button>
+          </div>
+        </form>
+        <details style="margin-top:12px;">
+          <summary>About these training parameters</summary>
+          <div class="panel-note" style="margin-top:8px;">
+            <strong>Algorithm.</strong> A RandomForest regressor (ensemble of decision trees) is trained on the
+            selected gk_input features and predicts the chosen gk_run target. Uncertainty is estimated from the
+            tree-to-tree spread (standard deviation).
+          </div>
+          <ul>
+            <li><strong>Test size</strong>: Fraction of rows held out for validation. <code>0</code> trains on all data and skips validation metrics.</li>
+            <li><strong>Trees</strong>: Number of trees in the forest. More trees usually improve stability but take longer.</li>
+            <li><strong>Max depth</strong>: Maximum depth of each tree. Blank/None allows fully grown trees.</li>
+            <li><strong>Min samples leaf</strong>: Minimum rows required in a leaf node. Higher values smooth the model.</li>
+            <li><strong>log1p(target)</strong>: Train on <code>log(1 + target)</code> to reduce skew. Predictions are back-transformed; requires non-negative targets.</li>
+          </ul>
+        </details>
       </section>
+
       <section class="panel panel-tabbed{% if selected_panel != 'results' %} panel-hidden{% endif %}" data-panel="results">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
           <form method="get">
@@ -1977,9 +2515,13 @@
             <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
             <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
             <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
+            <input type="hidden" name="results_x_col" value="{{ results_x_col }}" />
             <input type="hidden" name="results_y2_col" value="{{ results_y2_col }}" />
             <input type="hidden" name="results_y3_col" value="{{ results_y3_col }}" />
             <input type="hidden" name="results_y4_col" value="{{ results_y4_col }}" />
+            <input type="hidden" name="results_x2_col" value="{{ results_x2_col }}" />
+            <input type="hidden" name="results_x3_col" value="{{ results_x3_col }}" />
+            <input type="hidden" name="results_x4_col" value="{{ results_x4_col }}" />
             <input type="hidden" name="results_x_scale" value="{{ results_x_scale }}" />
             <input type="hidden" name="results_y_scale" value="{{ results_y_scale }}" />
             <input type="hidden" name="results_x2_scale" value="{{ results_x2_scale }}" />
@@ -2034,6 +2576,9 @@
             <input type="hidden" name="results_y2_col" value="{{ results_y2_col }}" />
             <input type="hidden" name="results_y3_col" value="{{ results_y3_col }}" />
             <input type="hidden" name="results_y4_col" value="{{ results_y4_col }}" />
+            <input type="hidden" name="results_x2_col" value="{{ results_x2_col }}" />
+            <input type="hidden" name="results_x3_col" value="{{ results_x3_col }}" />
+            <input type="hidden" name="results_x4_col" value="{{ results_x4_col }}" />
             <input type="hidden" name="results_x2_min" value="{{ results_x2_min|default('', true) }}" />
             <input type="hidden" name="results_x2_max" value="{{ results_x2_max|default('', true) }}" />
             <input type="hidden" name="results_y2_min" value="{{ results_y2_min|default('', true) }}" />
@@ -2055,10 +2600,10 @@
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
               <label for="x_col_results">X-axis</label>
-              <select id="x_col_results" name="x_col" onchange="this.form.submit()">
-                {% for column in stats_columns %}
-                  <option value="{{ column }}" {% if column == stats_x_col %}selected{% endif %}>
-                    {{ column }}
+              <select id="x_col_results" name="results_x_col" onchange="this.form.submit()">
+                {% for column in results_columns %}
+                  <option value="{{ column.value }}" {% if column.value == results_x_col %}selected{% endif %}>
+                    {{ column.label }}
                   </option>
                 {% endfor %}
               </select>
@@ -2071,36 +2616,41 @@
                 {% endfor %}
               </select>
               <noscript><button type="submit">Update Figure 1</button></noscript>
-            </div>
-            <div class="row row-compact">
-              <label for="results_x_min">X min</label>
-              <input id="results_x_min" name="results_x_min" type="text" size="6" value="{{ results_x_min|default('', true) }}" />
-              <label for="results_x_max">X max</label>
-              <input id="results_x_max" name="results_x_max" type="text" size="6" value="{{ results_x_max|default('', true) }}" />
-              <label for="results_y_min">Y min</label>
-              <input id="results_y_min" name="results_y_min" type="text" size="6" value="{{ results_y_min|default('', true) }}" />
-              <label for="results_y_max">Y max</label>
-              <input id="results_y_max" name="results_y_max" type="text" size="6" value="{{ results_y_max|default('', true) }}" />
-              <label>
-                X scale
-                <select name="results_x_scale">
-                  <option value="linear" {% if results_x_scale == 'linear' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if results_x_scale == 'log' %}selected{% endif %}>Log</option>
-                  <option value="symlog" {% if results_x_scale == 'symlog' %}selected{% endif %}>Symlog</option>
-                </select>
-              </label>
-              <label>
-                Y scale
-                <select name="results_y_scale">
-                  <option value="linear" {% if results_y_scale == 'linear' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if results_y_scale == 'log' %}selected{% endif %}>Log</option>
-                  <option value="symlog" {% if results_y_scale == 'symlog' %}selected{% endif %}>Symlog</option>
-                </select>
-              </label>
-              <button type="submit">Apply Limits</button>
+              <details class="axis-limits-toggle">
+                <summary>Axis limits</summary>
+                <div class="row row-compact">
+                  <label>
+                    X scale
+                    <select name="results_x_scale">
+                      <option value="linear" {% if results_x_scale == 'linear' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if results_x_scale == 'log' %}selected{% endif %}>Log</option>
+                      <option value="symlog" {% if results_x_scale == 'symlog' %}selected{% endif %}>Symlog</option>
+                    </select>
+                  </label>
+                  <label for="results_x_min">X min</label>
+                  <input id="results_x_min" name="results_x_min" type="text" size="6" value="{{ results_x_min|default('', true) }}" />
+                  <label for="results_x_max">X max</label>
+                  <input id="results_x_max" name="results_x_max" type="text" size="6" value="{{ results_x_max|default('', true) }}" />
+                </div>
+                <div class="row row-compact">
+                  <label>
+                    Y scale
+                    <select name="results_y_scale">
+                      <option value="linear" {% if results_y_scale == 'linear' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if results_y_scale == 'log' %}selected{% endif %}>Log</option>
+                      <option value="symlog" {% if results_y_scale == 'symlog' %}selected{% endif %}>Symlog</option>
+                    </select>
+                  </label>
+                  <label for="results_y_min">Y min</label>
+                  <input id="results_y_min" name="results_y_min" type="text" size="6" value="{{ results_y_min|default('', true) }}" />
+                  <label for="results_y_max">Y max</label>
+                  <input id="results_y_max" name="results_y_max" type="text" size="6" value="{{ results_y_max|default('', true) }}" />
+                  <button type="submit">Apply Limits</button>
+                </div>
+              </details>
             </div>
           </form>
-          <div class="chart-title">{{ stats_x_col }} vs {{ results_y_col }}</div>
+          <div class="chart-title">{{ results_x_col }} vs {{ results_y_col }}</div>
           <div id="stats-chart-results"></div>
           <div id="stats-empty-results" class="chart-empty" style="display:none;">
             No data available.
@@ -2114,10 +2664,14 @@
             <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
             <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
             <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
+            <input type="hidden" name="results_x_col" value="{{ results_x_col }}" />
             <input type="hidden" name="results_filter" value="{{ results_filter }}" />
             <input type="hidden" name="results_y_col" value="{{ results_y_col }}" />
             <input type="hidden" name="results_y3_col" value="{{ results_y3_col }}" />
             <input type="hidden" name="results_y4_col" value="{{ results_y4_col }}" />
+            <input type="hidden" name="results_x_col" value="{{ results_x_col }}" />
+            <input type="hidden" name="results_x3_col" value="{{ results_x3_col }}" />
+            <input type="hidden" name="results_x4_col" value="{{ results_x4_col }}" />
             <input type="hidden" name="results_x_min" value="{{ results_x_min|default('', true) }}" />
             <input type="hidden" name="results_x_max" value="{{ results_x_max|default('', true) }}" />
             <input type="hidden" name="results_y_min" value="{{ results_y_min|default('', true) }}" />
@@ -2139,10 +2693,10 @@
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
               <label for="x2_col_results">X-axis</label>
-              <select id="x2_col_results" name="x2_col" onchange="this.form.submit()">
-                {% for column in stats_columns %}
-                  <option value="{{ column }}" {% if column == stats_x2_col %}selected{% endif %}>
-                    {{ column }}
+              <select id="x2_col_results" name="results_x2_col" onchange="this.form.submit()">
+                {% for column in results_columns %}
+                  <option value="{{ column.value }}" {% if column.value == results_x2_col %}selected{% endif %}>
+                    {{ column.label }}
                   </option>
                 {% endfor %}
               </select>
@@ -2155,36 +2709,41 @@
                 {% endfor %}
               </select>
               <noscript><button type="submit">Update Figure 2</button></noscript>
-            </div>
-            <div class="row row-compact">
-              <label for="results_x2_min">X min</label>
-              <input id="results_x2_min" name="results_x2_min" type="text" size="6" value="{{ results_x2_min|default('', true) }}" />
-              <label for="results_x2_max">X max</label>
-              <input id="results_x2_max" name="results_x2_max" type="text" size="6" value="{{ results_x2_max|default('', true) }}" />
-              <label for="results_y2_min">Y min</label>
-              <input id="results_y2_min" name="results_y2_min" type="text" size="6" value="{{ results_y2_min|default('', true) }}" />
-              <label for="results_y2_max">Y max</label>
-              <input id="results_y2_max" name="results_y2_max" type="text" size="6" value="{{ results_y2_max|default('', true) }}" />
-              <label>
-                X scale
-                <select name="results_x2_scale">
-                  <option value="linear" {% if results_x2_scale == 'linear' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if results_x2_scale == 'log' %}selected{% endif %}>Log</option>
-                  <option value="symlog" {% if results_x2_scale == 'symlog' %}selected{% endif %}>Symlog</option>
-                </select>
-              </label>
-              <label>
-                Y scale
-                <select name="results_y2_scale">
-                  <option value="linear" {% if results_y2_scale == 'linear' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if results_y2_scale == 'log' %}selected{% endif %}>Log</option>
-                  <option value="symlog" {% if results_y2_scale == 'symlog' %}selected{% endif %}>Symlog</option>
-                </select>
-              </label>
-              <button type="submit">Apply Limits</button>
+              <details class="axis-limits-toggle">
+                <summary>Axis limits</summary>
+                <div class="row row-compact">
+                  <label>
+                    X scale
+                    <select name="results_x2_scale">
+                      <option value="linear" {% if results_x2_scale == 'linear' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if results_x2_scale == 'log' %}selected{% endif %}>Log</option>
+                      <option value="symlog" {% if results_x2_scale == 'symlog' %}selected{% endif %}>Symlog</option>
+                    </select>
+                  </label>
+                  <label for="results_x2_min">X min</label>
+                  <input id="results_x2_min" name="results_x2_min" type="text" size="6" value="{{ results_x2_min|default('', true) }}" />
+                  <label for="results_x2_max">X max</label>
+                  <input id="results_x2_max" name="results_x2_max" type="text" size="6" value="{{ results_x2_max|default('', true) }}" />
+                </div>
+                <div class="row row-compact">
+                  <label>
+                    Y scale
+                    <select name="results_y2_scale">
+                      <option value="linear" {% if results_y2_scale == 'linear' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if results_y2_scale == 'log' %}selected{% endif %}>Log</option>
+                      <option value="symlog" {% if results_y2_scale == 'symlog' %}selected{% endif %}>Symlog</option>
+                    </select>
+                  </label>
+                  <label for="results_y2_min">Y min</label>
+                  <input id="results_y2_min" name="results_y2_min" type="text" size="6" value="{{ results_y2_min|default('', true) }}" />
+                  <label for="results_y2_max">Y max</label>
+                  <input id="results_y2_max" name="results_y2_max" type="text" size="6" value="{{ results_y2_max|default('', true) }}" />
+                  <button type="submit">Apply Limits</button>
+                </div>
+              </details>
             </div>
           </form>
-          <div class="chart-title">{{ stats_x2_col }} vs {{ results_y2_col }}</div>
+          <div class="chart-title">{{ results_x2_col }} vs {{ results_y2_col }}</div>
           <div id="stats-chart-2-results"></div>
           <div id="stats-empty-2-results" class="chart-empty" style="display:none;">
             No data available.
@@ -2198,10 +2757,15 @@
             <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
             <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
             <input type="hidden" name="x4_col" value="{{ stats_x4_col }}" />
+            <input type="hidden" name="results_x_col" value="{{ results_x_col }}" />
             <input type="hidden" name="results_filter" value="{{ results_filter }}" />
             <input type="hidden" name="results_y_col" value="{{ results_y_col }}" />
             <input type="hidden" name="results_y2_col" value="{{ results_y2_col }}" />
             <input type="hidden" name="results_y4_col" value="{{ results_y4_col }}" />
+            <input type="hidden" name="results_x2_col" value="{{ results_x2_col }}" />
+            <input type="hidden" name="results_x_col" value="{{ results_x_col }}" />
+            <input type="hidden" name="results_x2_col" value="{{ results_x2_col }}" />
+            <input type="hidden" name="results_x4_col" value="{{ results_x4_col }}" />
             <input type="hidden" name="results_x_min" value="{{ results_x_min|default('', true) }}" />
             <input type="hidden" name="results_x_max" value="{{ results_x_max|default('', true) }}" />
             <input type="hidden" name="results_y_min" value="{{ results_y_min|default('', true) }}" />
@@ -2223,10 +2787,10 @@
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
               <label for="x3_col_results">X-axis</label>
-              <select id="x3_col_results" name="x3_col" onchange="this.form.submit()">
-                {% for column in stats_columns %}
-                  <option value="{{ column }}" {% if column == stats_x3_col %}selected{% endif %}>
-                    {{ column }}
+              <select id="x3_col_results" name="results_x3_col" onchange="this.form.submit()">
+                {% for column in results_columns %}
+                  <option value="{{ column.value }}" {% if column.value == results_x3_col %}selected{% endif %}>
+                    {{ column.label }}
                   </option>
                 {% endfor %}
               </select>
@@ -2239,36 +2803,41 @@
                 {% endfor %}
               </select>
               <noscript><button type="submit">Update Figure 3</button></noscript>
-            </div>
-            <div class="row row-compact">
-              <label for="results_x3_min">X min</label>
-              <input id="results_x3_min" name="results_x3_min" type="text" size="6" value="{{ results_x3_min|default('', true) }}" />
-              <label for="results_x3_max">X max</label>
-              <input id="results_x3_max" name="results_x3_max" type="text" size="6" value="{{ results_x3_max|default('', true) }}" />
-              <label for="results_y3_min">Y min</label>
-              <input id="results_y3_min" name="results_y3_min" type="text" size="6" value="{{ results_y3_min|default('', true) }}" />
-              <label for="results_y3_max">Y max</label>
-              <input id="results_y3_max" name="results_y3_max" type="text" size="6" value="{{ results_y3_max|default('', true) }}" />
-              <label>
-                X scale
-                <select name="results_x3_scale">
-                  <option value="linear" {% if results_x3_scale == 'linear' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if results_x3_scale == 'log' %}selected{% endif %}>Log</option>
-                  <option value="symlog" {% if results_x3_scale == 'symlog' %}selected{% endif %}>Symlog</option>
-                </select>
-              </label>
-              <label>
-                Y scale
-                <select name="results_y3_scale">
-                  <option value="linear" {% if results_y3_scale == 'linear' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if results_y3_scale == 'log' %}selected{% endif %}>Log</option>
-                  <option value="symlog" {% if results_y3_scale == 'symlog' %}selected{% endif %}>Symlog</option>
-                </select>
-              </label>
-              <button type="submit">Apply Limits</button>
+              <details class="axis-limits-toggle">
+                <summary>Axis limits</summary>
+                <div class="row row-compact">
+                  <label>
+                    X scale
+                    <select name="results_x3_scale">
+                      <option value="linear" {% if results_x3_scale == 'linear' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if results_x3_scale == 'log' %}selected{% endif %}>Log</option>
+                      <option value="symlog" {% if results_x3_scale == 'symlog' %}selected{% endif %}>Symlog</option>
+                    </select>
+                  </label>
+                  <label for="results_x3_min">X min</label>
+                  <input id="results_x3_min" name="results_x3_min" type="text" size="6" value="{{ results_x3_min|default('', true) }}" />
+                  <label for="results_x3_max">X max</label>
+                  <input id="results_x3_max" name="results_x3_max" type="text" size="6" value="{{ results_x3_max|default('', true) }}" />
+                </div>
+                <div class="row row-compact">
+                  <label>
+                    Y scale
+                    <select name="results_y3_scale">
+                      <option value="linear" {% if results_y3_scale == 'linear' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if results_y3_scale == 'log' %}selected{% endif %}>Log</option>
+                      <option value="symlog" {% if results_y3_scale == 'symlog' %}selected{% endif %}>Symlog</option>
+                    </select>
+                  </label>
+                  <label for="results_y3_min">Y min</label>
+                  <input id="results_y3_min" name="results_y3_min" type="text" size="6" value="{{ results_y3_min|default('', true) }}" />
+                  <label for="results_y3_max">Y max</label>
+                  <input id="results_y3_max" name="results_y3_max" type="text" size="6" value="{{ results_y3_max|default('', true) }}" />
+                  <button type="submit">Apply Limits</button>
+                </div>
+              </details>
             </div>
           </form>
-          <div class="chart-title">{{ stats_x3_col }} vs {{ results_y3_col }}</div>
+          <div class="chart-title">{{ results_x3_col }} vs {{ results_y3_col }}</div>
           <div id="stats-chart-3-results"></div>
           <div id="stats-empty-3-results" class="chart-empty" style="display:none;">
             No data available.
@@ -2282,10 +2851,16 @@
             <input type="hidden" name="x_col" value="{{ stats_x_col }}" />
             <input type="hidden" name="x2_col" value="{{ stats_x2_col }}" />
             <input type="hidden" name="x3_col" value="{{ stats_x3_col }}" />
+            <input type="hidden" name="results_x_col" value="{{ results_x_col }}" />
             <input type="hidden" name="results_filter" value="{{ results_filter }}" />
             <input type="hidden" name="results_y_col" value="{{ results_y_col }}" />
             <input type="hidden" name="results_y2_col" value="{{ results_y2_col }}" />
             <input type="hidden" name="results_y3_col" value="{{ results_y3_col }}" />
+            <input type="hidden" name="results_x2_col" value="{{ results_x2_col }}" />
+            <input type="hidden" name="results_x3_col" value="{{ results_x3_col }}" />
+            <input type="hidden" name="results_x_col" value="{{ results_x_col }}" />
+            <input type="hidden" name="results_x2_col" value="{{ results_x2_col }}" />
+            <input type="hidden" name="results_x3_col" value="{{ results_x3_col }}" />
             <input type="hidden" name="results_x_min" value="{{ results_x_min|default('', true) }}" />
             <input type="hidden" name="results_x_max" value="{{ results_x_max|default('', true) }}" />
             <input type="hidden" name="results_y_min" value="{{ results_y_min|default('', true) }}" />
@@ -2307,10 +2882,10 @@
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
               <label for="x4_col_results">X-axis</label>
-              <select id="x4_col_results" name="x4_col" onchange="this.form.submit()">
-                {% for column in stats_columns %}
-                  <option value="{{ column }}" {% if column == stats_x4_col %}selected{% endif %}>
-                    {{ column }}
+              <select id="x4_col_results" name="results_x4_col" onchange="this.form.submit()">
+                {% for column in results_columns %}
+                  <option value="{{ column.value }}" {% if column.value == results_x4_col %}selected{% endif %}>
+                    {{ column.label }}
                   </option>
                 {% endfor %}
               </select>
@@ -2323,36 +2898,41 @@
                 {% endfor %}
               </select>
               <noscript><button type="submit">Update Figure 4</button></noscript>
-            </div>
-            <div class="row row-compact">
-              <label for="results_x4_min">X min</label>
-              <input id="results_x4_min" name="results_x4_min" type="text" size="6" value="{{ results_x4_min|default('', true) }}" />
-              <label for="results_x4_max">X max</label>
-              <input id="results_x4_max" name="results_x4_max" type="text" size="6" value="{{ results_x4_max|default('', true) }}" />
-              <label for="results_y4_min">Y min</label>
-              <input id="results_y4_min" name="results_y4_min" type="text" size="6" value="{{ results_y4_min|default('', true) }}" />
-              <label for="results_y4_max">Y max</label>
-              <input id="results_y4_max" name="results_y4_max" type="text" size="6" value="{{ results_y4_max|default('', true) }}" />
-              <label>
-                X scale
-                <select name="results_x4_scale">
-                  <option value="linear" {% if results_x4_scale == 'linear' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if results_x4_scale == 'log' %}selected{% endif %}>Log</option>
-                  <option value="symlog" {% if results_x4_scale == 'symlog' %}selected{% endif %}>Symlog</option>
-                </select>
-              </label>
-              <label>
-                Y scale
-                <select name="results_y4_scale">
-                  <option value="linear" {% if results_y4_scale == 'linear' %}selected{% endif %}>Linear</option>
-                  <option value="log" {% if results_y4_scale == 'log' %}selected{% endif %}>Log</option>
-                  <option value="symlog" {% if results_y4_scale == 'symlog' %}selected{% endif %}>Symlog</option>
-                </select>
-              </label>
-              <button type="submit">Apply Limits</button>
+              <details class="axis-limits-toggle">
+                <summary>Axis limits</summary>
+                <div class="row row-compact">
+                  <label>
+                    X scale
+                    <select name="results_x4_scale">
+                      <option value="linear" {% if results_x4_scale == 'linear' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if results_x4_scale == 'log' %}selected{% endif %}>Log</option>
+                      <option value="symlog" {% if results_x4_scale == 'symlog' %}selected{% endif %}>Symlog</option>
+                    </select>
+                  </label>
+                  <label for="results_x4_min">X min</label>
+                  <input id="results_x4_min" name="results_x4_min" type="text" size="6" value="{{ results_x4_min|default('', true) }}" />
+                  <label for="results_x4_max">X max</label>
+                  <input id="results_x4_max" name="results_x4_max" type="text" size="6" value="{{ results_x4_max|default('', true) }}" />
+                </div>
+                <div class="row row-compact">
+                  <label>
+                    Y scale
+                    <select name="results_y4_scale">
+                      <option value="linear" {% if results_y4_scale == 'linear' %}selected{% endif %}>Linear</option>
+                      <option value="log" {% if results_y4_scale == 'log' %}selected{% endif %}>Log</option>
+                      <option value="symlog" {% if results_y4_scale == 'symlog' %}selected{% endif %}>Symlog</option>
+                    </select>
+                  </label>
+                  <label for="results_y4_min">Y min</label>
+                  <input id="results_y4_min" name="results_y4_min" type="text" size="6" value="{{ results_y4_min|default('', true) }}" />
+                  <label for="results_y4_max">Y max</label>
+                  <input id="results_y4_max" name="results_y4_max" type="text" size="6" value="{{ results_y4_max|default('', true) }}" />
+                  <button type="submit">Apply Limits</button>
+                </div>
+              </details>
             </div>
           </form>
-          <div class="chart-title">{{ stats_x4_col }} vs {{ results_y4_col }}</div>
+          <div class="chart-title">{{ results_x4_col }} vs {{ results_y4_col }}</div>
           <div id="stats-chart-4-results"></div>
           <div id="stats-empty-4-results" class="chart-empty" style="display:none;">
             No data available.
@@ -2759,7 +3339,7 @@ Execute
             <div class="notice">{{ action_status.message }}</div>
           {% endif %}
           {% if actions.get("monitor_remote_runs") %}
-            <form method="post" action="/action/monitor_remote_runs">
+            <form method="post" action="/action/monitor_remote_runs" id="monitor-run-form">
               <input type="hidden" name="db" value="{{ db_path }}" />
               <input type="hidden" name="panel" value="monitor" />
               <div class="row">
@@ -2775,7 +3355,10 @@ Execute
         {% if monitor_report %}
           <div class="chart-wrap">
             <div class="panel-note">
-              Report generated: {{ monitor_report.generated_at }}
+              Report generated:
+              <span class="monitor-generated-at" data-utc="{{ monitor_report.generated_at }}">
+                {{ monitor_report.generated_at }}
+              </span>
               | db: {{ monitor_report.db_path }}
             </div>
             {% if monitor_report.errors and monitor_report.errors|length > 0 %}
@@ -2787,7 +3370,11 @@ Execute
               <div class="monitor-batch">
                 <div class="panel-note batch-header">
                   <span class="batch-id">Batch id {{ batch.batch_id or "?" }}</span>
-                  — {{ batch.batch }} | host: {{ batch.remote_host }} | path: {{ batch.base_dir }}
+                  — {{ batch.batch }}
+                  {% if batch.origin_names and batch.origin_names|length > 0 %}
+                    | origin: {{ batch.origin_names|join(", ") }}
+                  {% endif %}
+                  | host: {{ batch.remote_host }} | path: {{ batch.base_dir }}
                 </div>
               {% if batch.db_last_modified %}
                 <div class="panel-note">
@@ -2864,7 +3451,15 @@ Execute
                         {% if batch.suggestions and batch.suggestions|length > 0 %}
                           <ul style="margin:0; padding-left:16px;">
                             {% for suggestion in batch.suggestions %}
-                              <li class="panel-note">{{ suggestion }}</li>
+                              {% if suggestion == "Inspect failures" and batch.failures and batch.failures|length > 0 %}
+                                <li class="panel-note">
+                                  <button type="button" onclick="openBatchFailures('{{ batch.batch_id }}')">
+                                    Inspect failures
+                                  </button>
+                                </li>
+                              {% else %}
+                                <li class="panel-note">{{ suggestion }}</li>
+                              {% endif %}
                             {% endfor %}
                           </ul>
                         {% else %}
@@ -2892,6 +3487,7 @@ Execute
                               <input type="hidden" name="db" value="{{ db_path }}" />
                               <input type="hidden" name="panel" value="monitor" />
                               <input type="hidden" name="plots_limit" value="50" />
+                              <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
                               <button type="submit">Sync Plots</button>
                             </form>
                           {% endif %}
@@ -2900,6 +3496,7 @@ Execute
                               <input type="hidden" name="db" value="{{ db_path }}" />
                               <input type="hidden" name="panel" value="monitor" />
                               <input type="hidden" name="plots_limit" value="0" />
+                              <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
                               <button type="submit">Sync Batch DB</button>
                             </form>
                           {% endif %}
@@ -2918,7 +3515,7 @@ Execute
                 </table>
               </div>
               {% if batch.failures and batch.failures|length > 0 %}
-                <details class="monitor-failures">
+                <details class="monitor-failures" id="batch-failures-{{ batch.batch_id }}">
                   <summary>Failures ({{ batch.failures|length }})</summary>
                   <form method="post" action="/action/mark_remote_run_restart">
                     <input type="hidden" name="db" value="{{ db_path }}" />
@@ -2992,14 +3589,154 @@ Execute
           <div class="panel-note">No monitor report found yet. Run the monitor to generate one.</div>
         {% endif %}
       </section>
+      <section class="panel hpc-panel">
+        <div class="panel-note" style="margin-bottom:12px;">
+          Configure SSH settings used by the Batch Monitor and remote workflow actions. Ensure
+          <code>sshproxy</code> is active for non-interactive access.
+        </div>
+        <form method="post" action="/save_hpc_config">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <div class="row">
+            <label for="ssh_host">SSH host</label>
+            <input id="ssh_host" name="ssh_host" type="text" value="{{ hpc_config.ssh_host|default('', true) }}" />
+            <label for="ssh_user">SSH user</label>
+            <input id="ssh_user" name="ssh_user" type="text" value="{{ hpc_config.ssh_user|default('', true) }}" />
+            <label for="ssh_connect_timeout">Connect timeout (s)</label>
+            <input id="ssh_connect_timeout" name="ssh_connect_timeout" type="text" size="6" value="{{ hpc_config.ssh_connect_timeout|default('', true) }}" />
+          </div>
+          <div class="row">
+            <label for="ssh_identity">SSH identity file</label>
+            <input id="ssh_identity" name="ssh_identity" type="text" size="50" value="{{ hpc_config.ssh_identity|default('', true) }}" />
+          </div>
+          <div class="row">
+            <label for="ssh_control_path">Control socket path</label>
+            <input id="ssh_control_path" name="ssh_control_path" type="text" size="50" value="{{ hpc_config.ssh_control_path|default('', true) }}" />
+            <label for="ssh_control_persist">Persist</label>
+            <input id="ssh_control_persist" name="ssh_control_persist" type="text" size="8" value="{{ hpc_config.ssh_control_persist|default('', true) }}" />
+          </div>
+          <div class="row">
+            <label for="monitor_timeout">Monitor timeout (s)</label>
+            <input id="monitor_timeout" name="monitor_timeout" type="text" size="6" value="{{ hpc_config.monitor_timeout|default('', true) }}" />
+          </div>
+          <div class="panel-note" style="margin-bottom:12px;">
+            Control path supports tokens like <code>%r</code> (user), <code>%h</code> (host), <code>%p</code> (port).
+            Leave empty to disable connection reuse.
+          </div>
+          <button type="submit">Save HPC Settings</button>
+        </form>
+        <form method="post" action="/action/open_ssh_pipe" style="margin-top:10px;">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <button type="submit">Open SSH Pipe</button>
+        </form>
+        <form method="post" action="/action/test_hpc_connection" style="margin-top:10px;">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <button type="submit">Test SSH (ls -lrt ~)</button>
+        </form>
+        {% if hpc_test_result %}
+          <div class="panel-note" style="margin-top:12px;">
+            Last SSH test:
+            <strong>{{ "OK" if hpc_test_result.success else "Failed" }}</strong>
+            <span class="hpc-test-timestamp" data-utc="{{ hpc_test_result.timestamp }}">
+              {{ hpc_test_result.timestamp }}
+            </span>
+          </div>
+          {% if hpc_test_result.output %}
+            <pre class="panel-note" style="white-space:pre-wrap; max-height:160px; overflow:auto;">{{ hpc_test_result.output }}</pre>
+          {% endif %}
+          {% if hpc_test_result.error %}
+            <div class="error">{{ hpc_test_result.error }}</div>
+          {% endif %}
+        {% endif %}
+      </section>
       <section class="panel panel-tabbed{% if selected_panel != 'schema' %} panel-hidden{% endif %}" data-panel="schema">
         <div class="chart-wrap borderless">
           <div class="chart-title">Schema</div>
           <img class="schema-image" src="{{ url_for('docs_file', filename='schema_light.png') }}" alt="Database schema" />
+          <div class="schema-overview">
+            {% if schema_overview and schema_overview|length > 0 %}
+              <div class="panel-note">Live schema from {{ db_path }} ({{ schema_overview|length }} tables).</div>
+              {% for table in schema_overview %}
+                <details>
+                  <summary>{{ table.name }} ({{ table.columns|length }} columns)</summary>
+                  <div class="table-wrapper" style="max-height:240px;">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Column</th>
+                          <th>Type</th>
+                          <th>PK</th>
+                          <th>Not null</th>
+                          <th>Default</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {% for col in table.columns %}
+                          <tr>
+                            <td>{{ col.name }}</td>
+                            <td>{{ col.type }}</td>
+                            <td>{{ "Yes" if col.pk else "" }}</td>
+                            <td>{{ "Yes" if col.notnull else "" }}</td>
+                            <td>{{ col.default if col.default is not none else "" }}</td>
+                          </tr>
+                        {% endfor %}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              {% endfor %}
+            {% else %}
+              <div class="panel-note">No live schema available for this database.</div>
+            {% endif %}
+          </div>
         </div>
       </section>
     </div>
   </body>
+  <script type="application/json" id="action-state-data">{{ action_status|tojson }}</script>
+  <script type="application/json" id="monitor-actions-data">{{ [
+    "monitor_remote_runs",
+    "mark_remote_running_interrupted",
+    "mark_remote_run_restart",
+    "launch_remote_slurm_job",
+  ]|tojson }}</script>
+  <script type="application/json" id="stats-points-data">{{ stats_points|tojson }}</script>
+  <script type="application/json" id="stats-points2-data">{{ stats_points_2|tojson }}</script>
+  <script type="application/json" id="stats-points3-data">{{ stats_points_3|tojson }}</script>
+  <script type="application/json" id="stats-points4-data">{{ stats_points_4|tojson }}</script>
+  <script type="application/json" id="results-points-data">{{ results_points|tojson }}</script>
+  <script type="application/json" id="results-points2-data">{{ results_points_2|tojson }}</script>
+  <script type="application/json" id="results-points3-data">{{ results_points_3|tojson }}</script>
+  <script type="application/json" id="results-points4-data">{{ results_points_4|tojson }}</script>
+  <script type="application/json" id="results-config-data">{{ {
+    "xMin": results_x_min,
+    "xMax": results_x_max,
+    "yMin": results_y_min,
+    "yMax": results_y_max,
+    "xScale": results_x_scale,
+    "yScale": results_y_scale,
+    "highlight": results_highlight,
+    "x2Min": results_x2_min,
+    "x2Max": results_x2_max,
+    "y2Min": results_y2_min,
+    "y2Max": results_y2_max,
+    "x2Scale": results_x2_scale,
+    "y2Scale": results_y2_scale,
+    "highlight2": results_highlight_2,
+    "x3Min": results_x3_min,
+    "x3Max": results_x3_max,
+    "y3Min": results_y3_min,
+    "y3Max": results_y3_max,
+    "x3Scale": results_x3_scale,
+    "y3Scale": results_y3_scale,
+    "highlight3": results_highlight_3,
+    "x4Min": results_x4_min,
+    "x4Max": results_x4_max,
+    "y4Min": results_y4_min,
+    "y4Max": results_y4_max,
+    "x4Scale": results_x4_scale,
+    "y4Scale": results_y4_scale,
+    "highlight4": results_highlight_4
+  }|tojson }}</script>
   <script>
     const updateStickyOffset = () => {
       const panel = document.querySelector(".sticky-panel");
@@ -3016,13 +3753,13 @@ Execute
     });
     window.addEventListener("resize", updateStickyOffset);
     const selectedPanel = "{{ selected_panel }}";
-    const actionState = {{ action_status|tojson }};
-    const monitorAutoRefreshActions = {{ [
-      "monitor_remote_runs",
-      "mark_remote_running_interrupted",
-      "mark_remote_run_restart",
-      "launch_remote_slurm_job",
-    ]|tojson }};
+    const actionStateEl = document.getElementById("action-state-data");
+    const monitorActionsEl = document.getElementById("monitor-actions-data");
+    const actionState = actionStateEl ? JSON.parse(actionStateEl.textContent || "null") : null;
+    let lastActionState = actionState;
+    const monitorAutoRefreshActions = monitorActionsEl
+      ? JSON.parse(monitorActionsEl.textContent || "[]")
+      : [];
     const refreshMonitorOnce = () => {
       const url = new URL(window.location.href);
       if (url.searchParams.get("monitor_refresh") === "1") {
@@ -3032,6 +3769,25 @@ Execute
       url.searchParams.set("monitor_refresh", "1");
       window.location.assign(url.toString());
     };
+    const refreshSurrogateOnce = (state) => {
+      if (selectedPanel !== "surrogate") {
+        return;
+      }
+      if (!state || state.key !== "train_gamma_surrogate") {
+        return;
+      }
+      const token = state.token;
+      const storageKey = "surrogateRefreshToken";
+      if (token !== undefined && token !== null) {
+        if (sessionStorage.getItem(storageKey) === String(token)) {
+          return;
+        }
+        sessionStorage.setItem(storageKey, String(token));
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set("panel", "surrogate");
+      window.location.assign(url.toString());
+    };
     const pollActionStatus = () => {
       fetch("/action_status")
         .then((res) => (res.ok ? res.json() : null))
@@ -3039,12 +3795,14 @@ Execute
           if (!state) {
             return;
           }
-          if (actionState && actionState.running && !state.running) {
+          if (lastActionState && lastActionState.running && !state.running) {
             if (monitorAutoRefreshActions.includes(state.key)) {
               refreshMonitorOnce();
               return;
             }
+            refreshSurrogateOnce(state);
           }
+          lastActionState = state;
           if (state.running) {
             setTimeout(pollActionStatus, 2000);
           } else {
@@ -3056,14 +3814,73 @@ Execute
         });
     };
     if (selectedPanel === "monitor") {
-      if (actionState && !actionState.running && actionState.message) {
+      if (actionState && actionState.running) {
+        pollActionStatus();
+      } else if (actionState && actionState.message) {
         if (monitorAutoRefreshActions.includes(actionState.key)) {
           refreshMonitorOnce();
         }
-      } else {
-        pollActionStatus();
       }
     }
+    if (
+      selectedPanel === "surrogate" &&
+      actionState &&
+      actionState.running &&
+      actionState.key === "train_gamma_surrogate"
+    ) {
+      pollActionStatus();
+    }
+    const maybeAutoRunMonitor = () => {
+      if (selectedPanel !== "monitor") {
+        return;
+      }
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("monitor_autorun") !== "1") {
+        return;
+      }
+      if (actionState && actionState.running) {
+        return;
+      }
+      const form = document.getElementById("monitor-run-form");
+      if (!form) {
+        return;
+      }
+      url.searchParams.delete("monitor_autorun");
+      window.history.replaceState({}, "", url.toString());
+      form.submit();
+    };
+    window.addEventListener("load", maybeAutoRunMonitor);
+    const updateScrollCompact = () => {
+      if (window.scrollY > 24) {
+        document.body.classList.add("scrolled");
+      } else {
+        document.body.classList.remove("scrolled");
+      }
+    };
+    window.addEventListener("scroll", updateScrollCompact, { passive: true });
+    window.addEventListener("load", updateScrollCompact);
+    window.addEventListener("load", () => {
+      const toggle = document.querySelector(".suggestions-fab");
+      if (!toggle) {
+        return;
+      }
+      toggle.addEventListener("click", () => {
+        const expanded = document.body.classList.toggle("suggestions-expanded");
+        toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+        toggle.textContent = expanded ? "Close" : "Workflow Suggestions";
+      });
+    });
+    window.addEventListener("load", () => {
+      const toggle = document.querySelector(".hpc-fab");
+      if (!toggle) {
+        return;
+      }
+      toggle.addEventListener("click", () => {
+        const expanded = document.body.classList.toggle("hpc-expanded");
+        toggle.textContent = expanded ? "Close" : "HPC Login";
+        postUsage("hpc_panel_toggle", { expanded });
+      });
+    });
     const formatRelativeAge = (secondsAgo) => {
       if (!isFinite(secondsAgo) || secondsAgo < 0) {
         return null;
@@ -3097,6 +3914,54 @@ Execute
       }
       return format(Math.round(secondsAgo / year), "year");
     };
+    const PRINCETON_TZ = "America/New_York";
+    const formatInTimeZone = (date, timeZone) => {
+      if (!(date instanceof Date) || !isFinite(date.getTime())) {
+        return "";
+      }
+      try {
+        return new Intl.DateTimeFormat("en-US", {
+          timeZone,
+          year: "numeric",
+          month: "short",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          timeZoneName: "short",
+        }).format(date);
+      } catch (err) {
+        return date.toLocaleString();
+      }
+    };
+    const updateMonitorGeneratedAt = () => {
+      const nodes = document.querySelectorAll(".monitor-generated-at");
+      nodes.forEach((node) => {
+        const iso = node.dataset.utc;
+        if (!iso) {
+          return;
+        }
+        const date = new Date(iso);
+        const formatted = formatInTimeZone(date, PRINCETON_TZ);
+        if (formatted) {
+          node.textContent = formatted;
+        }
+      });
+    };
+    const updateHpcTestTimestamp = () => {
+      const nodes = document.querySelectorAll(".hpc-test-timestamp");
+      nodes.forEach((node) => {
+        const iso = node.dataset.utc;
+        if (!iso) {
+          return;
+        }
+        const date = new Date(iso);
+        const formatted = formatInTimeZone(date, PRINCETON_TZ);
+        if (formatted) {
+          node.textContent = formatted;
+        }
+      });
+    };
     const updateBatchRelativeTimes = () => {
       const nodes = document.querySelectorAll(".batch-db-last-modified");
       const nowSec = Date.now() / 1000;
@@ -3111,19 +3976,52 @@ Execute
         if (!relative) {
           return;
         }
-        const original = node.dataset.original || node.textContent;
-        node.innerHTML = `<span class="relative">${relative}</span> (${original})`;
+        const local = formatInTimeZone(new Date(epoch * 1000), PRINCETON_TZ);
+        const suffix = local ? ` (${local})` : "";
+        node.innerHTML = `<span class="relative">${relative}</span>${suffix}`;
       });
     };
-    window.addEventListener("load", updateBatchRelativeTimes);
-    const statsPoints = {{ stats_points|tojson }};
-    const statsPoints2 = {{ stats_points_2|tojson }};
-    const statsPoints3 = {{ stats_points_3|tojson }};
-    const statsPoints4 = {{ stats_points_4|tojson }};
-    const resultsPoints = {{ results_points|tojson }};
-    const resultsPoints2 = {{ results_points_2|tojson }};
-    const resultsPoints3 = {{ results_points_3|tojson }};
-    const resultsPoints4 = {{ results_points_4|tojson }};
+    window.addEventListener("load", () => {
+      updateMonitorGeneratedAt();
+      updateHpcTestTimestamp();
+      updateBatchRelativeTimes();
+    });
+    const applyColorSwatches = () => {
+      document.querySelectorAll(".color-swatch[data-color]").forEach((node) => {
+        const color = node.dataset.color;
+        if (color) {
+          node.style.background = color;
+        }
+      });
+    };
+    window.addEventListener("load", applyColorSwatches);
+    const openBatchFailures = (batchId) => {
+      const details = document.getElementById(`batch-failures-${batchId}`);
+      if (!details) {
+        return;
+      }
+      details.open = true;
+    };
+    const parseJsonScript = (id, fallback) => {
+      const el = document.getElementById(id);
+      if (!el) {
+        return fallback;
+      }
+      try {
+        return JSON.parse(el.textContent || "");
+      } catch (err) {
+        return fallback;
+      }
+    };
+    const statsPoints = parseJsonScript("stats-points-data", []);
+    const statsPoints2 = parseJsonScript("stats-points2-data", []);
+    const statsPoints3 = parseJsonScript("stats-points3-data", []);
+    const statsPoints4 = parseJsonScript("stats-points4-data", []);
+    const resultsPoints = parseJsonScript("results-points-data", []);
+    const resultsPoints2 = parseJsonScript("results-points2-data", []);
+    const resultsPoints3 = parseJsonScript("results-points3-data", []);
+    const resultsPoints4 = parseJsonScript("results-points4-data", []);
+    const resultsConfig = parseJsonScript("results-config-data", {});
     const renderStatsChart = (chartId, emptyId, points, xLabelText, yLabelText, limits = {}, options = {}) => {
       const chart = document.querySelector(chartId);
       const empty = document.querySelector(emptyId);
@@ -3422,72 +4320,72 @@ Execute
         "#stats-chart-results",
         "#stats-empty-results",
         resultsPoints,
-        "{{ stats_x_col }}",
+        "{{ results_x_col }}",
         "{{ results_y_col }}",
         {
-          xMin: {{ results_x_min|tojson }},
-          xMax: {{ results_x_max|tojson }},
-          yMin: {{ results_y_min|tojson }},
-          yMax: {{ results_y_max|tojson }}
+          xMin: resultsConfig.xMin,
+          xMax: resultsConfig.xMax,
+          yMin: resultsConfig.yMin,
+          yMax: resultsConfig.yMax
         },
         {
-          xScale: {{ results_x_scale|tojson }},
-          yScale: {{ results_y_scale|tojson }},
-          highlight: {{ results_highlight|tojson }}
+          xScale: resultsConfig.xScale,
+          yScale: resultsConfig.yScale,
+          highlight: resultsConfig.highlight
         }
       );
       renderStatsChart(
         "#stats-chart-2-results",
         "#stats-empty-2-results",
         resultsPoints2,
-        "{{ stats_x2_col }}",
+        "{{ results_x2_col }}",
         "{{ results_y2_col }}",
         {
-          xMin: {{ results_x2_min|tojson }},
-          xMax: {{ results_x2_max|tojson }},
-          yMin: {{ results_y2_min|tojson }},
-          yMax: {{ results_y2_max|tojson }}
+          xMin: resultsConfig.x2Min,
+          xMax: resultsConfig.x2Max,
+          yMin: resultsConfig.y2Min,
+          yMax: resultsConfig.y2Max
         },
         {
-          xScale: {{ results_x2_scale|tojson }},
-          yScale: {{ results_y2_scale|tojson }},
-          highlight: {{ results_highlight_2|tojson }}
+          xScale: resultsConfig.x2Scale,
+          yScale: resultsConfig.y2Scale,
+          highlight: resultsConfig.highlight2
         }
       );
       renderStatsChart(
         "#stats-chart-3-results",
         "#stats-empty-3-results",
         resultsPoints3,
-        "{{ stats_x3_col }}",
+        "{{ results_x3_col }}",
         "{{ results_y3_col }}",
         {
-          xMin: {{ results_x3_min|tojson }},
-          xMax: {{ results_x3_max|tojson }},
-          yMin: {{ results_y3_min|tojson }},
-          yMax: {{ results_y3_max|tojson }}
+          xMin: resultsConfig.x3Min,
+          xMax: resultsConfig.x3Max,
+          yMin: resultsConfig.y3Min,
+          yMax: resultsConfig.y3Max
         },
         {
-          xScale: {{ results_x3_scale|tojson }},
-          yScale: {{ results_y3_scale|tojson }},
-          highlight: {{ results_highlight_3|tojson }}
+          xScale: resultsConfig.x3Scale,
+          yScale: resultsConfig.y3Scale,
+          highlight: resultsConfig.highlight3
         }
       );
       renderStatsChart(
         "#stats-chart-4-results",
         "#stats-empty-4-results",
         resultsPoints4,
-        "{{ stats_x4_col }}",
+        "{{ results_x4_col }}",
         "{{ results_y4_col }}",
         {
-          xMin: {{ results_x4_min|tojson }},
-          xMax: {{ results_x4_max|tojson }},
-          yMin: {{ results_y4_min|tojson }},
-          yMax: {{ results_y4_max|tojson }}
+          xMin: resultsConfig.x4Min,
+          xMax: resultsConfig.x4Max,
+          yMin: resultsConfig.y4Min,
+          yMax: resultsConfig.y4Max
         },
         {
-          xScale: {{ results_x4_scale|tojson }},
-          yScale: {{ results_y4_scale|tojson }},
-          highlight: {{ results_highlight_4|tojson }}
+          xScale: resultsConfig.x4Scale,
+          yScale: resultsConfig.y4Scale,
+          highlight: resultsConfig.highlight4
         }
       );
     });
@@ -3525,6 +4423,33 @@ Execute
         }
       });
     });
+    const samplingPanel = document.querySelector('[data-panel="sampling"]');
+    const setSamplingTab = (name, updateUrl = true) => {
+      if (!samplingPanel) {
+        return;
+      }
+      samplingPanel.querySelectorAll(".subtab").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.subtab === name);
+      });
+      samplingPanel.querySelectorAll(".sampling-subpanel").forEach((panel) => {
+        panel.classList.toggle("active", panel.dataset.subpanel === name);
+      });
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("panel", "sampling");
+        url.searchParams.set("sampling_tab", name);
+        window.history.replaceState({}, "", url.toString());
+      }
+    };
+    if (samplingPanel) {
+      const initialSamplingTab = samplingPanel.dataset.samplingTab || "equil";
+      setSamplingTab(initialSamplingTab, false);
+      samplingPanel.querySelectorAll(".subtab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          setSamplingTab(tab.dataset.subtab);
+        });
+      });
+    }
     const tablesPanel = document.querySelector('[data-panel="tables"]');
     const tablesWrapper = tablesPanel
       ? tablesPanel.querySelector(".table-wrapper")

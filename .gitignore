@@ -13,3 +13,5 @@ batch/plots/
 batch/plots/**
 *_growth_rate.png
 *_gamma_vs_ky.png
+tests/__init__.py
+presentation/~$Datamak_2slides.pptx

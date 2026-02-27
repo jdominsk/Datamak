@@ -75,6 +75,10 @@ try:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max REAL NOT NULL DEFAULT 0")
     if "nb_restart" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN nb_restart INTEGER NOT NULL DEFAULT 0")
+    if "restart_keep_tmax" not in columns:
+        conn.execute(
+            "ALTER TABLE gk_run ADD COLUMN restart_keep_tmax INTEGER NOT NULL DEFAULT 0"
+        )
     conn.commit()
 finally:
     conn.close()
@@ -299,7 +303,7 @@ conn.row_factory = sqlite3.Row
 try:
     conn.execute("BEGIN IMMEDIATE")
     row = conn.execute(
-        "SELECT id, gk_input_id, gk_batch_id, input_content, t_max_initial, t_max "
+        "SELECT id, gk_input_id, gk_batch_id, input_content, t_max_initial, t_max, restart_keep_tmax "
         "FROM gk_run WHERE status = 'TORUN' ORDER BY id LIMIT 1"
     ).fetchone()
     if row is None:
@@ -343,7 +347,8 @@ try:
         tmax_current = max(tmax_current, tmax_in_content)
 
     restart_true = bool(re.search(r"^\s*restart\s*=\s*true\b", content, re.IGNORECASE | re.MULTILINE))
-    if restart_true:
+    keep_tmax = int(row["restart_keep_tmax"] or 0)
+    if restart_true and not keep_tmax:
         tmax_current += tmax_initial
     tmax_str = f"{tmax_current:.1f}"
     def repl(m):
@@ -360,7 +365,7 @@ try:
     conn.execute(
         "UPDATE gk_run "
         "SET status = 'RUNNING', input_name = ?, job_id = ?, synced = 0, "
-        "input_content = ?, t_max_initial = ?, t_max = ? "
+        "input_content = ?, t_max_initial = ?, t_max = ?, restart_keep_tmax = 0 "
         "WHERE id = ?",
         (
             filename,

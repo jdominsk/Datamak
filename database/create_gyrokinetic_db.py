@@ -346,7 +346,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS uq_data_equil_transpfile_time
-        ON data_equil (data_origin_id, transpfile, time)
+        ON data_equil (data_origin_id, transpfile, shot_time)
         WHERE transpfile IS NOT NULL
         """
     )

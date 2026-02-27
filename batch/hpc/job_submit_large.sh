@@ -28,4 +28,5 @@ export GX_PATH
 export NODES
 export WORKERS
 
-bash "$(dirname "$0")/job_execute_large.sh" "$DB_PATH" "$NODES" --workers "$WORKERS"
+submit_dir="${SLURM_SUBMIT_DIR:-$(dirname "$0")}"
+bash "${submit_dir}/job_execute_large.sh" "$DB_PATH" "$NODES" --workers "$WORKERS"

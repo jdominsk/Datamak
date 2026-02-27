@@ -10,6 +10,7 @@ import glob
 import math
 import random
 import time
+from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -31,9 +32,13 @@ BATCH_BASE_DIR = os.path.join(PROJECT_DIR, "batch")
 BATCH_NEW_DIR = os.path.join(BATCH_BASE_DIR, "new")
 BATCH_SENT_DIR = os.path.join(BATCH_BASE_DIR, "sent")
 ANALYSIS_DIR = os.path.join(PROJECT_DIR, "db_analysis")
+SURROGATE_DIR = os.path.join(PROJECT_DIR, "db_surrogate")
+SURROGATE_MODEL_DIR = os.path.join(SURROGATE_DIR, "models")
 AI_FEEDBACK_PATH = os.path.join(APP_DIR, "ai_feedback.json")
 AI_FEEDBACK_LOCK = threading.Lock()
 MONITOR_REPORT_PATH = os.path.join(ANALYSIS_DIR, "remote_monitor_report.json")
+HPC_TEST_PATH = os.path.join(ANALYSIS_DIR, "hpc_test_result.json")
+HPC_CONFIG_PATH = os.path.join(ANALYSIS_DIR, "hpc_config.json")
 USAGE_LOG_PATH = os.path.join(ANALYSIS_DIR, "monitor_feedback.json")
 USAGE_LOG_LOCK = threading.Lock()
 
@@ -101,11 +106,35 @@ ACTIONS = {
         "db_arg": "--db",
         "capture_output": True,
     },
+    "train_gamma_surrogate": {
+        "label": "Train Gamma Surrogate",
+        "script": os.path.join(PROJECT_DIR, "db_surrogate", "train_gamma_surrogate.py"),
+        "use_db": True,
+        "db_arg": "--db",
+        "capture_output": True,
+    },
+    "run_surrogate_estimate": {
+        "label": "Run Surrogate",
+        "script": os.path.join(PROJECT_DIR, "db_surrogate", "estimate_gamma_surrogate.py"),
+        "use_db": True,
+        "db_arg": "--db",
+        "capture_output": True,
+    },
     "monitor_remote_runs": {
-        "label": "Run Remote Monitor",
+        "label": "Check Simulations",
         "script": os.path.join(os.path.dirname(APP_DIR), "batch", "monitor_remote_runs.py"),
         "use_db": True,
         "db_arg": "--db",
+        "capture_output": True,
+    },
+    "open_ssh_pipe": {
+        "label": "Open SSH Pipe",
+        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "open_ssh_control_master.py"),
+        "capture_output": True,
+    },
+    "test_hpc_connection": {
+        "label": "Test SSH (ls -lrt ~)",
+        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "test_hpc_connection.py"),
         "capture_output": True,
     },
     "mark_remote_running_interrupted": {
@@ -142,14 +171,23 @@ ACTIONS = {
         "db_arg": "--db",
         "capture_output": True,
     },
+    "delete_surrogate_model": {
+        "label": "Delete surrogate model",
+        "script": os.path.join(PROJECT_DIR, "db_surrogate", "delete_surrogate_model.py"),
+        "use_db": True,
+        "db_arg": "--db",
+        "capture_output": True,
+    },
 }
 
 ACTION_LOCK = threading.Lock()
-ACTION_STATE: Dict[str, Optional[str]] = {
+ACTION_STATE: Dict[str, object] = {
     "running": False,
     "name": None,
     "message": None,
     "key": None,
+    "token": 0,
+    "completed_at": None,
 }
 
 app = Flask(__name__, static_folder="logo")
@@ -171,11 +209,84 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+DEFAULT_HPC_CONFIG: Dict[str, str] = {
+    "ssh_user": "jdominsk",
+    "ssh_host": "perlmutter.nersc.gov",
+    "ssh_identity": str(Path.home() / ".ssh" / "nersc"),
+    "ssh_control_path": "/tmp/datamak_ssh_%r@%h_%p",
+    "ssh_control_persist": "10m",
+    "ssh_connect_timeout": "10",
+    "monitor_timeout": "120",
+}
+
+
+def load_hpc_config() -> Dict[str, str]:
+    config = dict(DEFAULT_HPC_CONFIG)
+    try:
+        with open(HPC_CONFIG_PATH, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            for key in config.keys():
+                if key in data and data[key] is not None:
+                    config[key] = str(data[key])
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    return config
+
+
+def save_hpc_config(payload: Dict[str, str]) -> None:
+    Path(HPC_CONFIG_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with open(HPC_CONFIG_PATH, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
+def load_hpc_test_result() -> Optional[Dict[str, object]]:
+    try:
+        with open(HPC_TEST_PATH, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            return data
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
+    return None
+
+
+def save_hpc_test_result(payload: Dict[str, object]) -> None:
+    Path(HPC_TEST_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with open(HPC_TEST_PATH, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
 def list_tables(conn: sqlite3.Connection) -> List[str]:
     rows = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
     ).fetchall()
     return [row["name"] for row in rows]
+
+
+def build_schema_overview(
+    conn: sqlite3.Connection, tables: List[str]
+) -> List[Dict[str, object]]:
+    overview: List[Dict[str, object]] = []
+    for table in tables:
+        columns = conn.execute(f"PRAGMA table_info({table})").fetchall()
+        column_defs: List[Dict[str, object]] = []
+        for column in columns:
+            column_defs.append(
+                {
+                    "name": column["name"],
+                    "type": column["type"],
+                    "notnull": bool(column["notnull"]),
+                    "default": column["dflt_value"],
+                    "pk": bool(column["pk"]),
+                }
+            )
+        overview.append({"name": table, "columns": column_defs})
+    return overview
 
 
 def list_batch_databases(batch_dir: str) -> List[str]:
@@ -199,6 +310,617 @@ def list_sampling_reports(analysis_dir: str) -> List[str]:
         ]
     )
     return reports
+
+
+def list_surrogate_models(model_dir: str) -> List[Dict[str, object]]:
+    if not os.path.isdir(model_dir):
+        return []
+    model_files = sorted(glob.glob(os.path.join(model_dir, "*.json")))
+    models: List[Dict[str, object]] = []
+    for path in model_files:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                meta = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(meta, dict):
+            continue
+        name = meta.get("name") or os.path.splitext(os.path.basename(path))[0]
+        status_filter = meta.get("status_filter")
+        if isinstance(status_filter, (list, tuple)):
+            status_filter = ",".join(str(item) for item in status_filter)
+        models.append(
+            {
+                "name": str(name),
+                "created_at": meta.get("created_at"),
+                "train_rows": meta.get("train_rows"),
+                "test_rows": meta.get("test_rows"),
+                "status_filter": status_filter,
+                "metrics": meta.get("metrics"),
+                "model_path": meta.get("model_path"),
+                "meta_path": path,
+            }
+        )
+    models.sort(
+        key=lambda item: (
+            str(item.get("created_at") or ""),
+            str(item.get("name") or ""),
+        ),
+        reverse=True,
+    )
+    return models
+
+
+def list_surrogate_models_db(conn: sqlite3.Connection) -> List[Dict[str, object]]:
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_surrogate)")}
+    except sqlite3.OperationalError:
+        return []
+    sg_label_expr = "sg_label" if "sg_label" in columns else "NULL AS sg_label"
+    mapsto_expr = "mapsto" if "mapsto" in columns else "NULL AS mapsto"
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT id, name, {sg_label_expr}, {mapsto_expr}, status_filter, origin_id, origin_name, test_size,
+                   n_estimators, max_depth, min_samples_leaf, log1p_target,
+                   model_path, meta_path, created_at, train_rows, test_rows, metrics_json
+            FROM gk_surrogate
+            ORDER BY created_at DESC, id DESC
+            """
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    models: List[Dict[str, object]] = []
+    for row in rows:
+        metrics = None
+        raw_metrics = row["metrics_json"]
+        if raw_metrics:
+            try:
+                metrics = json.loads(raw_metrics)
+            except json.JSONDecodeError:
+                metrics = None
+        models.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "sg_label": row["sg_label"],
+                "mapsto": row["mapsto"],
+                "created_at": row["created_at"],
+                "train_rows": row["train_rows"],
+                "test_rows": row["test_rows"],
+                "status_filter": row["status_filter"],
+                "metrics": metrics,
+                "model_path": row["model_path"],
+                "meta_path": row["meta_path"],
+                "origin_id": row["origin_id"],
+                "origin_name": row["origin_name"],
+                "test_size": row["test_size"],
+                "n_estimators": row["n_estimators"],
+                "max_depth": row["max_depth"],
+                "min_samples_leaf": row["min_samples_leaf"],
+                "log1p_target": row["log1p_target"],
+            }
+        )
+    return models
+
+
+def ensure_gk_surrogate_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gk_surrogate (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            sg_label TEXT,
+            mapsto TEXT,
+            status_filter TEXT,
+            origin_id INTEGER,
+            origin_name TEXT,
+            test_size REAL,
+            n_estimators INTEGER,
+            max_depth INTEGER,
+            min_samples_leaf INTEGER,
+            log1p_target INTEGER,
+            model_path TEXT,
+            meta_path TEXT,
+            created_at TEXT,
+            train_rows INTEGER,
+            test_rows INTEGER,
+            metrics_json TEXT
+        )
+        """
+    )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_surrogate)")}
+    if "sg_label" not in columns:
+        conn.execute("ALTER TABLE gk_surrogate ADD COLUMN sg_label TEXT")
+    if "mapsto" not in columns:
+        conn.execute("ALTER TABLE gk_surrogate ADD COLUMN mapsto TEXT")
+    conn.execute(
+        """
+        UPDATE gk_surrogate
+        SET sg_label = COALESCE(sg_label, 'gamma_max'),
+            mapsto = COALESCE(mapsto, 'gk_run.gamma_max')
+        WHERE sg_label IS NULL OR mapsto IS NULL
+        """
+    )
+    conn.commit()
+
+
+def get_sg_estimate_summary(
+    conn: sqlite3.Connection, surrogate_id: int, sample_limit: int = 20
+) -> Dict[str, object]:
+    summary: Dict[str, object] = {
+        "count": 0,
+        "train_rows": None,
+        "test_rows": None,
+        "estimate_min": None,
+        "estimate_max": None,
+        "estimate_mean": None,
+        "estimate_median": None,
+        "quality_min": None,
+        "quality_max": None,
+        "quality_mean": None,
+        "quality_median": None,
+        "sample_rows": [],
+    }
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS cnt,
+               MIN(sg_estimate) AS est_min,
+               MAX(sg_estimate) AS est_max,
+               AVG(sg_estimate) AS est_mean,
+               MIN(sg_quality) AS q_min,
+               MAX(sg_quality) AS q_max,
+               AVG(sg_quality) AS q_mean
+        FROM sg_estimate
+        WHERE gk_surrogate_id = ?
+        """,
+        (surrogate_id,),
+    ).fetchone()
+    if row is None or row["cnt"] == 0:
+        return summary
+    summary["count"] = int(row["cnt"])
+    summary["estimate_min"] = row["est_min"]
+    summary["estimate_max"] = row["est_max"]
+    summary["estimate_mean"] = row["est_mean"]
+    summary["quality_min"] = row["q_min"]
+    summary["quality_max"] = row["q_max"]
+    summary["quality_mean"] = row["q_mean"]
+    try:
+        est_mean = float(row["est_mean"]) if row["est_mean"] is not None else None
+        q_mean = float(row["q_mean"]) if row["q_mean"] is not None else None
+        if est_mean is not None and q_mean is not None and est_mean != 0:
+            summary["relative_uncertainty_pct"] = abs(q_mean / est_mean) * 100.0
+    except (TypeError, ValueError):
+        pass
+
+    surrogate_row = conn.execute(
+        "SELECT train_rows, test_rows FROM gk_surrogate WHERE id = ?",
+        (surrogate_id,),
+    ).fetchone()
+    if surrogate_row is not None:
+        summary["train_rows"] = surrogate_row["train_rows"]
+        summary["test_rows"] = surrogate_row["test_rows"]
+
+    # Evaluate estimates against available ground truth for this surrogate.
+    eval_summary = evaluate_surrogate_estimates(conn, surrogate_id)
+    summary.update(eval_summary)
+
+    est_rows = conn.execute(
+        """
+        SELECT sg_estimate, sg_quality
+        FROM sg_estimate
+        WHERE gk_surrogate_id = ?
+        """,
+        (surrogate_id,),
+    ).fetchall()
+    if est_rows:
+        est_vals = sorted(
+            float(row["sg_estimate"]) for row in est_rows if row["sg_estimate"] is not None
+        )
+        if est_vals:
+            mid = len(est_vals) // 2
+            summary["estimate_median"] = (
+                est_vals[mid]
+                if len(est_vals) % 2 == 1
+                else 0.5 * (est_vals[mid - 1] + est_vals[mid])
+            )
+        qual_vals = sorted(
+            float(row["sg_quality"]) for row in est_rows if row["sg_quality"] is not None
+        )
+        if qual_vals:
+            mid = len(qual_vals) // 2
+            summary["quality_median"] = (
+                qual_vals[mid]
+                if len(qual_vals) % 2 == 1
+                else 0.5 * (qual_vals[mid - 1] + qual_vals[mid])
+            )
+
+    sample_rows = conn.execute(
+        """
+        SELECT gk_input_id, sg_estimate, sg_quality
+        FROM sg_estimate
+        WHERE gk_surrogate_id = ?
+        ORDER BY gk_input_id
+        LIMIT ?
+        """,
+        (surrogate_id, sample_limit),
+    ).fetchall()
+    summary["sample_rows"] = [
+        {
+            "gk_input_id": row["gk_input_id"],
+            "sg_estimate": row["sg_estimate"],
+            "sg_quality": row["sg_quality"],
+        }
+        for row in sample_rows
+    ]
+    return summary
+
+
+def evaluate_surrogate_estimates(
+    conn: sqlite3.Connection, surrogate_id: int
+) -> Dict[str, object]:
+    summary: Dict[str, object] = {
+        "eval_count": 0,
+        "eval_mae": None,
+        "eval_rmse": None,
+        "eval_r2": None,
+        "eval_bias": None,
+        "eval_median_relative_error": None,
+        "eval_coverage": None,
+        "eval_relative_uncertainty_pct": None,
+        "eval_mean_truth": None,
+        "eval_mae_relative_pct": None,
+        "eval_accuracy_label": None,
+        "eval_confidence_label": None,
+        "eval_verdict": None,
+        "eval_assessment": None,
+    }
+    row = conn.execute(
+        "SELECT mapsto, status_filter FROM gk_surrogate WHERE id = ?",
+        (surrogate_id,),
+    ).fetchone()
+    if row is None:
+        return summary
+    mapsto = str(row["mapsto"] or "")
+    if not mapsto.startswith("gk_run."):
+        return summary
+    target_col = mapsto.split(".", 1)[1]
+    if not target_col:
+        return summary
+    run_columns = {
+        col["name"] for col in conn.execute("PRAGMA table_info(gk_run)").fetchall()
+    }
+    if target_col not in run_columns:
+        return summary
+    status_filter = str(row["status_filter"] or "").strip()
+    statuses: List[str] = []
+    if status_filter and status_filter.upper() != "ALL":
+        for token in re.split(r"[,\s]+", status_filter):
+            token = token.strip()
+            if token:
+                statuses.append(token)
+
+    params: List[object] = [surrogate_id]
+    status_sql = ""
+    if statuses:
+        placeholders = ", ".join(["?"] * len(statuses))
+        status_sql = f" AND r.status IN ({placeholders})"
+        params.extend(statuses)
+
+    query = f"""
+        SELECT sg.sg_estimate AS est_val,
+               sg.sg_quality AS quality_val,
+               r.{target_col} AS truth_val
+        FROM sg_estimate sg
+        JOIN gk_run r ON r.id = (
+            SELECT r2.id
+            FROM gk_run r2
+            WHERE r2.gk_input_id = sg.gk_input_id
+              AND r2.{target_col} IS NOT NULL
+            ORDER BY r2.id DESC
+            LIMIT 1
+        )
+        WHERE sg.gk_surrogate_id = ?
+        {status_sql}
+    """
+
+    errors: List[float] = []
+    truths: List[float] = []
+    rel_errors: List[float] = []
+    rel_uncertainties: List[float] = []
+    quality_hits = 0
+    quality_total = 0
+    for est_val, quality_val, truth_val in conn.execute(query, params).fetchall():
+        try:
+            est = float(est_val)
+            truth = float(truth_val)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(est) or not math.isfinite(truth):
+            continue
+        err = est - truth
+        errors.append(err)
+        truths.append(truth)
+        if truth != 0:
+            rel_errors.append(abs(err) / abs(truth))
+        if quality_val is not None:
+            try:
+                quality = float(quality_val)
+            except (TypeError, ValueError):
+                quality = None
+            if quality is not None and math.isfinite(quality):
+                quality_total += 1
+                if abs(err) <= quality:
+                    quality_hits += 1
+                if truth != 0:
+                    rel_uncertainties.append(abs(quality) / abs(truth))
+
+    if not errors:
+        return summary
+
+    import statistics
+
+    count = len(errors)
+    summary["eval_count"] = count
+    mae = sum(abs(err) for err in errors) / count
+    rmse = math.sqrt(sum(err * err for err in errors) / count)
+    bias = sum(errors) / count
+    summary["eval_mae"] = mae
+    summary["eval_rmse"] = rmse
+    summary["eval_bias"] = bias
+    if rel_errors:
+        summary["eval_median_relative_error"] = statistics.median(rel_errors)
+    if quality_total:
+        summary["eval_coverage"] = quality_hits / quality_total
+    if rel_uncertainties:
+        summary["eval_relative_uncertainty_pct"] = (
+            statistics.median(rel_uncertainties) * 100.0
+        )
+
+    truth_mean = sum(truths) / count
+    summary["eval_mean_truth"] = truth_mean
+    if truth_mean:
+        summary["eval_mae_relative_pct"] = abs(mae / truth_mean) * 100.0
+    denom = sum((t - truth_mean) ** 2 for t in truths)
+    if denom > 0:
+        summary["eval_r2"] = 1.0 - sum(err * err for err in errors) / denom
+
+    assessment = None
+    accuracy_label = None
+    confidence_label = None
+    if count < 20:
+        assessment = f"Too few truth points to judge (N={count})."
+    else:
+        r2 = summary.get("eval_r2")
+        mre = summary.get("eval_median_relative_error")
+        score = 0
+        if isinstance(r2, (int, float)) and math.isfinite(float(r2)):
+            r2_val = float(r2)
+            if r2_val >= 0.8:
+                score += 2
+            elif r2_val >= 0.5:
+                score += 1
+            elif r2_val < 0.2:
+                score -= 1
+        if isinstance(mre, (int, float)):
+            mre_val = float(mre)
+            if mre_val <= 0.15:
+                score += 2
+            elif mre_val <= 0.3:
+                score += 1
+            elif mre_val >= 0.6:
+                score -= 1
+        if score >= 3:
+            accuracy_label = "High accuracy"
+            accuracy_reason = "R²≥0.5 and median rel. error≤15%"
+        elif score >= 1:
+            accuracy_label = "Moderate accuracy"
+            accuracy_reason = "R²≥0.2 or median rel. error≤30%"
+        elif score >= 0:
+            accuracy_label = "Low accuracy"
+            accuracy_reason = "R²<0.2 or median rel. error>30%"
+        else:
+            accuracy_label = "Poor accuracy"
+            accuracy_reason = "R²<0.2 and median rel. error≥60%"
+
+        confidence_score = 0
+        rel_unc_pct = summary.get("eval_relative_uncertainty_pct")
+        coverage = summary.get("eval_coverage")
+        if isinstance(rel_unc_pct, (int, float)):
+            if rel_unc_pct <= 25:
+                confidence_score += 2
+            elif rel_unc_pct <= 50:
+                confidence_score += 1
+            elif rel_unc_pct >= 100:
+                confidence_score -= 1
+        if isinstance(coverage, (int, float)):
+            if coverage >= 0.7:
+                confidence_score += 2
+            elif coverage >= 0.5:
+                confidence_score += 1
+            elif coverage <= 0.3:
+                confidence_score -= 1
+        if confidence_score >= 3:
+            confidence_label = "High confidence"
+            confidence_reason = "median uncertainty≤25% and coverage≥70%"
+        elif confidence_score >= 1:
+            confidence_label = "Medium confidence"
+            confidence_reason = "median uncertainty≤50% or coverage≥50%"
+        else:
+            confidence_label = "Low confidence"
+            confidence_reason = "median uncertainty>50% or coverage<50%"
+
+        if accuracy_label and isinstance(mre, (int, float)):
+            assessment = f"{accuracy_label}; median relative error ~{mre * 100:.0f}%."
+        elif accuracy_label:
+            assessment = f"{accuracy_label}."
+        elif isinstance(mre, (int, float)):
+            assessment = f"Median relative error ~{mre * 100:.0f}%."
+    summary["eval_assessment"] = assessment
+    summary["eval_accuracy_label"] = accuracy_label
+    summary["eval_confidence_label"] = confidence_label
+    summary["eval_accuracy_reason"] = accuracy_reason if "accuracy_reason" in locals() else None
+    summary["eval_confidence_reason"] = confidence_reason if "confidence_reason" in locals() else None
+    verdict_parts = []
+    if accuracy_label:
+        if summary["eval_accuracy_reason"]:
+            verdict_parts.append(f"{accuracy_label} ({summary['eval_accuracy_reason']})")
+        else:
+            verdict_parts.append(accuracy_label)
+    if confidence_label:
+        confidence_text = confidence_label.lower()
+        if summary["eval_confidence_reason"]:
+            verdict_parts.append(
+                f"{confidence_text} ({summary['eval_confidence_reason']})"
+            )
+        else:
+            verdict_parts.append(confidence_text)
+    if verdict_parts:
+        summary["eval_verdict"] = ", ".join(verdict_parts)
+    assessment_detail = assessment
+    if assessment and accuracy_label:
+        prefix = f"{accuracy_label}; "
+        if assessment.startswith(prefix):
+            assessment_detail = assessment[len(prefix) :]
+        else:
+            prefix = f"{accuracy_label}."
+            if assessment.startswith(prefix):
+                assessment_detail = assessment[len(prefix) :].lstrip()
+    summary["eval_assessment_detail"] = assessment_detail
+    return summary
+
+
+def _parse_surrogate_args(extra_args: Optional[List[str]]) -> Dict[str, object]:
+    if not extra_args:
+        return {}
+    args: Dict[str, object] = {}
+    idx = 0
+    while idx < len(extra_args):
+        token = extra_args[idx]
+        if token == "--log1p-target":
+            args["log1p_target"] = 1
+            idx += 1
+            continue
+        if token == "--mapsto-all":
+            args["mapsto_all"] = True
+            idx += 1
+            continue
+        if token.startswith("--") and idx + 1 < len(extra_args):
+            value = extra_args[idx + 1]
+            if token == "--name":
+                args["name"] = value
+            elif token == "--mapsto":
+                args["mapsto"] = value
+            elif token == "--statuses":
+                args["status_filter"] = value
+            elif token == "--origin-id":
+                if value.isdigit():
+                    args["origin_id"] = int(value)
+            elif token == "--origin":
+                args["origin_name"] = value
+            elif token == "--test-size":
+                try:
+                    args["test_size"] = float(value)
+                except ValueError:
+                    pass
+            elif token == "--n-estimators":
+                if value.isdigit():
+                    args["n_estimators"] = int(value)
+            elif token == "--max-depth":
+                if value.isdigit():
+                    args["max_depth"] = int(value)
+            elif token == "--min-samples-leaf":
+                if value.isdigit():
+                    args["min_samples_leaf"] = int(value)
+            idx += 2
+            continue
+        idx += 1
+    return args
+
+
+def _safe_surrogate_name(name: str) -> Optional[str]:
+    if not name:
+        return None
+    if any(sep in name for sep in ("/", "\\", os.path.sep)):
+        return None
+    safe = "".join(ch if (ch.isalnum() or ch in {"-", "_"}) else "_" for ch in name).strip("_")
+    return safe or None
+
+
+def _record_surrogate_model(db_path: str, meta_path: Optional[str], params: Dict[str, object]) -> None:
+    if not db_path:
+        return
+    meta = {}
+    if meta_path:
+        try:
+            with open(meta_path, "r", encoding="utf-8") as handle:
+                meta = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            meta = {}
+    name = params.get("name") or meta.get("name")
+    if not name:
+        return
+    status_filter = params.get("status_filter") or meta.get("status_filter")
+    if isinstance(status_filter, (list, tuple)):
+        status_filter = ",".join(str(item) for item in status_filter)
+    target_label = meta.get("target") or params.get("sg_label")
+    mapsto = params.get("mapsto") or meta.get("mapsto")
+    if not mapsto and target_label:
+        mapsto = f"gk_run.{target_label}"
+    payload = {
+        "name": name,
+        "sg_label": target_label,
+        "mapsto": mapsto,
+        "status_filter": status_filter,
+        "origin_id": params.get("origin_id") or meta.get("origin_id"),
+        "origin_name": params.get("origin_name") or meta.get("origin_name"),
+        "test_size": params.get("test_size"),
+        "n_estimators": params.get("n_estimators"),
+        "max_depth": params.get("max_depth"),
+        "min_samples_leaf": params.get("min_samples_leaf"),
+        "log1p_target": params.get("log1p_target") or (1 if meta.get("target_transform") == "log1p" else 0),
+        "model_path": meta.get("model_path"),
+        "meta_path": meta_path,
+        "created_at": meta.get("created_at"),
+        "train_rows": meta.get("train_rows"),
+        "test_rows": meta.get("test_rows"),
+        "metrics_json": json.dumps(meta.get("metrics")) if meta.get("metrics") is not None else None,
+    }
+    conn = get_connection(db_path)
+    try:
+        ensure_gk_surrogate_table(conn)
+        conn.execute(
+            """
+            INSERT INTO gk_surrogate (
+                name, sg_label, mapsto, status_filter, origin_id, origin_name, test_size,
+                n_estimators, max_depth, min_samples_leaf, log1p_target,
+                model_path, meta_path, created_at, train_rows, test_rows, metrics_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["name"],
+                payload["sg_label"],
+                payload["mapsto"],
+                payload["status_filter"],
+                payload["origin_id"],
+                payload["origin_name"],
+                payload["test_size"],
+                payload["n_estimators"],
+                payload["max_depth"],
+                payload["min_samples_leaf"],
+                payload["log1p_target"],
+                payload["model_path"],
+                payload["meta_path"],
+                payload["created_at"],
+                payload["train_rows"],
+                payload["test_rows"],
+                payload["metrics_json"],
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def load_sampling_report(path: str) -> Optional[Dict[str, object]]:
@@ -396,7 +1118,7 @@ def get_ai_suggestions(
                     "id": "gk_input_wait",
                     "text": (
                         f"{wait_count} gk_input rows are WAIT. "
-                        "Review and mark TORUN to queue runs."
+                        "Open Input Sampling to review and mark TORUN, then batch/launch runs."
                     ),
                 }
             )
@@ -467,11 +1189,15 @@ def get_ai_suggestions(
             suggestions.append(
                 {
                     "id": "batch_launched",
-                    "text": (
-                        f"{total_active} batch DB(s) are LAUNCHED/SYNCED. "
-                        "Consider checking status with check_launched_batches.py."
-                    ),
-                    "action": "check_launched_batches",
+                    "text": f"{total_active} batch DB(s) are LAUNCHED/SYNCED. Consider:",
+                    "items": [
+                        "Check status with check_launched_batches.py.",
+                        "Run the Remote Monitor and open the Monitor tab.",
+                    ],
+                    "actions": [
+                        {"action": "check_launched_batches"},
+                        {"action": "monitor_remote_runs", "panel": "monitor"},
+                    ],
                 }
             )
     remote_bundle_dir = os.path.join(PROJECT_DIR, "remote_gk_inputs")
@@ -1768,7 +2494,10 @@ def get_equil_plasma_dataset(
     return dataset, len(rows)
 
 
-def build_results_columns(run_columns: Optional[set] = None) -> List[Dict[str, str]]:
+def build_results_columns(
+    run_columns: Optional[set] = None,
+    surrogate_models: Optional[List[Dict[str, object]]] = None,
+) -> List[Dict[str, str]]:
     items: List[Dict[str, str]] = []
     for col in ALLOWED_STATS_COLUMNS:
         items.append({"value": f"gk_input.{col}", "label": f"gk_input.{col}"})
@@ -1776,6 +2505,31 @@ def build_results_columns(run_columns: Optional[set] = None) -> List[Dict[str, s
         if run_columns is not None and col not in run_columns:
             continue
         items.append({"value": f"gk_run.{col}", "label": f"gk_run.{col}"})
+    if surrogate_models:
+        for model in surrogate_models:
+            try:
+                surrogate_id = int(model.get("id"))
+            except (TypeError, ValueError):
+                continue
+            label = str(model.get("sg_label") or "surrogate")
+            items.append(
+                {
+                    "value": f"sg_estimate:{surrogate_id}",
+                    "label": f"SG {surrogate_id} {label} - estimate",
+                }
+            )
+            items.append(
+                {
+                    "value": f"sg_error:{surrogate_id}",
+                    "label": f"SG {surrogate_id} {label} - error",
+                }
+            )
+            items.append(
+                {
+                    "value": f"sg_diff:{surrogate_id}",
+                    "label": f"SG {surrogate_id} {label} - diff",
+                }
+            )
     return items
 
 
@@ -1786,6 +2540,180 @@ def get_gk_run_results_points(
     results_filter: str,
     origin_id: Optional[int],
 ) -> Tuple[List[dict], bool]:
+    return get_results_points_any(conn, x_col, y_col, results_filter, origin_id)
+
+
+def _normalize_axis_spec(spec: str) -> str:
+    if not spec:
+        return spec
+    if spec in ALLOWED_STATS_COLUMNS:
+        return f"gk_input.{spec}"
+    return spec
+
+
+def _axis_info(
+    conn: sqlite3.Connection,
+    spec: str,
+    axis_label: str,
+) -> Optional[Dict[str, object]]:
+    spec = _normalize_axis_spec(spec)
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    gk_input_columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_input)")} if "gk_input" in tables else set()
+    gk_run_columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_run)")} if "gk_run" in tables else set()
+    if spec.startswith("gk_input."):
+        col = spec.split(".", 1)[1]
+        if col not in gk_input_columns:
+            return None
+        return {
+            "expr": f"gk_input.{col}",
+            "joins": [],
+            "where": [f"gk_input.{col} IS NOT NULL"],
+            "params": [],
+            "needs_gk_run": False,
+        }
+    if spec.startswith("gk_run."):
+        col = spec.split(".", 1)[1]
+        if col not in gk_run_columns:
+            return None
+        return {
+            "expr": f"gr.{col}",
+            "joins": [],
+            "where": [f"gr.{col} IS NOT NULL"],
+            "params": [],
+            "needs_gk_run": True,
+        }
+    if spec.startswith("sg_estimate:"):
+        if "sg_estimate" not in tables:
+            return None
+        try:
+            surrogate_id = int(spec.split(":", 1)[1])
+        except (IndexError, ValueError):
+            return None
+        alias = f"sg_{axis_label}"
+        join = (
+            f"JOIN sg_estimate AS {alias} "
+            f"ON {alias}.gk_input_id = gk_input.id AND {alias}.gk_surrogate_id = ?"
+        )
+        return {
+            "expr": f"{alias}.sg_estimate",
+            "joins": [join],
+            "where": [f"{alias}.sg_estimate IS NOT NULL"],
+            "params": [surrogate_id],
+            "needs_gk_run": False,
+        }
+    if spec.startswith("sg_error:") or spec.startswith("sg_diff:"):
+        if "sg_estimate" not in tables or "gk_surrogate" not in tables:
+            return None
+        try:
+            surrogate_id = int(spec.split(":", 1)[1])
+        except (IndexError, ValueError):
+            return None
+        row = conn.execute(
+            "SELECT mapsto FROM gk_surrogate WHERE id = ?",
+            (surrogate_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        mapsto = str(row["mapsto"] or "")
+        truth_expr = ""
+        needs_gk_run = False
+        if mapsto.startswith("gk_run."):
+            truth_col = mapsto.split(".", 1)[1]
+            if truth_col not in gk_run_columns:
+                return None
+            truth_expr = f"gr.{truth_col}"
+            needs_gk_run = True
+        elif mapsto.startswith("gk_input."):
+            truth_col = mapsto.split(".", 1)[1]
+            if truth_col not in gk_input_columns:
+                return None
+            truth_expr = f"gk_input.{truth_col}"
+        else:
+            return None
+        alias = f"sg_{axis_label}"
+        join = (
+            f"JOIN sg_estimate AS {alias} "
+            f"ON {alias}.gk_input_id = gk_input.id AND {alias}.gk_surrogate_id = ?"
+        )
+        expr = f"{alias}.sg_estimate - {truth_expr}"
+        where = [
+            f"{alias}.sg_estimate IS NOT NULL",
+            f"{truth_expr} IS NOT NULL",
+        ]
+        if spec.startswith("sg_error:"):
+            expr = f"ABS(({alias}.sg_estimate - {truth_expr}) / {truth_expr}) * 100.0"
+            where.append(f"{truth_expr} != 0")
+        return {
+            "expr": expr,
+            "joins": [join],
+            "where": where,
+            "params": [surrogate_id],
+            "needs_gk_run": needs_gk_run,
+        }
+    return None
+
+
+def get_results_points_any(
+    conn: sqlite3.Connection,
+    x_col: str,
+    y_col: str,
+    results_filter: str,
+    origin_id: Optional[int],
+) -> Tuple[List[dict], bool]:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    axis_x = _axis_info(conn, x_col, "x")
+    axis_y = _axis_info(conn, y_col, "y")
+    if axis_x is None or axis_y is None:
+        return [], False
+    joins = []
+    params: List[object] = []
+    needs_gk_run = axis_x["needs_gk_run"] or axis_y["needs_gk_run"]
+    joins.extend(axis_x["joins"])
+    joins.extend(axis_y["joins"])
+    params.extend(axis_x["params"])
+    params.extend(axis_y["params"])
+    if results_filter in {"finished", "growth"}:
+        needs_gk_run = True
+    if needs_gk_run and "gk_run" not in tables:
+        return [], False
+    if needs_gk_run:
+        joins.append("JOIN gk_run AS gr ON gr.gk_input_id = gk_input.id")
+    joins.append("JOIN gk_study ON gk_study.id = gk_input.gk_study_id")
+    joins.append("JOIN data_equil ON data_equil.id = gk_study.data_equil_id")
+    joins.append("JOIN data_origin AS do ON do.id = data_equil.data_origin_id")
+    where_clauses = []
+    where_clauses.extend(axis_x["where"])
+    where_clauses.extend(axis_y["where"])
+    if results_filter == "finished":
+        where_clauses.append("gr.status IN ('SUCCESS', 'CONVERGED')")
+    if results_filter == "growth":
+        where_clauses.append("gr.gamma_max IS NOT NULL AND gr.gamma_max != 0")
+    if origin_id is not None:
+        where_clauses.append("data_equil.data_origin_id = ?")
+        params.append(origin_id)
+    base_query = (
+        f"SELECT DISTINCT {axis_x['expr']}, {axis_y['expr']}, do.name, do.color "
+        "FROM gk_input "
+        + " ".join(joins)
+    )
+    if where_clauses:
+        base_query += " WHERE " + " AND ".join(where_clauses)
+    rows = conn.execute(base_query, params).fetchall()
+    points = []
+    has_non_finite = False
+    for x_val, y_val, origin_name, origin_color in rows:
+        try:
+            x_float = float(x_val)
+            y_float = float(y_val)
+        except (TypeError, ValueError):
+            has_non_finite = True
+            continue
+        if not math.isfinite(x_float) or not math.isfinite(y_float):
+            has_non_finite = True
+            continue
+        color = data_origin_color(origin_name, origin_color)
+        points.append({"x": x_float, "y": y_float, "color": color})
+    return points, has_non_finite
     use_gk_run = True
     if y_col.startswith("gk_run."):
         y_field = y_col.split(".", 1)[1]
@@ -1828,6 +2756,227 @@ def get_gk_run_results_points(
                 "FROM gk_input JOIN gk_run ON gk_run.gk_input_id = gk_input.id",
             )
     params = []
+    if results_filter == "finished":
+        base_query += " AND gk_run.status IN ('SUCCESS', 'CONVERGED')"
+    if results_filter == "growth":
+        base_query += " AND gk_run.gamma_max IS NOT NULL AND gk_run.gamma_max != 0"
+    if origin_id is not None:
+        base_query += " AND data_equil.data_origin_id = ?"
+        params.append(origin_id)
+    rows = conn.execute(base_query, params).fetchall()
+    points = []
+    has_non_finite = False
+    for x_val, y_val, origin_name, origin_color in rows:
+        if not math.isfinite(float(x_val)) or not math.isfinite(float(y_val)):
+            has_non_finite = True
+            continue
+        color = data_origin_color(origin_name, origin_color)
+        points.append({"x": float(x_val), "y": float(y_val), "color": color})
+    return points, has_non_finite
+
+
+def get_surrogate_error_points(
+    conn: sqlite3.Connection,
+    x_col: str,
+    y_col: str,
+    results_filter: str,
+    origin_id: Optional[int],
+) -> Tuple[List[dict], bool]:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "sg_estimate" not in tables or "gk_surrogate" not in tables:
+        return [], False
+    if x_col.startswith("sg_estimate:") or x_col.startswith("sg_error:") or x_col.startswith("sg_diff:"):
+        return [], False
+    if x_col not in ALLOWED_STATS_COLUMNS:
+        return [], False
+    try:
+        surrogate_id = int(y_col.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return [], False
+    row = conn.execute(
+        "SELECT mapsto FROM gk_surrogate WHERE id = ?",
+        (surrogate_id,),
+    ).fetchone()
+    if row is None:
+        return [], False
+    mapsto = str(row["mapsto"] or "")
+    truth_expr = ""
+    join_gk_run = False
+    if mapsto.startswith("gk_run."):
+        truth_col = mapsto.split(".", 1)[1]
+        truth_expr = f"gr.{truth_col}"
+        join_gk_run = True
+    elif mapsto.startswith("gk_input."):
+        truth_col = mapsto.split(".", 1)[1]
+        truth_expr = f"gk_input.{truth_col}"
+    else:
+        return [], False
+
+    base_query = f"""
+        SELECT DISTINCT gk_input.{x_col}, sg.sg_estimate, {truth_expr}, do.name, do.color
+        FROM gk_input
+        JOIN sg_estimate AS sg ON sg.gk_input_id = gk_input.id
+    """
+    if join_gk_run or results_filter in {"finished", "growth"}:
+        base_query += " JOIN gk_run AS gr ON gr.gk_input_id = gk_input.id"
+    base_query += """
+        JOIN gk_study ON gk_study.id = gk_input.gk_study_id
+        JOIN data_equil ON data_equil.id = gk_study.data_equil_id
+        JOIN data_origin AS do ON do.id = data_equil.data_origin_id
+        WHERE gk_input.{x_col} IS NOT NULL
+          AND sg.sg_estimate IS NOT NULL
+          AND {truth_expr} IS NOT NULL
+          AND {truth_expr} != 0
+          AND sg.gk_surrogate_id = ?
+    """.format(x_col=x_col, truth_expr=truth_expr)
+    params: List[object] = [surrogate_id]
+    if results_filter == "finished":
+        base_query += " AND gr.status IN ('SUCCESS', 'CONVERGED')"
+    if results_filter == "growth":
+        base_query += " AND gr.gamma_max IS NOT NULL AND gr.gamma_max != 0"
+    if origin_id is not None:
+        base_query += " AND data_equil.data_origin_id = ?"
+        params.append(origin_id)
+    rows = conn.execute(base_query, params).fetchall()
+    points = []
+    has_non_finite = False
+    for x_val, est_val, truth_val, origin_name, origin_color in rows:
+        try:
+            x_float = float(x_val)
+            est_float = float(est_val)
+            truth_float = float(truth_val)
+        except (TypeError, ValueError):
+            has_non_finite = True
+            continue
+        if not math.isfinite(x_float) or not math.isfinite(est_float) or not math.isfinite(truth_float):
+            has_non_finite = True
+            continue
+        if truth_float == 0.0:
+            continue
+        err = abs((est_float - truth_float) / truth_float) * 100.0
+        if not math.isfinite(err):
+            has_non_finite = True
+            continue
+        color = data_origin_color(origin_name, origin_color)
+        points.append({"x": x_float, "y": err, "color": color})
+    return points, has_non_finite
+
+
+def get_surrogate_diff_points(
+    conn: sqlite3.Connection,
+    x_col: str,
+    y_col: str,
+    results_filter: str,
+    origin_id: Optional[int],
+) -> Tuple[List[dict], bool]:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "sg_estimate" not in tables or "gk_surrogate" not in tables:
+        return [], False
+    if x_col not in ALLOWED_STATS_COLUMNS:
+        return [], False
+    try:
+        surrogate_id = int(y_col.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return [], False
+    row = conn.execute(
+        "SELECT mapsto FROM gk_surrogate WHERE id = ?",
+        (surrogate_id,),
+    ).fetchone()
+    if row is None:
+        return [], False
+    mapsto = str(row["mapsto"] or "")
+    truth_expr = ""
+    join_gk_run = False
+    if mapsto.startswith("gk_run."):
+        truth_col = mapsto.split(".", 1)[1]
+        truth_expr = f"gr.{truth_col}"
+        join_gk_run = True
+    elif mapsto.startswith("gk_input."):
+        truth_col = mapsto.split(".", 1)[1]
+        truth_expr = f"gk_input.{truth_col}"
+    else:
+        return [], False
+
+    base_query = f"""
+        SELECT DISTINCT gk_input.{x_col}, sg.sg_estimate, {truth_expr}, do.name, do.color
+        FROM gk_input
+        JOIN sg_estimate AS sg ON sg.gk_input_id = gk_input.id
+    """
+    if join_gk_run or results_filter in {"finished", "growth"}:
+        base_query += " JOIN gk_run AS gr ON gr.gk_input_id = gk_input.id"
+    base_query += """
+        JOIN gk_study ON gk_study.id = gk_input.gk_study_id
+        JOIN data_equil ON data_equil.id = gk_study.data_equil_id
+        JOIN data_origin AS do ON do.id = data_equil.data_origin_id
+        WHERE gk_input.{x_col} IS NOT NULL
+          AND sg.sg_estimate IS NOT NULL
+          AND {truth_expr} IS NOT NULL
+          AND sg.gk_surrogate_id = ?
+    """.format(x_col=x_col, truth_expr=truth_expr)
+    params: List[object] = [surrogate_id]
+    if results_filter == "finished":
+        base_query += " AND gr.status IN ('SUCCESS', 'CONVERGED')"
+    if results_filter == "growth":
+        base_query += " AND gr.gamma_max IS NOT NULL AND gr.gamma_max != 0"
+    if origin_id is not None:
+        base_query += " AND data_equil.data_origin_id = ?"
+        params.append(origin_id)
+    rows = conn.execute(base_query, params).fetchall()
+    points = []
+    has_non_finite = False
+    for x_val, est_val, truth_val, origin_name, origin_color in rows:
+        try:
+            x_float = float(x_val)
+            est_float = float(est_val)
+            truth_float = float(truth_val)
+        except (TypeError, ValueError):
+            has_non_finite = True
+            continue
+        if not math.isfinite(x_float) or not math.isfinite(est_float) or not math.isfinite(truth_float):
+            has_non_finite = True
+            continue
+        diff = est_float - truth_float
+        if not math.isfinite(diff):
+            has_non_finite = True
+            continue
+        color = data_origin_color(origin_name, origin_color)
+        points.append({"x": x_float, "y": diff, "color": color})
+    return points, has_non_finite
+
+
+def get_surrogate_results_points(
+    conn: sqlite3.Connection,
+    x_col: str,
+    y_col: str,
+    results_filter: str,
+    origin_id: Optional[int],
+) -> Tuple[List[dict], bool]:
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "sg_estimate" not in tables:
+        return [], False
+    if x_col not in ALLOWED_STATS_COLUMNS:
+        return [], False
+    try:
+        surrogate_id = int(y_col.split(":", 1)[1])
+    except (IndexError, ValueError):
+        return [], False
+    base_query = f"""
+        SELECT DISTINCT gk_input.{x_col}, sg.sg_estimate, do.name, do.color
+        FROM gk_input
+        JOIN sg_estimate AS sg ON sg.gk_input_id = gk_input.id
+        JOIN gk_study ON gk_study.id = gk_input.gk_study_id
+        JOIN data_equil ON data_equil.id = gk_study.data_equil_id
+        JOIN data_origin AS do ON do.id = data_equil.data_origin_id
+        WHERE gk_input.{x_col} IS NOT NULL
+          AND sg.sg_estimate IS NOT NULL
+          AND sg.gk_surrogate_id = ?
+    """
+    params: List[object] = [surrogate_id]
+    if results_filter in {"finished", "growth"}:
+        base_query = base_query.replace(
+            "FROM gk_input",
+            "FROM gk_input JOIN gk_run ON gk_run.gk_input_id = gk_input.id",
+        )
     if results_filter == "finished":
         base_query += " AND gk_run.status IN ('SUCCESS', 'CONVERGED')"
     if results_filter == "growth":
@@ -1903,10 +3052,12 @@ def get_gamma_max_status_report(
 
 
 def _run_action(
-    action_name: str,
+    action_key: str,
+    action_label: str,
     script_path: str,
     db_path: Optional[str],
     extra_args: Optional[List[str]] = None,
+    env_overrides: Optional[Dict[str, str]] = None,
 ) -> None:
     try:
         script_args: List[str] = []
@@ -1927,27 +3078,159 @@ def _run_action(
                 script_args = [*script_args, db_arg, db_path]
             else:
                 script_args = [*script_args, db_path]
+        env = os.environ.copy()
+        if env_overrides:
+            env.update(env_overrides)
         if capture_output:
-            result = subprocess.run(
-                [sys.executable, script_path, *script_args],
-                check=True,
-                text=True,
-                capture_output=True,
-            )
-            stdout = result.stdout.strip()
-            stderr = result.stderr.strip()
-            combined = "\n".join(
-                [chunk for chunk in (stdout, stderr) if chunk]
-            )
-            if combined:
-                print(combined)
-                if len(combined) > 2000:
-                    combined = combined[:2000].rstrip() + "\n... (truncated)"
-                message = combined
+            cmd = [sys.executable, script_path, *script_args]
+            if action_key == "train_gamma_surrogate":
+                def _run_surrogate_once(
+                    run_args: List[str],
+                    params: Dict[str, object],
+                    env_local: Dict[str, str],
+                ) -> str:
+                    cmd_local = [sys.executable, script_path, *run_args]
+                    print("Running:", " ".join(cmd_local))
+                    process = subprocess.Popen(
+                        cmd_local,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        env=env_local,
+                    )
+                    combined_lines: List[str] = []
+                    meta_path = None
+                    if process.stdout is not None:
+                        for line in process.stdout:
+                            line = line.rstrip()
+                            if line:
+                                print(line)
+                                combined_lines.append(line)
+                                if line.startswith("Metadata saved:"):
+                                    meta_path = line.split("Metadata saved:", 1)[-1].strip() or None
+                    returncode = process.wait()
+                    if returncode != 0:
+                        raise subprocess.CalledProcessError(returncode, cmd_local)
+                    if not meta_path:
+                        safe_name = _safe_surrogate_name(str(params.get("name") or ""))
+                        if safe_name:
+                            candidate = os.path.join(
+                                SURROGATE_MODEL_DIR, f"{safe_name}.pkl.json"
+                            )
+                            if os.path.exists(candidate):
+                                meta_path = candidate
+                        if not meta_path and os.path.isdir(SURROGATE_MODEL_DIR):
+                            json_paths = sorted(
+                                glob.glob(os.path.join(SURROGATE_MODEL_DIR, "*.pkl.json")),
+                                key=os.path.getmtime,
+                                reverse=True,
+                            )
+                            if json_paths:
+                                meta_path = json_paths[0]
+                    if meta_path:
+                        _record_surrogate_model(db_path or "", meta_path, params)
+                    return "\n".join(combined_lines).strip()
+
+                params = _parse_surrogate_args(extra_args)
+                mapsto_all = bool(params.get("mapsto_all"))
+                combined_messages: List[str] = []
+                if mapsto_all:
+                    base_name = str(params.get("name") or "").strip()
+                    mapsto_targets = [
+                        "gk_run.gamma_max",
+                        "gk_run.ky_abs_mean",
+                        "gk_run.diffusion",
+                    ]
+                    def _strip_args(args: List[str]) -> List[str]:
+                        stripped: List[str] = []
+                        skip_next = False
+                        for token in args:
+                            if skip_next:
+                                skip_next = False
+                                continue
+                            if token in {"--name", "--mapsto"}:
+                                skip_next = True
+                                continue
+                            if token == "--mapsto-all":
+                                continue
+                            stripped.append(token)
+                        return stripped
+                    base_args = _strip_args(script_args)
+                    for mapsto in mapsto_targets:
+                        suffix = mapsto
+                        name = f"{base_name} - {suffix}".strip()
+                        run_args = [*base_args, "--name", name, "--mapsto", mapsto]
+                        run_params = dict(params)
+                        run_params["name"] = name
+                        run_params["mapsto"] = mapsto
+                        run_params.pop("mapsto_all", None)
+                        combined = _run_surrogate_once(run_args, run_params, env)
+                        if combined:
+                            combined_messages.append(
+                                f"[{mapsto}]\n{combined}"
+                            )
+                    message = "\n\n".join(combined_messages).strip() if combined_messages else None
+                else:
+                    combined = _run_surrogate_once(script_args, params, env)
+                    if combined:
+                        if len(combined) > 2000:
+                            combined = combined[:2000].rstrip() + "\n... (truncated)"
+                        message = combined
+                    else:
+                        message = None
+            elif action_key == "test_hpc_connection":
+                result = subprocess.run(
+                    cmd,
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                )
+                stdout = (result.stdout or "").strip()
+                stderr = (result.stderr or "").strip()
+                save_hpc_test_result(
+                    {
+                        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "success": result.returncode == 0,
+                        "output": stdout,
+                        "error": stderr,
+                    }
+                )
+                combined = "\n".join([chunk for chunk in (stdout, stderr) if chunk])
+                if combined:
+                    print(combined)
+                    if len(combined) > 2000:
+                        combined = combined[:2000].rstrip() + "\n... (truncated)"
+                if result.returncode != 0:
+                    message = (
+                        f"Action '{action_label}' failed:\n{combined}"
+                        if combined
+                        else f"Action '{action_label}' failed."
+                    )
+                else:
+                    message = combined if combined else None
             else:
-                message = None
+                result = subprocess.run(
+                    cmd,
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                    env=env,
+                )
+                stdout = result.stdout.strip()
+                stderr = result.stderr.strip()
+                combined = "\n".join(
+                    [chunk for chunk in (stdout, stderr) if chunk]
+                )
+                if combined:
+                    print(combined)
+                    if len(combined) > 2000:
+                        combined = combined[:2000].rstrip() + "\n... (truncated)"
+                    message = combined
+                else:
+                    message = None
         else:
-            subprocess.run([sys.executable, script_path, *script_args], check=True)
+            subprocess.run([sys.executable, script_path, *script_args], check=True, env=env)
             message = None
     except subprocess.CalledProcessError as exc:
         stdout = (exc.stdout or "").strip() if capture_output else ""
@@ -1957,15 +3240,27 @@ def _run_action(
             print(combined)
             if len(combined) > 2000:
                 combined = combined[:2000].rstrip() + "\n... (truncated)"
-            message = f"Action '{action_name}' failed:\n{combined}"
+            message = f"Action '{action_label}' failed:\n{combined}"
         else:
-            message = f"Action '{action_name}' failed: {exc}"
+            message = f"Action '{action_label}' failed: {exc}"
+        if action_key == "test_hpc_connection":
+            save_hpc_test_result(
+                {
+                    "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "success": False,
+                    "output": stdout,
+                    "error": stderr or str(exc),
+                }
+            )
     except Exception as exc:
-        message = f"Action '{action_name}' failed: {exc}"
+        message = f"Action '{action_label}' failed: {exc}"
+    if message:
+        print(message)
     with ACTION_LOCK:
         ACTION_STATE["running"] = False
         ACTION_STATE["name"] = None
         ACTION_STATE["message"] = message
+        ACTION_STATE["completed_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
 
 def _start_action(
@@ -1973,6 +3268,8 @@ def _start_action(
     db_path: str,
     extra_args: Optional[List[str]] = None,
     panel: str = "action",
+    redirect_params: Optional[Dict[str, object]] = None,
+    env_overrides: Optional[Dict[str, str]] = None,
 ):
     action = ACTIONS.get(action_name)
     if action is None:
@@ -1984,17 +3281,29 @@ def _start_action(
             current = ACTION_STATE["name"] or "another action"
             ACTION_STATE["message"] = f"Action '{current}' is already running."
             return redirect(url_for("index", panel=panel, db=db_path))
+        ACTION_STATE["token"] = int(ACTION_STATE.get("token") or 0) + 1
         ACTION_STATE["running"] = True
         ACTION_STATE["name"] = action["label"]
         ACTION_STATE["message"] = f"Action '{action['label']}' is running."
         ACTION_STATE["key"] = action_name
+        ACTION_STATE["completed_at"] = None
     thread = threading.Thread(
         target=_run_action,
-        args=(action["label"], action["script"], db_path, extra_args),
+        args=(
+            action_name,
+            action["label"],
+            action["script"],
+            db_path,
+            extra_args,
+            env_overrides,
+        ),
         daemon=True,
     )
     thread.start()
-    return redirect(url_for("index", panel=panel, db=db_path))
+    redirect_kwargs: Dict[str, object] = {"panel": panel, "db": db_path}
+    if redirect_params:
+        redirect_kwargs.update(redirect_params)
+    return redirect(url_for("index", **redirect_kwargs))
 
 
 @app.route("/action/<action_name>", methods=["POST"])
@@ -2003,6 +3312,30 @@ def run_action(action_name: str):
     panel = request.form.get("panel", "action")
     log_usage("action_click", {"action": action_name, "panel": panel, "db": db_path})
     extra_args: List[str] = []
+    env_overrides: Optional[Dict[str, str]] = None
+    hpc_config = load_hpc_config()
+    hpc_user = (hpc_config.get("ssh_user") or "").strip() or "jdominsk"
+    if action_name in {
+        "monitor_remote_runs",
+        "mark_remote_running_interrupted",
+        "mark_remote_run_restart",
+        "launch_remote_slurm_job",
+        "open_ssh_pipe",
+        "test_hpc_connection",
+    }:
+        env_overrides = {}
+        identity = (hpc_config.get("ssh_identity") or "").strip()
+        control_path = (hpc_config.get("ssh_control_path") or "").strip()
+        control_persist = (hpc_config.get("ssh_control_persist") or "").strip()
+        connect_timeout = (hpc_config.get("ssh_connect_timeout") or "").strip()
+        if identity:
+            env_overrides["DTWIN_SSH_IDENTITY"] = identity
+        if control_path:
+            env_overrides["DTWIN_SSH_CONTROL_PATH"] = control_path
+        if control_persist:
+            env_overrides["DTWIN_SSH_CONTROL_PERSIST"] = control_persist
+        if connect_timeout:
+            env_overrides["DTWIN_SSH_CONNECT_TIMEOUT"] = connect_timeout
     if action_name == "check_launched_batches":
         plots_limit = (request.form.get("plots_limit") or "").strip()
         if plots_limit.isdigit():
@@ -2011,15 +3344,24 @@ def run_action(action_name: str):
                 extra_args.append("--sync-plots")
                 plots_dir = os.path.join(BATCH_BASE_DIR, "plots")
                 extra_args.extend(["--plots-dir", plots_dir])
+        batch_name = (request.form.get("batch_name") or "").strip()
+        if batch_name:
+            extra_args.extend(["--batch", batch_name])
     if action_name == "monitor_remote_runs":
-        extra_args.extend(["--user", "jdominsk"])
+        extra_args.extend(["--user", hpc_user])
         if (request.form.get("run_analyze") or "").strip():
             extra_args.append("--run-analyze")
+        monitor_timeout = (hpc_config.get("monitor_timeout") or "").strip()
+        if monitor_timeout:
+            extra_args.extend(["--timeout", monitor_timeout])
     if action_name == "mark_remote_running_interrupted":
         batch_name = (request.form.get("batch_name") or "").strip()
         if batch_name:
             extra_args.extend(["--batch", batch_name])
-        extra_args.extend(["--follow-monitor", "--monitor-user", "jdominsk"])
+        extra_args.extend(["--follow-monitor", "--monitor-user", hpc_user])
+        monitor_timeout = (hpc_config.get("monitor_timeout") or "").strip()
+        if monitor_timeout:
+            extra_args.extend(["--monitor-timeout", monitor_timeout])
     if action_name == "mark_remote_run_restart":
         batch_name = (request.form.get("batch_name") or "").strip()
         run_ids = request.form.getlist("run_id")
@@ -2028,14 +3370,117 @@ def run_action(action_name: str):
         for run_id in run_ids:
             if run_id.isdigit():
                 extra_args.extend(["--run-id", run_id])
-        extra_args.extend(["--follow-monitor", "--monitor-user", "jdominsk"])
+        extra_args.extend(["--follow-monitor", "--monitor-user", hpc_user])
+        monitor_timeout = (hpc_config.get("monitor_timeout") or "").strip()
+        if monitor_timeout:
+            extra_args.extend(["--monitor-timeout", monitor_timeout])
     if action_name == "launch_remote_slurm_job":
         batch_name = (request.form.get("batch_name") or "").strip()
         if batch_name:
             extra_args.extend(["--batch", batch_name])
-        extra_args.extend(["--user", "jdominsk"])
-        extra_args.extend(["--follow-monitor", "--monitor-user", "jdominsk"])
-    return _start_action(action_name, db_path, extra_args or None, panel=panel)
+        extra_args.extend(["--user", hpc_user])
+        extra_args.extend(["--follow-monitor", "--monitor-user", hpc_user])
+        monitor_timeout = (hpc_config.get("monitor_timeout") or "").strip()
+        if monitor_timeout:
+            extra_args.extend(["--monitor-timeout", monitor_timeout])
+    if action_name == "open_ssh_pipe":
+        host = (hpc_config.get("ssh_host") or "").strip() or "perlmutter.nersc.gov"
+        extra_args.extend(["--host", host])
+        if hpc_user:
+            extra_args.extend(["--user", hpc_user])
+    if action_name == "test_hpc_connection":
+        host = (hpc_config.get("ssh_host") or "").strip() or "perlmutter.nersc.gov"
+        extra_args.extend(["--host", host])
+        if hpc_user:
+            extra_args.extend(["--user", hpc_user])
+    if action_name == "train_gamma_surrogate":
+        model_name = (request.form.get("surrogate_name") or "").strip()
+        if not model_name:
+            with ACTION_LOCK:
+                ACTION_STATE["message"] = "Surrogate name is required."
+            return redirect(url_for("index", panel="surrogate", db=db_path))
+        extra_args.extend(["--name", model_name])
+        mapsto = (request.form.get("surrogate_mapsto") or "").strip()
+        if mapsto and mapsto.upper() == "ALL":
+            extra_args.append("--mapsto-all")
+        elif mapsto:
+            extra_args.extend(["--mapsto", mapsto])
+        statuses = (request.form.get("surrogate_statuses") or "").strip()
+        if statuses:
+            extra_args.extend(["--statuses", statuses])
+        origin_id = (request.form.get("surrogate_origin_id") or "").strip()
+        if origin_id.isdigit():
+            extra_args.extend(["--origin-id", origin_id])
+        origin_name = (request.form.get("surrogate_origin") or "").strip()
+        if origin_name:
+            extra_args.extend(["--origin", origin_name])
+        test_size = (request.form.get("surrogate_test_size") or "").strip()
+        if test_size:
+            extra_args.extend(["--test-size", test_size])
+        n_estimators = (request.form.get("surrogate_n_estimators") or "").strip()
+        if n_estimators:
+            extra_args.extend(["--n-estimators", n_estimators])
+        max_depth = (request.form.get("surrogate_max_depth") or "").strip()
+        if max_depth:
+            extra_args.extend(["--max-depth", max_depth])
+        min_samples_leaf = (request.form.get("surrogate_min_samples_leaf") or "").strip()
+        if min_samples_leaf:
+            extra_args.extend(["--min-samples-leaf", min_samples_leaf])
+        if (request.form.get("surrogate_log1p") or "").strip():
+            extra_args.append("--log1p-target")
+    if action_name == "run_surrogate_estimate":
+        surrogate_id = (request.form.get("surrogate_id") or "").strip()
+        if not surrogate_id.isdigit():
+            with ACTION_LOCK:
+                ACTION_STATE["message"] = "Surrogate id is required."
+            return redirect(url_for("index", panel="surrogate", db=db_path))
+        extra_args.extend(["--surrogate-id", surrogate_id])
+        return _start_action(
+            action_name,
+            db_path,
+            extra_args or None,
+            panel=panel,
+            redirect_params={"surrogate_id": surrogate_id},
+            env_overrides=env_overrides,
+        )
+    if action_name == "delete_surrogate_model":
+        surrogate_id = (request.form.get("surrogate_id") or "").strip()
+        if not surrogate_id.isdigit():
+            with ACTION_LOCK:
+                ACTION_STATE["message"] = "Surrogate id is required."
+            return redirect(url_for("index", panel="surrogate", db=db_path))
+        extra_args.extend(["--surrogate-id", surrogate_id])
+        return _start_action(
+            action_name,
+            db_path,
+            extra_args or None,
+            panel=panel,
+            redirect_params={"surrogate_id": surrogate_id},
+            env_overrides=env_overrides,
+        )
+    return _start_action(
+        action_name,
+        db_path,
+        extra_args or None,
+        panel=panel,
+        env_overrides=env_overrides,
+    )
+
+
+@app.route("/save_hpc_config", methods=["POST"])
+def save_hpc_config_route():
+    db_path = request.form.get("db", DEFAULT_DB)
+    payload = {
+        "ssh_user": (request.form.get("ssh_user") or "").strip(),
+        "ssh_host": (request.form.get("ssh_host") or "").strip(),
+        "ssh_identity": (request.form.get("ssh_identity") or "").strip(),
+        "ssh_control_path": (request.form.get("ssh_control_path") or "").strip(),
+        "ssh_control_persist": (request.form.get("ssh_control_persist") or "").strip(),
+        "ssh_connect_timeout": (request.form.get("ssh_connect_timeout") or "").strip(),
+        "monitor_timeout": (request.form.get("monitor_timeout") or "").strip(),
+    }
+    save_hpc_config(payload)
+    return redirect(url_for("index", panel="hpc", db=db_path))
 
 
 @app.route("/suggestion_action", methods=["POST"])
@@ -2122,6 +3567,7 @@ def edit_gk_input():
     db_path = request.form.get("db", DEFAULT_DB)
     gk_input_id = request.form.get("gk_input_id", "").strip()
     action = request.form.get("action", "load")
+    panel = request.form.get("panel", "tables")
     log_usage(
         "edit_gk_input",
         {"action": action, "gk_input_id": gk_input_id, "db": db_path},
@@ -2130,7 +3576,7 @@ def edit_gk_input():
         return redirect(
             url_for(
                 "index",
-                panel="edit",
+                panel=panel,
                 db=db_path,
                 gk_input_id=gk_input_id,
                 edit_error="Enter a numeric gk_input id.",
@@ -2148,7 +3594,7 @@ def edit_gk_input():
                 return redirect(
                     url_for(
                         "index",
-                        panel="edit",
+                        panel=panel,
                         db=db_path,
                         gk_input_id=gk_input_id,
                         edit_error="No gk_input row found for that id.",
@@ -2158,7 +3604,7 @@ def edit_gk_input():
                 return redirect(
                     url_for(
                         "index",
-                        panel="edit",
+                        panel=panel,
                         db=db_path,
                         gk_input_id=gk_input_id,
                         edit_error="Edits allowed only when status is WAIT.",
@@ -2199,7 +3645,7 @@ def edit_gk_input():
         return redirect(
             url_for(
                 "index",
-                panel="edit",
+                panel=panel,
                 db=db_path,
                 gk_input_id=gk_input_id,
                 edit_message="Saved.",
@@ -2209,7 +3655,7 @@ def edit_gk_input():
     return redirect(
         url_for(
             "index",
-            panel="edit",
+            panel=panel,
             db=db_path,
             gk_input_id=gk_input_id,
         )
@@ -2220,7 +3666,10 @@ def edit_gk_input():
 def index():
     db_path = request.args.get("db", DEFAULT_DB)
     selected_table = request.args.get("table")
-    selected_panel = request.args.get("panel", "statistics")
+    panel_param = request.args.get("panel", "results")
+    selected_panel = panel_param
+    if selected_panel == "hpc":
+        selected_panel = "results"
     log_usage(
         "page_view",
         {
@@ -2272,6 +3721,15 @@ def index():
         else None
     )
     sampling_report_file = request.args.get("sampling_report_file", "")
+    sampling_tab = (request.args.get("sampling_tab") or "equil").strip().lower()
+    if panel_param == "plasma-sampling":
+        sampling_tab = "plasma"
+        selected_panel = "sampling"
+    elif panel_param == "sampling-batch":
+        sampling_tab = "batch"
+        selected_panel = "sampling"
+    if sampling_tab not in {"equil", "plasma", "batch"}:
+        sampling_tab = "equil"
     sampling_batch_origin_raw = request.args.get("sampling_batch_origin_id")
     sampling_batch_origin_id = (
         int(sampling_batch_origin_raw)
@@ -2322,6 +3780,10 @@ def index():
     y3_col = request.args.get("y3_col", "ion_vnewk")
     x4_col = request.args.get("x4_col", "rhoc")
     y4_col = request.args.get("y4_col", "ion_vnewk")
+    results_x_col = request.args.get("results_x_col")
+    results_x2_col = request.args.get("results_x2_col")
+    results_x3_col = request.args.get("results_x3_col")
+    results_x4_col = request.args.get("results_x4_col")
     results_y_col = request.args.get("results_y_col", "gk_input.ion_tprim")
     results_y2_col = request.args.get("results_y2_col", "gk_run.gamma_max")
     results_y3_col = request.args.get("results_y3_col", "gk_run.ky_abs_mean")
@@ -2459,6 +3921,13 @@ def index():
     sampling_batch_detail_error: Optional[str] = None
     sampling_batch_columns = MHD_COLUMNS
     monitor_report = load_monitor_report(MONITOR_REPORT_PATH)
+    hpc_config = load_hpc_config()
+    hpc_test_result = load_hpc_test_result()
+    surrogate_models: List[Dict[str, object]] = []
+    surrogate_model_selected = (request.args.get("surrogate_model") or "").strip()
+    surrogate_id_raw = (request.args.get("surrogate_id") or "").strip()
+    surrogate_id = int(surrogate_id_raw) if surrogate_id_raw.isdigit() else None
+    surrogate_estimate_summary: Optional[Dict[str, object]] = None
 
     if not os.path.exists(db_path):
         return render_template(
@@ -2499,6 +3968,10 @@ def index():
             results_y2_col=results_y2_col,
             results_y3_col=results_y3_col,
             results_y4_col=results_y4_col,
+            results_x_col=results_x_col,
+            results_x2_col=results_x2_col,
+            results_x3_col=results_x3_col,
+            results_x4_col=results_x4_col,
             results_x_min=results_x_min,
             results_x_max=results_x_max,
             results_y_min=results_y_min,
@@ -2523,7 +3996,7 @@ def index():
             results_y4_max=results_y4_max,
             results_x4_scale=results_x4_scale,
             results_y4_scale=results_y4_scale,
-            results_columns=build_results_columns(),
+            results_columns=build_results_columns(surrogate_models=surrogate_models),
             results_report=None,
             results_plot_options=[],
             results_plot_selected=None,
@@ -2535,6 +4008,7 @@ def index():
             data_origin_colors={},
             selected_origin_id=origin_id,
             sampling_origin_id=sampling_origin_id,
+            sampling_tab=sampling_tab,
             sampling_report=None,
             sampling_coverage=None,
             sampling_regimes=None,
@@ -2556,6 +4030,9 @@ def index():
             sampling_batch_columns=MHD_COLUMNS,
             sampling_batch_error="Database not found.",
             monitor_report=monitor_report,
+            surrogate_models=surrogate_models,
+            surrogate_model_selected=surrogate_model_selected,
+            schema_overview=[],
             plasma_origin_id=plasma_origin_id,
             plasma_report=None,
             plasma_coverage=None,
@@ -2600,24 +4077,46 @@ def index():
             action_status=get_action_state(),
             have_numpy=HAVE_NUMPY,
             error=f"Database not found: {db_path}",
+            surrogate_id=surrogate_id,
+            surrogate_estimate_summary=surrogate_estimate_summary,
+            hpc_config=load_hpc_config(),
+            hpc_test_result=hpc_test_result,
         )
 
     conn = get_connection(db_path)
     try:
         tables = list_tables(conn)
+        try:
+            ensure_gk_surrogate_table(conn)
+            tables = list_tables(conn)
+        except sqlite3.Error:
+            pass
+        schema_overview = build_schema_overview(conn, tables)
         ai_feedback = load_ai_feedback()
         ai_suggestions = get_ai_suggestions(conn, ai_feedback)
         table_total_count = 0
         table_filtered_count = 0
         data_origin_colors: Dict[str, str] = {}
+        surrogate_models = list_surrogate_models_db(conn) if "gk_surrogate" in tables else []
+        if surrogate_models:
+            model_ids: List[int] = []
+            for model in surrogate_models:
+                try:
+                    model_ids.append(int(model.get("id")))
+                except (TypeError, ValueError):
+                    continue
+            if surrogate_id is None or (model_ids and surrogate_id not in model_ids):
+                surrogate_id = model_ids[0] if model_ids else None
+        if surrogate_id is not None and "sg_estimate" in tables:
+            surrogate_estimate_summary = get_sg_estimate_summary(conn, surrogate_id)
         if "gk_run" in tables:
             gk_run_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(gk_run)").fetchall()
             }
-            results_columns = build_results_columns(gk_run_columns)
+            results_columns = build_results_columns(gk_run_columns, surrogate_models)
             if not results_columns:
-                results_columns = build_results_columns()
+                results_columns = build_results_columns(surrogate_models=surrogate_models)
         if selected_table not in tables:
             selected_table = tables[0] if tables else None
         if selected_table:
@@ -2749,7 +4248,7 @@ def index():
                         id_column=MHD_ID_COLUMN,
                     )
                     eqp_selection["duration_sec"] = time.perf_counter() - start
-        if selected_panel == "sampling-batch":
+        if selected_panel == "sampling" and sampling_tab == "batch":
             if sampling_reports:
                 if sampling_report_file not in sampling_reports:
                     sampling_report_file = sampling_reports[-1]
@@ -2791,8 +4290,16 @@ def index():
                             sampling_batch_detail_error = "Selected origin not found in report."
             else:
                 sampling_batch_error = "No sampling_results_*.json files found."
-        if "gk_run" in tables and "gk_input" in tables:
+        if "gk_input" in tables:
             results_values = {opt["value"] for opt in results_columns}
+            if results_x_col is None:
+                results_x_col = f"gk_input.{x_col}"
+            if results_x2_col is None:
+                results_x2_col = f"gk_input.{x2_col}"
+            if results_x3_col is None:
+                results_x3_col = f"gk_input.{x3_col}"
+            if results_x4_col is None:
+                results_x4_col = f"gk_input.{x4_col}"
             if results_y_col not in results_values and results_columns:
                 results_y_col = results_columns[0]["value"]
             if results_y2_col not in results_values and results_columns:
@@ -2801,23 +4308,38 @@ def index():
                 results_y3_col = results_columns[0]["value"]
             if results_y4_col not in results_values and results_columns:
                 results_y4_col = results_columns[0]["value"]
+            if results_x_col not in results_values and results_columns:
+                results_x_col = results_columns[0]["value"]
+            if results_x2_col not in results_values and results_columns:
+                results_x2_col = results_columns[0]["value"]
+            if results_x3_col not in results_values and results_columns:
+                results_x3_col = results_columns[0]["value"]
+            if results_x4_col not in results_values and results_columns:
+                results_x4_col = results_columns[0]["value"]
             results_points, results_warn = get_gk_run_results_points(
-                conn, x_col, results_y_col, results_filter, origin_id
+                conn, results_x_col, results_y_col, results_filter, origin_id
             )
             results_points_2, results_warn_2 = get_gk_run_results_points(
-                conn, x2_col, results_y2_col, results_filter, origin_id
+                conn, results_x2_col, results_y2_col, results_filter, origin_id
             )
             results_points_3, results_warn_3 = get_gk_run_results_points(
-                conn, x3_col, results_y3_col, results_filter, origin_id
+                conn, results_x3_col, results_y3_col, results_filter, origin_id
             )
             results_points_4, results_warn_4 = get_gk_run_results_points(
-                conn, x4_col, results_y4_col, results_filter, origin_id
+                conn, results_x4_col, results_y4_col, results_filter, origin_id
             )
             results_report = get_gamma_max_status_report(conn, origin_id)
             def _fetch_run_point(
                 run_id: int, x_column: str, y_column: str
             ) -> Optional[Dict[str, float]]:
-                if x_column not in ALLOWED_STATS_COLUMNS:
+                x_spec = _normalize_axis_spec(x_column)
+                if x_spec.startswith("gk_input."):
+                    x_field = x_spec.split(".", 1)[1]
+                    x_expr = f"gi.{x_field}"
+                elif x_spec.startswith("gk_run."):
+                    x_field = x_spec.split(".", 1)[1]
+                    x_expr = f"gr.{x_field}"
+                else:
                     return None
                 if y_column.startswith("gk_run."):
                     y_field = y_column.split(".", 1)[1]
@@ -2827,22 +4349,19 @@ def index():
                     }
                     if y_field not in run_columns:
                         return None
-                    query = (
-                        f"SELECT gi.{x_column}, gr.{y_field} "
-                        "FROM gk_run gr JOIN gk_input gi ON gi.id = gr.gk_input_id "
-                        "WHERE gr.id = ?"
-                    )
+                    y_expr = f"gr.{y_field}"
                 elif y_column.startswith("gk_input."):
                     y_field = y_column.split(".", 1)[1]
                     if y_field not in ALLOWED_STATS_COLUMNS:
                         return None
-                    query = (
-                        f"SELECT gi.{x_column}, gi.{y_field} "
-                        "FROM gk_run gr JOIN gk_input gi ON gi.id = gr.gk_input_id "
-                        "WHERE gr.id = ?"
-                    )
+                    y_expr = f"gi.{y_field}"
                 else:
                     return None
+                query = (
+                    f"SELECT {x_expr}, {y_expr} "
+                    "FROM gk_run gr JOIN gk_input gi ON gi.id = gr.gk_input_id "
+                    "WHERE gr.id = ?"
+                )
                 row = conn.execute(query, (run_id,)).fetchone()
                 if row is None:
                     return None
@@ -2931,16 +4450,16 @@ def index():
                         else None,
                     }
                     results_highlight = _fetch_run_point(
-                        selected_run_id, x_col, results_y_col
+                        selected_run_id, results_x_col, results_y_col
                     )
                     results_highlight_2 = _fetch_run_point(
-                        selected_run_id, x2_col, results_y2_col
+                        selected_run_id, results_x2_col, results_y2_col
                     )
                     results_highlight_3 = _fetch_run_point(
-                        selected_run_id, x3_col, results_y3_col
+                        selected_run_id, results_x3_col, results_y3_col
                     )
                     results_highlight_4 = _fetch_run_point(
-                        selected_run_id, x4_col, results_y4_col
+                        selected_run_id, results_x4_col, results_y4_col
                     )
             if edit_gk_input_id and edit_gk_input_id.isdigit():
                 row = conn.execute(
@@ -3032,6 +4551,10 @@ def index():
         results_y2_col=results_y2_col,
         results_y3_col=results_y3_col,
         results_y4_col=results_y4_col,
+        results_x_col=results_x_col,
+        results_x2_col=results_x2_col,
+        results_x3_col=results_x3_col,
+        results_x4_col=results_x4_col,
         results_plot_options=results_plot_options,
         results_plot_selected=results_plot_selected,
         results_highlight=results_highlight,
@@ -3068,6 +4591,7 @@ def index():
         data_origin_colors=data_origin_colors,
         selected_origin_id=origin_id,
         sampling_origin_id=sampling_origin_id,
+        sampling_tab=sampling_tab,
         sampling_report=sampling_report,
         sampling_coverage=sampling_coverage,
         sampling_regimes=sampling_regimes,
@@ -3089,6 +4613,11 @@ def index():
         sampling_batch_columns=sampling_batch_columns,
         sampling_batch_error=sampling_batch_error,
         monitor_report=monitor_report,
+        hpc_config=hpc_config,
+        hpc_test_result=hpc_test_result,
+        surrogate_models=surrogate_models,
+        surrogate_model_selected=surrogate_model_selected,
+        schema_overview=schema_overview,
         plasma_origin_id=plasma_origin_id,
         plasma_report=plasma_report,
         plasma_coverage=plasma_coverage,
@@ -3117,6 +4646,8 @@ def index():
         ai_suggestions=ai_suggestions,
         have_numpy=HAVE_NUMPY,
         error=None,
+        surrogate_id=surrogate_id,
+        surrogate_estimate_summary=surrogate_estimate_summary,
     )
 
 

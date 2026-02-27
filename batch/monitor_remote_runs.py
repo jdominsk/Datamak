@@ -5,10 +5,42 @@ import os
 import sqlite3
 import subprocess
 from datetime import datetime
+from typing import List, Optional
 from pathlib import Path
+
+from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout, get_ssh_identity_file
 
 
 ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
+SSH_CONNECT_TIMEOUT = 10
+SSH_PREFLIGHT_TIMEOUT = 12
+
+
+def check_ssh_ready(host: str, connect_timeout: int) -> Optional[str]:
+    ssh_args = build_ssh_base_args(host, connect_timeout)
+    try:
+        result = subprocess.run(
+            [*ssh_args, "true"],
+            text=True,
+            capture_output=True,
+            timeout=SSH_PREFLIGHT_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        return f"ssh preflight timed out after {SSH_PREFLIGHT_TIMEOUT}s (check sshproxy)"
+    except Exception as exc:
+        return f"ssh preflight error: {exc}"
+    if result.returncode != 0:
+        err = (result.stderr or "").strip()
+        return err or "ssh preflight failed (check sshproxy)"
+    return None
+
+
+def emit_error_summary(errors: List[str]) -> None:
+    if not errors:
+        return
+    print("Monitor errors:")
+    for err in errors:
+        print(f"- {err}")
 
 
 def parse_remote(remote_folder: str, remote_host: str) -> tuple[str, str]:
@@ -53,6 +85,11 @@ def main() -> int:
         help="Username to query with squeue on the remote host.",
     )
     args = parser.parse_args()
+    identity = get_ssh_identity_file()
+    if identity:
+        print(f"Using ssh identity: {identity}")
+    else:
+        print("No ssh identity file found (DTWIN_SSH_IDENTITY or ~/.ssh/nersc).")
 
     conn = sqlite3.connect(args.db)
     conn.row_factory = sqlite3.Row
@@ -63,7 +100,41 @@ def main() -> int:
         WHERE status IN ('LAUNCHED', 'SYNCED')
         """
     ).fetchall()
-    conn.close()
+    origin_map: dict[int, list[str]] = {}
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        required = {"gk_run", "gk_input", "gk_study", "data_equil", "data_origin"}
+        if required.issubset(tables):
+            origin_rows = conn.execute(
+                """
+                SELECT gk_batch.id AS batch_id, data_origin.name AS origin_name
+                FROM gk_batch
+                JOIN gk_run ON gk_run.gk_batch_id = gk_batch.id
+                JOIN gk_input ON gk_input.id = gk_run.gk_input_id
+                JOIN gk_study ON gk_study.id = gk_input.gk_study_id
+                JOIN data_equil ON data_equil.id = gk_study.data_equil_id
+                JOIN data_origin ON data_origin.id = data_equil.data_origin_id
+                WHERE gk_batch.status IN ('LAUNCHED', 'SYNCED')
+                GROUP BY gk_batch.id, data_origin.name
+                """
+            ).fetchall()
+            for row in origin_rows:
+                batch_id = int(row["batch_id"])
+                name = str(row["origin_name"] or "").strip()
+                if not name:
+                    continue
+                origin_map.setdefault(batch_id, []).append(name)
+            for batch_id, names in origin_map.items():
+                origin_map[batch_id] = sorted(set(names))
+    except Exception:
+        origin_map = {}
+    finally:
+        conn.close()
 
     try:
         local_db_epoch = os.path.getmtime(args.db)
@@ -121,6 +192,8 @@ import os
 import re
 import sqlite3
 import subprocess
+import time
+import datetime as _dt
 
 dbs = <<<DBS>>>
 run_analyze = int(<<<RUN_ANALYZE>>>) == 1
@@ -219,6 +292,8 @@ def get_jobs():
         if user:
             cmd = ["squeue", "-u", user, "-h", "-o", "%i|%T|%j|%Z"]
         debug["cmd"] = " ".join(cmd)
+        debug["timestamp"] = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        start = time.time()
         result = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,
@@ -226,6 +301,7 @@ def get_jobs():
             universal_newlines=True,
             check=True,
         )
+        debug["duration_sec"] = round(time.time() - start, 3)
         debug["stdout"] = (result.stdout or "").strip()
         debug["stderr"] = (result.stderr or "").strip()
         lines = [j.strip() for j in result.stdout.splitlines() if j.strip()]
@@ -258,6 +334,23 @@ def job_matches_batch(job, batch_name, base_dir):
         return os.path.exists(os.path.join(workdir, batch_name))
     except Exception:
         return False
+
+def format_job_state_message(jobs):
+    counts = {}
+    for job in jobs:
+        state = (job.get("state") or "").strip() or "UNKNOWN"
+        counts[state] = counts.get(state, 0) + 1
+    if not counts:
+        return ""
+    if len(counts) == 1:
+        state, count = next(iter(counts.items()))
+        if count == 1:
+            return f"Wait, there is a {state} SLURM job for this batch."
+        return f"Wait, there are {count} {state} SLURM jobs for this batch."
+    parts = []
+    for state in sorted(counts):
+        parts.append(f"{state}={counts[state]}")
+    return "Wait, SLURM jobs for this batch are in states: " + ", ".join(parts) + "."
 
 for name, db_path, base_dir in dbs:
     if not os.path.exists(db_path):
@@ -382,11 +475,16 @@ for name, db_path, base_dir in dbs:
         restart_count = len(restarts)
         failure_count = len(failures)
         pending_count = len(pending_analysis)
-        has_active_job = any(job_matches_batch(j, name, base_dir) for j in all_jobs)
+        matched_jobs = [j for j in all_jobs if job_matches_batch(j, name, base_dir)]
+        has_active_job = bool(matched_jobs)
         running_count = status_counts.get("RUNNING", 0)
         running_without_job = running_count > 0 and not has_active_job
         if has_active_job:
-            suggestions.append("Wait: an active job is currently running for this batch.")
+            message = format_job_state_message(matched_jobs)
+            if message:
+                suggestions.append(message)
+            else:
+                suggestions.append("Wait, SLURM job(s) are present for this batch.")
         if running_without_job:
             suggestions.append(
                 "No active SLURM job found but RUNNING rows exist. Suggest marking them as INTERRUPTED after checking logs."
@@ -406,11 +504,7 @@ for name, db_path, base_dir in dbs:
                 parts.append(f"{restart_count} RESTART")
             suggestions.append(f"Launch SLURM job for {', '.join(parts)} runs.")
         if failure_count > 0:
-            types = sorted({f.get("error_type") for f in failures if f.get("error_type")})
-            if types:
-                suggestions.append(f"Inspect failures: {', '.join(types)}.")
-            else:
-                suggestions.append("Inspect failure logs for root cause.")
+            suggestions.append("Inspect failures")
 
         report_batches.append({
             "batch": name,
@@ -433,7 +527,7 @@ for name, db_path, base_dir in dbs:
             "gamma_max_summary": gamma_summary,
             "gamma_mean_summary": gamma_mean_summary,
             "suggestions": suggestions,
-            "jobs": [j for j in all_jobs if job_matches_batch(j, name, base_dir)],
+            "jobs": matched_jobs,
         })
 
 print(json.dumps({"batches": report_batches, "jobs": all_jobs, "jobs_debug": jobs_debug}))
@@ -442,16 +536,35 @@ PY
         payload = payload.replace("<<<DBS>>>", db_literal).replace(
             "<<<RUN_ANALYZE>>>", run_analyze_flag
         ).replace("<<<SQUEUE_USER>>>", json.dumps(squeue_user))
-        result = subprocess.run(
-            ["ssh", host, "bash", "-s"],
-            input=payload,
-            text=True,
-            capture_output=True,
-            timeout=args.timeout,
+        connect_timeout = get_ssh_connect_timeout(
+            min(SSH_CONNECT_TIMEOUT, max(1, args.timeout))
         )
+        preflight_error = check_ssh_ready(host, connect_timeout)
+        if preflight_error:
+            report["errors"].append(f"{host}: {preflight_error}")
+            continue
+        ssh_cmd = [*build_ssh_base_args(host, connect_timeout), "bash", "-s"]
+        try:
+            result = subprocess.run(
+                ssh_cmd,
+                input=payload,
+                text=True,
+                capture_output=True,
+                timeout=args.timeout,
+            )
+        except subprocess.TimeoutExpired:
+            report["errors"].append(
+                f"{host}: ssh timed out after {args.timeout}s (check sshproxy)"
+            )
+            continue
+        except Exception as exc:
+            report["errors"].append(f"{host}: ssh error: {exc}")
+            continue
         if result.returncode != 0:
             err = (result.stderr or "").strip()
-            report["errors"].append(f"{host}: {err or 'remote command failed'}")
+            report["errors"].append(
+                f"{host}: {err or 'remote command failed (check sshproxy)'}"
+            )
             continue
         raw_lines = [line for line in result.stdout.splitlines() if line.strip()]
         json_line = ""
@@ -469,9 +582,15 @@ PY
             continue
         if isinstance(payload_data, dict):
             batches = payload_data.get("batches", [])
-            report["jobs_debug"].append(
-                {"host": host, "detail": payload_data.get("jobs_debug", {})}
-            )
+            jobs_debug = payload_data.get("jobs_debug", {})
+            report["jobs_debug"].append({"host": host, "detail": jobs_debug})
+            cmd = jobs_debug.get("cmd")
+            timestamp = jobs_debug.get("timestamp")
+            duration = jobs_debug.get("duration_sec")
+            if cmd:
+                when = f" at {timestamp}" if timestamp else ""
+                took = f" ({duration}s)" if duration is not None else ""
+                print(f"{host}: squeue{when}{took} -> {cmd}")
             for job in payload_data.get("jobs", []):
                 job["remote_host"] = host
                 report.setdefault("jobs", []).append(job)
@@ -480,6 +599,8 @@ PY
         for item in batches:
             item["remote_host"] = host
             item["batch_id"] = batch_id_map.get(item.get("batch"), 0)
+            origins = origin_map.get(item["batch_id"], [])
+            item["origin_names"] = origins
             if isinstance(item.get("suggestions"), list):
                 item["suggestions"] = [
                     s for s in item["suggestions"] if s != "Sync remote batch DB to local."
@@ -494,6 +615,7 @@ PY
     )
     with open(args.output, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)
+    emit_error_summary(report.get("errors", []))
     print(f"Wrote report to {args.output}")
     return 0
 

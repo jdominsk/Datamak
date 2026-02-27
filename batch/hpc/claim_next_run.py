@@ -3,7 +3,7 @@ import os
 import re
 import sqlite3
 import sys
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 def update_restart_input(content: str) -> str:
@@ -37,6 +37,12 @@ def _find_invalid_lines(content: str) -> List[Tuple[int, str]]:
     return bad_lines
 
 
+def _has_restart_true(content: str) -> bool:
+    return bool(
+        re.search(r"^\s*restart\s*=\s*true\b", content, re.IGNORECASE | re.MULTILINE)
+    )
+
+
 def _update_param_in_section(
     content: str, section: str, key: str, value: str
 ) -> str:
@@ -60,15 +66,29 @@ def _update_param_in_section(
         if header_re.match(line):
             break
         if key_re.match(line):
-            lines[idx] = key_re.sub(rf"\1{value}", line, count=1)
+            lines[idx] = key_re.sub(rf"\g<1>{value}", line, count=1)
             return "\n".join(lines) + "\n"
         insert_idx = idx + 1
 
     lines.insert(insert_idx, f"{key} = {value}")
     if key.lower() == "nstep":
-        if insert_idx + 1 < len(lines) and lines[insert_idx + 1].strip():
-            lines.insert(insert_idx + 1, "")
+        next_idx = insert_idx + 1
+        if next_idx < len(lines):
+            next_line = lines[next_idx]
+            if next_line.strip().startswith("[") and next_line.strip().endswith("]"):
+                lines.insert(next_idx, "")
     return "\n".join(lines) + "\n"
+
+
+def _fetch_gk_input_content(
+    conn: sqlite3.Connection, gk_input_id: int
+) -> Optional[str]:
+    row = conn.execute(
+        "SELECT content FROM gk_input WHERE id = ?", (gk_input_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return row[0]
 
 
 def main() -> int:
@@ -89,6 +109,12 @@ def main() -> int:
             conn.execute(
                 "ALTER TABLE gk_run ADD COLUMN nb_restart INTEGER NOT NULL DEFAULT 0"
             )
+            columns.add("nb_restart")
+        if "restart_keep_tmax" not in columns:
+            conn.execute(
+                "ALTER TABLE gk_run ADD COLUMN restart_keep_tmax INTEGER NOT NULL DEFAULT 0"
+            )
+            columns.add("restart_keep_tmax")
         row = conn.execute(
             "SELECT id, gk_input_id, gk_batch_id, input_content, "
             "t_max_initial, t_max, nb_restart "
@@ -97,22 +123,23 @@ def main() -> int:
         ).fetchone()
         if row is None:
             restart_rows = conn.execute(
-                "SELECT id, input_content "
+                "SELECT id, input_content, nb_restart, restart_keep_tmax "
                 "FROM gk_run WHERE status = 'RESTART' ORDER BY id"
             ).fetchall()
             if restart_rows:
-                for run_id, content in restart_rows:
+                for run_id, content, nb_restart_val, keep_tmax in restart_rows:
                     updated_content = update_restart_input(content)
+                    increment = 0 if int(keep_tmax or 0) else 1
                     conn.execute(
                         "UPDATE gk_run "
                         "SET input_content = ?, status = 'TORUN', synced = 0, "
-                        "nb_restart = nb_restart + 1 "
+                        "nb_restart = nb_restart + ?, restart_keep_tmax = 0 "
                         "WHERE id = ?",
-                        (updated_content, int(run_id)),
+                        (updated_content, int(increment), int(run_id)),
                     )
                 row = conn.execute(
                     "SELECT id, gk_input_id, gk_batch_id, input_content, "
-                    "t_max_initial, t_max, nb_restart "
+                    "t_max_initial, t_max, nb_restart, restart_keep_tmax "
                     "FROM gk_run WHERE status = 'TORUN' "
                     "ORDER BY nb_restart ASC, id ASC LIMIT 1"
                 ).fetchone()
@@ -130,55 +157,87 @@ def main() -> int:
         nb_restart = int(row["nb_restart"] or 0)
 
         tmax_re = re.compile(r"(\bt_max\s*=\s*)([-+0-9.eE]+)", re.IGNORECASE)
-        match = tmax_re.search(content)
-        if match is None:
-            raise ValueError("t_max not found in input_content for initial capture.")
-        tmax_in_content = float(match.group(2))
-        if tmax_initial == 0:
-            tmax_initial = tmax_in_content
-        if tmax_current == 0:
-            tmax_current = tmax_in_content
-        tmax_current = tmax_initial * (1 + nb_restart)
-        tmax_str = f"{tmax_current:.1f}"
 
-        def repl(m):
-            return f"{m.group(1)}{tmax_str}"
+        def apply_overrides(
+            base_content: str,
+            tmax_initial_val: float,
+            tmax_current_val: float,
+        ) -> Tuple[str, float, float]:
+            match = tmax_re.search(base_content)
+            if match is None:
+                raise ValueError("t_max not found in input_content for update.")
+            tmax_in_content = float(match.group(2))
+            if tmax_initial_val == 0:
+                tmax_initial_val = tmax_in_content
+            if tmax_current_val == 0:
+                tmax_current_val = tmax_in_content
+            tmax_current_val = tmax_initial_val * (1 + nb_restart)
+            tmax_str = f"{tmax_current_val:.1f}"
 
-        content, count = tmax_re.subn(repl, content, count=1)
-        if count == 0:
-            raise ValueError("t_max not found in input_content for update.")
+            def repl(m):
+                return f"{m.group(1)}{tmax_str}"
 
-        if nwrite_override:
-            content = _update_param_in_section(
-                content, "Time", "nwrite", nwrite_override
-            )
-        if nstep_override:
-            content = _update_param_in_section(
-                content, "Time", "nstep", nstep_override
-            )
+            updated_content, count = tmax_re.subn(repl, base_content, count=1)
+            if count == 0:
+                raise ValueError("t_max not found in input_content for update.")
+            if nwrite_override:
+                updated_content = _update_param_in_section(
+                    updated_content, "Time", "nwrite", nwrite_override
+                )
+            if nstep_override:
+                updated_content = _update_param_in_section(
+                    updated_content, "Time", "nstep", nstep_override
+                )
+            return updated_content, tmax_initial_val, tmax_current_val
+
+        content, tmax_initial, tmax_current = apply_overrides(
+            content, tmax_initial, tmax_current
+        )
 
         filename = f"input_batchid{gk_batch_id}_gkinputid{gk_input_id}_runid{run_id}.in"
         filepath = os.path.join(output_dir, filename)
 
         invalid_lines = _find_invalid_lines(content)
+        regenerated = False
+        if invalid_lines and gk_input_id:
+            fallback = _fetch_gk_input_content(conn, gk_input_id)
+            if fallback:
+                if nb_restart > 0 and not _has_restart_true(fallback):
+                    fallback = update_restart_input(fallback)
+                try:
+                    fallback, tmax_initial, tmax_current = apply_overrides(
+                        fallback, tmax_initial, tmax_current
+                    )
+                except ValueError:
+                    fallback = None
+                if fallback:
+                    fallback_invalid = _find_invalid_lines(fallback)
+                    if not fallback_invalid:
+                        content = fallback
+                        regenerated = True
+                        invalid_lines = []
         if invalid_lines:
             lines_preview = ", ".join(
                 f"{idx}:{text}" for idx, text in invalid_lines[:5]
             )
-            print(
-                f"Invalid GX input for run_id={run_id}; would write {filepath}"
-            )
+            print(f"Invalid GX input for run_id={run_id}; would write {filepath}")
             raise ValueError(
                 f"Invalid GX input: bare tokens without '=' found. "
                 f"Examples: {lines_preview}. "
                 f"Input file: {filepath}"
+            )
+        if regenerated:
+            print(
+                f"Regenerated input_content for run_id={run_id} "
+                f"from gk_input_id={gk_input_id}."
             )
         with open(filepath, "w", encoding="utf-8") as handle:
             handle.write(content)
         conn.execute(
             "UPDATE gk_run "
             "SET status = 'RUNNING', input_name = ?, job_id = ?, synced = 0, "
-            "input_content = ?, t_max_initial = ?, t_max = ?, nb_restart = ? "
+            "input_content = ?, t_max_initial = ?, t_max = ?, nb_restart = ?, "
+            "restart_keep_tmax = 0 "
             "WHERE id = ?",
             (
                 filename,

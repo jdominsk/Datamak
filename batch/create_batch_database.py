@@ -28,6 +28,7 @@ def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
           t_max_initial REAL NOT NULL DEFAULT 0,
           t_max REAL NOT NULL DEFAULT 0,
           nb_restart INTEGER NOT NULL DEFAULT 0,
+          restart_keep_tmax INTEGER NOT NULL DEFAULT 0,
           ky_abs_mean REAL,
           gamma_max REAL,
           diffusion REAL
@@ -49,6 +50,10 @@ def ensure_gk_run_table(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gk_run ADD COLUMN t_max REAL NOT NULL DEFAULT 0")
     if "nb_restart" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN nb_restart INTEGER NOT NULL DEFAULT 0")
+    if "restart_keep_tmax" not in columns:
+        conn.execute(
+            "ALTER TABLE gk_run ADD COLUMN restart_keep_tmax INTEGER NOT NULL DEFAULT 0"
+        )
     if "ky_abs_mean" not in columns:
         conn.execute("ALTER TABLE gk_run ADD COLUMN ky_abs_mean REAL")
     if "gamma_max" not in columns:

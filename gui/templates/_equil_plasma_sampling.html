@@ -173,9 +173,9 @@
           {% if action_status and action_status.key == "deploy_batch_db_large" and not action_status.running %}
             <form method="get" action="/">
               <input type="hidden" name="db" value="{{ db_path }}" />
-              <input type="hidden" name="panel" value="monitor" />
+              <input type="hidden" name="panel" value="equilibria" />
               <input type="hidden" name="monitor_autorun" value="1" />
-              <button type="submit">Go to Batch Monitor</button>
+              <button type="submit">Go to Batch monitoring</button>
             </form>
           {% elif eqp_status_counts and eqp_status_counts["TORUN"] > 0 %}
             <form method="post" action="/action/create_batch_db">
@@ -266,5 +266,3 @@
     </div>
   </details>
 {% endif %}
-<div style="height:12px;"></div>
-<div style="height:12px;"></div>

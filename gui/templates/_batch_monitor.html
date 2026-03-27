@@ -1,0 +1,288 @@
+{% set monitor_payload = monitor_payload if monitor_payload is defined else monitor_report %}
+<div class="chart-wrap{% if monitor_form_panel|default('monitor') == 'equilibria' %} borderless{% endif %}">
+  <div class="chart-title equilibria-heading">
+    <span>{{ monitor_title|default("Remote Run Monitor") }}</span>
+    {% if monitor_origin_details %}
+      <span class="equilibria-side-panel-title-meta">
+        <span
+          class="color-swatch"
+          data-color="{{ monitor_origin_details['color'] if monitor_origin_details['color'] else data_origin_colors.get(monitor_origin_details['name'], '#1f77b4') }}"
+        ></span>
+        {{ monitor_origin_details['name'] }}
+        {% if monitor_origin_details['file_type'] %} | {{ monitor_origin_details['file_type'] }}{% endif %}
+        {% if monitor_origin_details['tokamak'] %} | {{ monitor_origin_details['tokamak'] }}{% endif %}
+      </span>
+    {% endif %}
+  </div>
+  {% if monitor_note %}
+    <div class="panel-note" style="margin-bottom:12px;">{{ monitor_note }}</div>
+  {% endif %}
+  {% if action_status and action_status.message %}
+    <div class="notice">{{ action_status.message }}</div>
+  {% endif %}
+  {% if actions.get("monitor_remote_runs") %}
+    <form
+      method="post"
+      action="/action/monitor_remote_runs"
+      {% if monitor_form_id %}id="{{ monitor_form_id }}"{% endif %}
+    >
+      <input type="hidden" name="db" value="{{ db_path }}" />
+      <input type="hidden" name="panel" value="{{ monitor_form_panel|default('monitor') }}" />
+      <div class="row">
+        <button type="submit">{{ actions.get("monitor_remote_runs").label }}</button>
+        <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#52606d;">
+          run gx_analyze for SUCCESS
+          <input name="run_analyze" type="checkbox" value="1" />
+        </label>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% if monitor_payload and monitor_payload.batches %}
+  <div class="chart-wrap{% if monitor_form_panel|default('monitor') == 'equilibria' %} borderless{% endif %}">
+    <div class="panel-note">
+      Report generated:
+      <span class="monitor-generated-at" data-utc="{{ monitor_payload.generated_at }}">
+        {{ monitor_payload.generated_at }}
+      </span>
+      | db: {{ monitor_payload.db_path }}
+    </div>
+    {% if monitor_payload.errors and monitor_payload.errors|length > 0 %}
+      <div class="error">
+        {{ monitor_payload.errors|join(" | ") }}
+      </div>
+    {% endif %}
+    {% for batch in monitor_payload.batches %}
+      <div class="monitor-batch">
+        <div class="panel-note batch-header">
+          <span class="batch-id">Batch id {{ batch.batch_id or "?" }}</span>
+          — {{ batch.batch }}
+          {% if batch.origin_names and batch.origin_names|length > 0 %}
+            | origin: {{ batch.origin_names|join(", ") }}
+          {% endif %}
+          | host: {{ batch.remote_host }} | path: {{ batch.base_dir }}
+        </div>
+      {% if batch.db_last_modified %}
+        <div class="panel-note">
+          Batch DB last modified:
+          <span class="batch-db-last-modified"
+                data-epoch="{{ batch.db_last_modified_epoch or '' }}"
+                data-original="{{ batch.db_last_modified }}">
+            {{ batch.db_last_modified }}
+          </span>
+        </div>
+      {% endif %}
+      <div class="table-wrapper monitor-report-table" style="margin-top:8px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Report</th>
+              <th>Suggested Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="vertical-align:top; text-align:left;">
+                {% if batch.running_without_job %}
+                  <div class="error" style="font-weight:700; margin-bottom:6px;">
+                    Warning: {{ batch.status_counts.get('RUNNING', 0) }} RUNNING rows but no active SLURM job found.
+                    {% if batch.running_log_missing %}
+                      <br />
+                      {{ batch.running_log_missing }} RUNNING rows have no log tail (missing .log or input_name).
+                    {% endif %}
+                  </div>
+                {% endif %}
+                {% if batch.jobs and batch.jobs|length > 0 or batch.status_counts %}
+                  <div class="chip-row">
+                    {% if batch.jobs and batch.jobs|length > 0 %}
+                      {% for job in batch.jobs %}
+                        <span class="job-pill">
+                          <strong>Active</strong> {{ job.state }} · Job {{ job.job_id }}
+                        </span>
+                        <span class="job-separator"></span>
+                      {% endfor %}
+                    {% endif %}
+                    {% if batch.status_counts %}
+                      {% for key, val in batch.status_counts|dictsort %}
+                        <span class="chip status-{{ key }}">
+                          <strong>{{ key }}</strong> {{ val }}
+                        </span>
+                      {% endfor %}
+                    {% endif %}
+                  </div>
+                {% endif %}
+                {% if batch.gamma_max_summary and batch.gamma_max_summary.count is defined %}
+                  <div class="panel-note">
+                    Gamma_max is available for {{ batch.gamma_max_summary.count }} runs.
+                    The min/median/max are
+                    {{ "{:.4g}".format(batch.gamma_max_summary.min) }},
+                    {{ "{:.4g}".format(batch.gamma_max_summary.median) }},
+                    {{ "{:.4g}".format(batch.gamma_max_summary.max) }}.
+                  </div>
+                {% endif %}
+                {% if batch.gamma_mean_summary and batch.gamma_mean_summary.count is defined %}
+                  <div class="panel-note">
+                    Gamma_mean (from convergence checks) has {{ batch.gamma_mean_summary.count }} entries.
+                    The min/median/max are
+                    {{ "{:.4g}".format(batch.gamma_mean_summary.min) }},
+                    {{ "{:.4g}".format(batch.gamma_mean_summary.median) }},
+                    {{ "{:.4g}".format(batch.gamma_mean_summary.max) }}.
+                  </div>
+                {% endif %}
+                {% if batch.pending_analysis and batch.pending_analysis|length > 0 %}
+                  <div class="panel-note">Pending analysis: {{ batch.pending_analysis|join(", ") }}</div>
+                {% endif %}
+              </td>
+              <td style="vertical-align:top; text-align:left;">
+                {% if batch.suggestions and batch.suggestions|length > 0 %}
+                  <ul style="margin:0; padding-left:16px;">
+                    {% for suggestion in batch.suggestions %}
+                      {% if suggestion == "Inspect failures" and batch.failures and batch.failures|length > 0 %}
+                        <li class="panel-note">
+                          <button
+                            type="button"
+                            onclick="openBatchFailures('{{ batch.batch_id }}', '{{ monitor_dom_suffix|default('monitor') }}')"
+                          >
+                            Inspect failures
+                          </button>
+                        </li>
+                      {% else %}
+                        <li class="panel-note">{{ suggestion }}</li>
+                      {% endif %}
+                    {% endfor %}
+                  </ul>
+                {% else %}
+                  <div class="panel-note">No suggestions.</div>
+                {% endif %}
+                <div class="monitor-actions">
+                  {% if batch.can_launch_job and actions.get("launch_remote_slurm_job") %}
+                    <form method="post" action="/action/launch_remote_slurm_job">
+                      <input type="hidden" name="db" value="{{ db_path }}" />
+                      <input type="hidden" name="panel" value="{{ monitor_form_panel|default('monitor') }}" />
+                      <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
+                      <button type="submit">Launch SLURM job</button>
+                    </form>
+                  {% endif %}
+                  {% if batch.pending_analysis and batch.pending_analysis|length > 0 and actions.get("monitor_remote_runs") %}
+                    <form method="post" action="/action/monitor_remote_runs">
+                      <input type="hidden" name="db" value="{{ db_path }}" />
+                      <input type="hidden" name="panel" value="{{ monitor_form_panel|default('monitor') }}" />
+                      <input type="hidden" name="run_analyze" value="1" />
+                      <button type="submit">Run Analyze</button>
+                    </form>
+                  {% endif %}
+                  {% if actions.get("check_launched_batches") and batch.status_counts and (batch.status_counts.get('SUCCESS', 0) > 0 or batch.status_counts.get('CONVERGED', 0) > 0 or batch.status_counts.get('RESTART', 0) > 0) %}
+                    <form method="post" action="/action/check_launched_batches">
+                      <input type="hidden" name="db" value="{{ db_path }}" />
+                      <input type="hidden" name="panel" value="{{ monitor_form_panel|default('monitor') }}" />
+                      <input type="hidden" name="plots_limit" value="50" />
+                      <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
+                      <button type="submit">Sync Plots</button>
+                    </form>
+                  {% endif %}
+                  {% if batch.unsynced_count and batch.unsynced_count > 0 and actions.get("check_launched_batches") %}
+                    <form method="post" action="/action/check_launched_batches">
+                      <input type="hidden" name="db" value="{{ db_path }}" />
+                      <input type="hidden" name="panel" value="{{ monitor_form_panel|default('monitor') }}" />
+                      <input type="hidden" name="plots_limit" value="0" />
+                      <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
+                      <button type="submit">Sync Batch DB</button>
+                    </form>
+                  {% endif %}
+                  {% if batch.running_without_job and actions.get("mark_remote_running_interrupted") %}
+                    <form method="post" action="/action/mark_remote_running_interrupted">
+                      <input type="hidden" name="db" value="{{ db_path }}" />
+                      <input type="hidden" name="panel" value="{{ monitor_form_panel|default('monitor') }}" />
+                      <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
+                      <button type="submit">Mark RUNNING → INTERRUPTED</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {% if batch.failures and batch.failures|length > 0 %}
+        <details
+          class="monitor-failures"
+          id="batch-failures-{{ monitor_dom_suffix|default('monitor') }}-{{ batch.batch_id }}"
+        >
+          <summary>Failures ({{ batch.failures|length }})</summary>
+          <form method="post" action="/action/mark_remote_run_restart">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="{{ monitor_form_panel|default('monitor') }}" />
+            <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
+            <div class="table-wrapper" style="max-height:280px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Select</th>
+                    <th>Run</th>
+                    <th>Status</th>
+                    <th>Type</th>
+                    <th>Tail</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in batch.failures %}
+                    <tr>
+                      <td>
+                        {% if actions.get("mark_remote_run_restart") %}
+                          <input type="checkbox" name="run_id" value="{{ item.run_id }}" />
+                        {% endif %}
+                      </td>
+                      <td>{{ item.run_id }}</td>
+                      <td>{{ item.status }}</td>
+                      <td>{{ item.error_type or "—" }}</td>
+                      <td><pre class="panel-note" style="margin:0; white-space:pre-wrap;">{{ item.tail|join("\n") }}</pre></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% if actions.get("mark_remote_run_restart") %}
+              <div style="margin-top:10px;">
+                <button type="submit">Mark RESTART for selected runs</button>
+              </div>
+            {% endif %}
+          </form>
+        </details>
+      {% endif %}
+      {% if batch.running_logs and batch.running_logs|length > 0 %}
+        <details class="monitor-failures">
+          <summary>Running ({{ batch.running_logs|length }})</summary>
+          <div class="table-wrapper" style="max-height:280px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Run</th>
+                  <th>Status</th>
+                  <th>Tail</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in batch.running_logs %}
+                  <tr>
+                    <td>{{ item.run_id }}</td>
+                    <td>{{ item.status }}</td>
+                    <td><pre class="panel-note" style="margin:0; white-space:pre-wrap;">{{ item.tail|join("\n") }}</pre></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+{% elif monitor_origin_details %}
+  <div class="chart-wrap{% if monitor_form_panel|default('monitor') == 'equilibria' %} borderless{% endif %}">
+    <div class="panel-note">No batch-monitor entries found yet for this origin.</div>
+  </div>
+{% else %}
+  <div class="chart-wrap">
+    <div class="panel-note">No monitor report found yet. Run the monitor to generate one.</div>
+  </div>
+{% endif %}

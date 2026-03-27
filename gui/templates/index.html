@@ -315,10 +315,10 @@
         font-weight: 600;
       }
       .monitor-batch .monitor-report-table {
-        margin-left: -12px;
-        margin-right: -12px;
-        width: calc(100% + 24px);
-        border-radius: 0 0 10px 10px;
+        margin-left: 0;
+        margin-right: 0;
+        width: 100%;
+        border-radius: 8px;
         box-sizing: border-box;
         overflow: hidden;
       }
@@ -880,13 +880,7 @@
         <button class="tab{% if selected_panel == 'sampling' %} active{% endif %}" type="button" data-tab="sampling">
           Data Statistics
         </button>
-        <button class="tab{% if selected_panel == 'monitor' %} active{% endif %}" type="button" data-tab="monitor">
-          Batch Monitor
-        </button>
         <button class="tab{% if selected_panel == 'equilibria' %} active{% endif %}" type="button" data-tab="equilibria">
-          Equilibria &amp; Input
-        </button>
-        <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
           Workflow
         </button>
         <button class="tab{% if selected_panel == 'tables' %} active{% endif %}" type="button" data-tab="tables">
@@ -3182,589 +3176,27 @@
               {% include "_equil_plasma_sampling.html" %}
             </div>
           {% endif %}
+          {% if selected_origin_details %}
+            <div class="chart-wrap" style="margin-top:16px;">
+              {% set monitor_title = 'Batch monitoring:' %}
+              {% set monitor_note = 'Use this section to inspect launched batch databases for the selected origin, spot failures or stalled runs, and sync finished results back into Datamak.' %}
+              {% set monitor_form_panel = 'equilibria' %}
+              {% set monitor_form_id = 'monitor-run-form-equilibria' %}
+              {% set monitor_dom_suffix = 'equilibria' %}
+              {% set monitor_origin_details = selected_origin_details %}
+              {% set monitor_payload = equilibria_monitor_report %}
+              {% include "_batch_monitor.html" %}
+            </div>
+          {% endif %}
         {% else %}
           <div class="panel-note">
             No `data_origin` rows are available yet. This panel will become the new origin-centric preparation view once origins exist in the database.
           </div>
         {% endif %}
       </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'action' %} panel-hidden{% endif %}" data-panel="action">
-        <div class="workflow-grid">
-          <div class="chart-wrap">
-            <div class="chart-title">Script</div>
-            {% if action_status and action_status.message %}
-              <div class="notice">{{ action_status.message }}</div>
-            {% endif %}
-            <div class="chart-empty">
-              <ol>
-                <li>First step: populating the database with equilibria and filter which ones are valid to process.</li>
-                <li>Second step: generating local gyrokinetic inputs for these cases at various radial location.</li>
-                <li>Third step: launching the job on remote supercomputer.</li>
-                <li>Fourth step: collecting back the data.</li>
-              </ol>
-            </div>
-            <div class="row">
-              <span>Mate Kinetic EFIT</span>
-              {% if actions.get("populate_mate") %}
-                <form method="post" action="/action/populate_mate">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("populate_mate").label }}
-                  </button>
-                </form>
-              {% endif %}
-              {% if actions.get("create_inputs_mate") %}
-                <form method="post" action="/action/create_inputs_mate">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("create_inputs_mate").label }}
-                  </button>
-                </form>
-              {% endif %}
-            </div>
-            <div class="row">
-              <span>Alexei Transp 09 (semi-auto)</span>
-              {% if actions.get("populate_alexei") %}
-                <form method="post" action="/action/populate_alexei">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("populate_alexei").label }}
-                  </button>
-                </form>
-              {% endif %}
-              {% if actions.get("create_inputs_transp") %}
-                <form method="post" action="/action/create_inputs_transp">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("create_inputs_transp").label }}
-                  </button>
-                </form>
-              {% endif %}
-            </div>
-            <div class="row">
-              <span>Alexei Transp 09 (full-auto)</span>
-              {% if actions.get("populate_alexei_fullauto") %}
-                <form method="post" action="/action/populate_alexei_fullauto">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("populate_alexei_fullauto").label }}
-                  </button>
-                </form>
-              {% endif %}
-              {% if actions.get("create_inputs_transp_fullauto") %}
-                <form method="post" action="/action/create_inputs_transp_fullauto">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("create_inputs_transp_fullauto").label }}
-                  </button>
-                </form>
-              {% endif %}
-            </div>
-            <div class="row">
-              <span>Alexei Transp 10 (full-auto)</span>
-              {% if actions.get("populate_alexei_fullauto_10") %}
-                <form method="post" action="/action/populate_alexei_fullauto_10">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("populate_alexei_fullauto_10").label }}
-                  </button>
-                </form>
-              {% endif %}
-            </div>
-            <div class="row">
-              <span>Batch</span>
-              {% if actions.get("create_batch_db") %}
-                <form method="post" action="/action/create_batch_db">
-                  <input type="hidden" name="db" value="{{ db_path }}" />
-                  <input type="hidden" name="panel" value="action" />
-                  <button type="submit">
-                    {{ actions.get("create_batch_db").label }}
-                  </button>
-                </form>
-              {% endif %}
-            {% if actions.get("deploy_batch_db") %}
-              <form method="post" action="/action/deploy_batch_db">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("deploy_batch_db").label }}
-                </button>
-              </form>
-            {% endif %}
-            {% if actions.get("deploy_batch_db_large") %}
-              <form method="post" action="/action/deploy_batch_db_large">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("deploy_batch_db_large").label }}
-                </button>
-              </form>
-            {% endif %}
-            {% if actions.get("check_launched_batches") %}
-              <form method="post" action="/action/check_launched_batches">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="action" />
-                <button type="submit">
-                  {{ actions.get("check_launched_batches").label }}
-                </button>
-                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#52606d; margin-top:6px;">
-                  # png rsynced
-                  <input name="plots_limit" type="text" size="4" value="50" />
-                </label>
-              </form>
-            {% endif %}
-          </div>
-        </div>
-          <div class="chart-wrap">
-            <div class="chart-title">GK Model Templates</div>
-            {% if gk_model_rows|length == 0 %}
-              <div class="panel-note">No gk_model rows found.</div>
-            {% else %}
-              <div class="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      {% for column in gk_model_columns %}
-                        <th>{{ column }}</th>
-                      {% endfor %}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for row in gk_model_rows %}
-                      <tr>
-                        {% for column in gk_model_columns %}
-                          <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
-                            {{ row[column]|default('', true) }}
-                          </td>
-                        {% endfor %}
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% endif %}
-          </div>
-        </div>
-        <div class="chart-wrap" style="margin-top:16px;">
-          <div class="chart-title">Batch DB</div>
-          <form method="get">
-            <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="action" />
-            <div class="row">
-              <label for="batch_view">Folder</label>
-              <select id="batch_view" name="batch_view" onchange="this.form.submit()">
-                <option value="new" {% if batch_view == 'new' %}selected{% endif %}>new</option>
-                <option value="sent" {% if batch_view == 'sent' %}selected{% endif %}>sent</option>
-              </select>
-              <label for="batch_db">Batch database</label>
-              <select id="batch_db" name="batch_db" onchange="this.form.submit()">
-                {% for batch_db in batch_dbs %}
-                  <option value="{{ batch_db }}" {% if batch_db == selected_batch_db %}selected{% endif %}>
-                    {{ batch_db }}
-                  </option>
-                {% endfor %}
-              </select>
-              <noscript><button type="submit">View</button></noscript>
-            </div>
-          </form>
-          {% if batch_dbs|length == 0 %}
-            <div class="panel-note">No batch databases found in the batch folder.</div>
-          {% elif batch_error %}
-            <div class="error">{{ batch_error }}</div>
-          {% else %}
-            <div class="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    {% for column in batch_columns %}
-                      <th>{{ column }}</th>
-                    {% endfor %}
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for row in batch_rows %}
-                    <tr>
-                      {% for column in batch_columns %}
-                        <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
-                          {{ row[column]|default('', true) }}
-                        </td>
-                      {% endfor %}
-                    </tr>
-                  {% endfor %}
-                  {% if batch_rows|length == 0 %}
-                    <tr>
-                      <td colspan="{{ batch_columns|length }}">No rows</td>
-                    </tr>
-                  {% endif %}
-                </tbody>
-              </table>
-            </div>
-          {% endif %}
-        </div>
-        <div class="workflow-grid">
-          <div class="chart-wrap">
-            <div class="chart-title">Equilibrium Import and GK Input Generation</div>
-          <pre class="panel-note">Mate Kinetic EFIT
-  | -> db_update/populate_data_equil_from_Mate_KinEFIT.py
-  | -> data_origin + data_equil rows (data_equil.active = 0)
-  v
-db_update/create_gk_input_from_pyrokinetic_with_pfile_and_gfile.py
-  | -> gk_input rows (WAIT by default)
-  v
-Manually set gk_input.status = TORUN (use the Tables panel)
-
-
-Alexei Transp 09 (semi-auto)
-  | -> db_update/populate_data_equil_from_Alexei_Transp_09.py
-  | -> data_origin + data_equil rows (data_equil.active = 0)
-  v
-db_update/create_gk_input_from_pyrokinetic_with_transpfile.py
-  | -> gk_input rows (WAIT by default)
-  v
-Manually set gk_input.status = TORUN (use the Tables panel)</pre>
-          </div>
-          <div class="chart-wrap">
-            <div class="chart-title">Remote GK Inputs Workflow</div>
-            <pre class="panel-note">Step 1: Build remote bundle (local)
-  - db_update/build_remote_gk_inputs.py
-  - creates remote_gk_inputs_TIMESTAMP.db + templates/
-
-Step 2: Send bundle to Flux
-  - rsync remote_gk_inputs_TIMESTAMP/ -> /u/jdominsk/DTwin/remote_gk_inputs/
-
-Step 3: Generate inputs on Flux
-  - run_remote_gk_inputs_flux.py
-  - writes .in files in /u/jdominsk/DTwin/tmp_inputs
-  - updates remote DB status/content
-
-Step 4: Sync back to main DB
-  - sync_remote_gk_inputs_from_flux.py
-  - inserts/updates gk_input rows</pre>
-          </div>
-        </div>
-        <div class="workflow-grid">
-          <div class="chart-wrap">
-            <div class="chart-title">Batch Workflow</div>
-            <pre class="panel-note">gk_input (gyrokinetic_simulations.db)
-  | status=TORUN
-  v
-create_batch_database.py --copy-torun
-  | -> batch_database_TIMESTAMP.db (gk_run)
-  | -> gk_input.status = BATCH
-  | -> gk_batch.status = CREATED
-  v
-deploy_batch_large.py
-  | -> sends DBs from batch/new + hpc scripts to NERSC newbatch
-  | -> gk_batch.status = SENT
-  v
-prepare_newbatch_large.sh (NERSC, newbatch/new)
-  | -> ../batchXXXX/ + copy DB + scripts
-  v
-deploy_batch_large.py (remote)
-  | -> sbatch batchXXXX/job_submit_large.sh
-  | -> gk_batch.status = LAUNCHED
-  v
-job_execute_large.sh (NERSC)
-  | -> gk_run.status = RUNNING -> SUCCESS/CRASHED
-  | -> gk_run.job_id set per run</pre>
-          </div>
-          <div class="chart-wrap">
-            <div class="chart-title">job_execute_large.sh Algorithm</div>
-            <pre class="panel-note">Inputs
-  - db path (batch_database_*.db)
-  - optional NODES
-  - flags: --analyze-only, --force-running-torun
-
-Initialize
-  - ensure gk_run has t_max_initial and t_max
-  - analyze SUCCESS rows with gx_analyze.py (mark CONVERGED/RESTART)
-
-Main loop
-  - pick first TORUN row
-  - if none: pick RESTART row, set restart=true in input_content, mark TORUN
-  - if none: exit
-
-Prepare run
-  - if t_max_initial == 0, parse t_max from input_content
-  - increment t_max by t_max_initial
-  - update input_content and write input_id*_gkinputid*.in
-  - set status RUNNING, record job_id, t_max_initial, t_max
-
-Execute
-  - if analyze-only: skip srun (treat as success)
-  - else run GX with srun
-  - on failure: status CRASHED
-  - on success: status SUCCESS, run gx_analyze.py to set CONVERGED/RESTART</pre>
-          </div>
-        </div>
-      </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'monitor' %} panel-hidden{% endif %}" data-panel="monitor">
-        <div class="chart-wrap">
-          <div class="chart-title">Remote Run Monitor</div>
-          {% if action_status and action_status.message %}
-            <div class="notice">{{ action_status.message }}</div>
-          {% endif %}
-          {% if actions.get("monitor_remote_runs") %}
-            <form method="post" action="/action/monitor_remote_runs" id="monitor-run-form">
-              <input type="hidden" name="db" value="{{ db_path }}" />
-              <input type="hidden" name="panel" value="monitor" />
-              <div class="row">
-                <button type="submit">{{ actions.get("monitor_remote_runs").label }}</button>
-                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#52606d;">
-                  run gx_analyze for SUCCESS
-                  <input name="run_analyze" type="checkbox" value="1" />
-                </label>
-              </div>
-            </form>
-          {% endif %}
-        </div>
-        {% if monitor_report %}
-          <div class="chart-wrap">
-            <div class="panel-note">
-              Report generated:
-              <span class="monitor-generated-at" data-utc="{{ monitor_report.generated_at }}">
-                {{ monitor_report.generated_at }}
-              </span>
-              | db: {{ monitor_report.db_path }}
-            </div>
-            {% if monitor_report.errors and monitor_report.errors|length > 0 %}
-              <div class="error">
-                {{ monitor_report.errors|join(" | ") }}
-              </div>
-            {% endif %}
-            {% for batch in monitor_report.batches %}
-              <div class="monitor-batch">
-                <div class="panel-note batch-header">
-                  <span class="batch-id">Batch id {{ batch.batch_id or "?" }}</span>
-                  — {{ batch.batch }}
-                  {% if batch.origin_names and batch.origin_names|length > 0 %}
-                    | origin: {{ batch.origin_names|join(", ") }}
-                  {% endif %}
-                  | host: {{ batch.remote_host }} | path: {{ batch.base_dir }}
-                </div>
-              {% if batch.db_last_modified %}
-                <div class="panel-note">
-                  Batch DB last modified:
-                  <span class="batch-db-last-modified"
-                        data-epoch="{{ batch.db_last_modified_epoch or '' }}"
-                        data-original="{{ batch.db_last_modified }}">
-                    {{ batch.db_last_modified }}
-                  </span>
-                </div>
-              {% endif %}
-              <div class="table-wrapper monitor-report-table" style="margin-top:8px;">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Report</th>
-                      <th>Suggested Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td style="vertical-align:top; text-align:left;">
-                        {% if batch.running_without_job %}
-                          <div class="error" style="font-weight:700; margin-bottom:6px;">
-                            Warning: {{ batch.status_counts.get('RUNNING', 0) }} RUNNING rows but no active SLURM job found.
-                            {% if batch.running_log_missing %}
-                              <br />
-                              {{ batch.running_log_missing }} RUNNING rows have no log tail (missing .log or input_name).
-                            {% endif %}
-                          </div>
-                        {% endif %}
-                        {% if batch.jobs and batch.jobs|length > 0 or batch.status_counts %}
-                          <div class="chip-row">
-                            {% if batch.jobs and batch.jobs|length > 0 %}
-                              {% for job in batch.jobs %}
-                                <span class="job-pill">
-                                  <strong>Active</strong> {{ job.state }} · Job {{ job.job_id }}
-                                </span>
-                                <span class="job-separator"></span>
-                              {% endfor %}
-                            {% endif %}
-                            {% if batch.status_counts %}
-                              {% for key, val in batch.status_counts|dictsort %}
-                                <span class="chip status-{{ key }}">
-                                  <strong>{{ key }}</strong> {{ val }}
-                                </span>
-                              {% endfor %}
-                            {% endif %}
-                          </div>
-                        {% endif %}
-                        {% if batch.gamma_max_summary and batch.gamma_max_summary.count is defined %}
-                          <div class="panel-note">
-                            Gamma_max is available for {{ batch.gamma_max_summary.count }} runs.
-                            The min/median/max are
-                            {{ "{:.4g}".format(batch.gamma_max_summary.min) }},
-                            {{ "{:.4g}".format(batch.gamma_max_summary.median) }},
-                            {{ "{:.4g}".format(batch.gamma_max_summary.max) }}.
-                          </div>
-                        {% endif %}
-                        {% if batch.gamma_mean_summary and batch.gamma_mean_summary.count is defined %}
-                          <div class="panel-note">
-                            Gamma_mean (from convergence checks) has {{ batch.gamma_mean_summary.count }} entries.
-                            The min/median/max are
-                            {{ "{:.4g}".format(batch.gamma_mean_summary.min) }},
-                            {{ "{:.4g}".format(batch.gamma_mean_summary.median) }},
-                            {{ "{:.4g}".format(batch.gamma_mean_summary.max) }}.
-                          </div>
-                        {% endif %}
-                        {% if batch.pending_analysis and batch.pending_analysis|length > 0 %}
-                          <div class="panel-note">Pending analysis: {{ batch.pending_analysis|join(", ") }}</div>
-                        {% endif %}
-                      </td>
-                      <td style="vertical-align:top; text-align:left;">
-                        {% if batch.suggestions and batch.suggestions|length > 0 %}
-                          <ul style="margin:0; padding-left:16px;">
-                            {% for suggestion in batch.suggestions %}
-                              {% if suggestion == "Inspect failures" and batch.failures and batch.failures|length > 0 %}
-                                <li class="panel-note">
-                                  <button type="button" onclick="openBatchFailures('{{ batch.batch_id }}')">
-                                    Inspect failures
-                                  </button>
-                                </li>
-                              {% else %}
-                                <li class="panel-note">{{ suggestion }}</li>
-                              {% endif %}
-                            {% endfor %}
-                          </ul>
-                        {% else %}
-                          <div class="panel-note">No suggestions.</div>
-                        {% endif %}
-                        <div class="monitor-actions">
-                          {% if batch.can_launch_job and actions.get("launch_remote_slurm_job") %}
-                            <form method="post" action="/action/launch_remote_slurm_job">
-                              <input type="hidden" name="db" value="{{ db_path }}" />
-                              <input type="hidden" name="panel" value="monitor" />
-                              <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
-                              <button type="submit">Launch SLURM job</button>
-                            </form>
-                          {% endif %}
-                          {% if batch.pending_analysis and batch.pending_analysis|length > 0 and actions.get("monitor_remote_runs") %}
-                            <form method="post" action="/action/monitor_remote_runs">
-                              <input type="hidden" name="db" value="{{ db_path }}" />
-                              <input type="hidden" name="panel" value="monitor" />
-                              <input type="hidden" name="run_analyze" value="1" />
-                              <button type="submit">Run Analyze</button>
-                            </form>
-                          {% endif %}
-                          {% if actions.get("check_launched_batches") and batch.status_counts and (batch.status_counts.get('SUCCESS', 0) > 0 or batch.status_counts.get('CONVERGED', 0) > 0 or batch.status_counts.get('RESTART', 0) > 0) %}
-                            <form method="post" action="/action/check_launched_batches">
-                              <input type="hidden" name="db" value="{{ db_path }}" />
-                              <input type="hidden" name="panel" value="monitor" />
-                              <input type="hidden" name="plots_limit" value="50" />
-                              <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
-                              <button type="submit">Sync Plots</button>
-                            </form>
-                          {% endif %}
-                          {% if batch.unsynced_count and batch.unsynced_count > 0 and actions.get("check_launched_batches") %}
-                            <form method="post" action="/action/check_launched_batches">
-                              <input type="hidden" name="db" value="{{ db_path }}" />
-                              <input type="hidden" name="panel" value="monitor" />
-                              <input type="hidden" name="plots_limit" value="0" />
-                              <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
-                              <button type="submit">Sync Batch DB</button>
-                            </form>
-                          {% endif %}
-                          {% if batch.running_without_job and actions.get("mark_remote_running_interrupted") %}
-                            <form method="post" action="/action/mark_remote_running_interrupted">
-                              <input type="hidden" name="db" value="{{ db_path }}" />
-                              <input type="hidden" name="panel" value="monitor" />
-                              <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
-                              <button type="submit">Mark RUNNING → INTERRUPTED</button>
-                            </form>
-                          {% endif %}
-                        </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              {% if batch.failures and batch.failures|length > 0 %}
-                <details class="monitor-failures" id="batch-failures-{{ batch.batch_id }}">
-                  <summary>Failures ({{ batch.failures|length }})</summary>
-                  <form method="post" action="/action/mark_remote_run_restart">
-                    <input type="hidden" name="db" value="{{ db_path }}" />
-                    <input type="hidden" name="panel" value="monitor" />
-                    <input type="hidden" name="batch_name" value="{{ batch.batch }}" />
-                    <div class="table-wrapper" style="max-height:280px;">
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Select</th>
-                            <th>Run</th>
-                            <th>Status</th>
-                            <th>Type</th>
-                            <th>Tail</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {% for item in batch.failures %}
-                            <tr>
-                              <td>
-                                {% if actions.get("mark_remote_run_restart") %}
-                                  <input type="checkbox" name="run_id" value="{{ item.run_id }}" />
-                                {% endif %}
-                              </td>
-                              <td>{{ item.run_id }}</td>
-                              <td>{{ item.status }}</td>
-                              <td>{{ item.error_type or "—" }}</td>
-                              <td><pre class="panel-note" style="margin:0; white-space:pre-wrap;">{{ item.tail|join("\n") }}</pre></td>
-                            </tr>
-                          {% endfor %}
-                        </tbody>
-                      </table>
-                    </div>
-                    {% if actions.get("mark_remote_run_restart") %}
-                      <div style="margin-top:10px;">
-                        <button type="submit">Mark RESTART for selected runs</button>
-                      </div>
-                    {% endif %}
-                  </form>
-                </details>
-              {% endif %}
-              {% if batch.running_logs and batch.running_logs|length > 0 %}
-                <details class="monitor-failures">
-                  <summary>Running ({{ batch.running_logs|length }})</summary>
-                  <div class="table-wrapper" style="max-height:280px;">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Run</th>
-                          <th>Status</th>
-                          <th>Tail</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {% for item in batch.running_logs %}
-                          <tr>
-                            <td>{{ item.run_id }}</td>
-                            <td>{{ item.status }}</td>
-                            <td><pre class="panel-note" style="margin:0; white-space:pre-wrap;">{{ item.tail|join("\n") }}</pre></td>
-                          </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-              {% endif %}
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="panel-note">No monitor report found yet. Run the monitor to generate one.</div>
-        {% endif %}
-      </section>
       <section class="panel hpc-panel">
         <div class="panel-note" style="margin-bottom:12px;">
-          Configure SSH settings used by the Batch Monitor and remote workflow actions. Ensure
+          Configure SSH settings used by batch monitoring and remote workflow actions. Ensure
           <code>sshproxy</code> is active for non-interactive access.
         </div>
         <form method="post" action="/save_hpc_config">
@@ -3938,7 +3370,10 @@ Execute
       if (url.searchParams.get("monitor_refresh") === "1") {
         return;
       }
-      url.searchParams.set("panel", "monitor");
+      url.searchParams.set(
+        "panel",
+        selectedPanel === "equilibria" ? "equilibria" : "monitor"
+      );
       url.searchParams.set("monitor_refresh", "1");
       window.location.assign(url.toString());
     };
@@ -3986,7 +3421,7 @@ Execute
           setTimeout(pollActionStatus, 5000);
         });
     };
-    if (selectedPanel === "monitor") {
+    if (selectedPanel === "equilibria") {
       if (actionState && actionState.running) {
         pollActionStatus();
       } else if (actionState && actionState.message) {
@@ -4004,7 +3439,7 @@ Execute
       pollActionStatus();
     }
     const maybeAutoRunMonitor = () => {
-      if (selectedPanel !== "monitor") {
+      if (selectedPanel !== "equilibria") {
         return;
       }
       const url = new URL(window.location.href);
@@ -4014,7 +3449,9 @@ Execute
       if (actionState && actionState.running) {
         return;
       }
-      const form = document.getElementById("monitor-run-form");
+      const form =
+        document.getElementById("monitor-run-form-equilibria") ||
+        document.getElementById("monitor-run-form");
       if (!form) {
         return;
       }
@@ -4168,8 +3605,8 @@ Execute
       });
     };
     window.addEventListener("load", applyColorSwatches);
-    const openBatchFailures = (batchId) => {
-      const details = document.getElementById(`batch-failures-${batchId}`);
+    const openBatchFailures = (batchId, suffix = "monitor") => {
+      const details = document.getElementById(`batch-failures-${suffix}-${batchId}`);
       if (!details) {
         return;
       }

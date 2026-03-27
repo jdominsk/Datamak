@@ -173,6 +173,19 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertIn("Equilibria", body)
         self.assertIn("No `data_origin` rows are available yet.", body)
 
+    def test_legacy_workflow_panel_aliases_to_equilibria(self) -> None:
+        response = self.client.get(f"/?db={self.db_path}&panel=action")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Workflow", body)
+
+    def test_legacy_batch_monitor_panel_aliases_to_equilibria(self) -> None:
+        response = self.client.get(f"/?db={self.db_path}&panel=monitor")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Workflow", body)
+        self.assertNotIn("Batch Monitor", body)
+
     def test_equilibria_tab_shows_workflow_status_for_selected_origin(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
             conn.executescript(
@@ -265,13 +278,59 @@ class GuiWorkflowTests(unittest.TestCase):
             )
             conn.commit()
 
-        response = self.client.get(
-            f"/?db={self.db_path}&panel=equilibria&origin_id=4"
-        )
+        monitor_report = {
+            "generated_at": "2026-03-27T12:23:23Z",
+            "db_path": str(self.db_path),
+            "errors": [],
+            "batches": [
+                {
+                    "batch_id": 7,
+                    "batch": "batch_database_origin4.db",
+                    "origin_names": ["Transp 10 (full-auto)"],
+                    "remote_host": "jdominsk@perlmutter",
+                    "base_dir": "/remote/batch7",
+                    "status_counts": {"RUNNING": 2},
+                    "jobs": [],
+                    "suggestions": [],
+                    "can_launch_job": False,
+                    "pending_analysis": [],
+                    "unsynced_count": 0,
+                    "running_without_job": False,
+                    "running_log_missing": 0,
+                    "failures": [],
+                    "running_logs": [],
+                },
+                {
+                    "batch_id": 8,
+                    "batch": "batch_database_other_origin.db",
+                    "origin_names": ["Transp 09 (full-auto) NEW"],
+                    "remote_host": "jdominsk@perlmutter",
+                    "base_dir": "/remote/batch8",
+                    "status_counts": {"RUNNING": 1},
+                    "jobs": [],
+                    "suggestions": [],
+                    "can_launch_job": False,
+                    "pending_analysis": [],
+                    "unsynced_count": 0,
+                    "running_without_job": False,
+                    "running_log_missing": 0,
+                    "failures": [],
+                    "running_logs": [],
+                },
+            ],
+        }
+        with mock.patch("gui.app.load_monitor_report", return_value=monitor_report):
+            response = self.client.get(
+                f"/?db={self.db_path}&panel=equilibria&origin_id=4"
+            )
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("Workflow Status", body)
         self.assertIn("Launch Batch of Simulations:", body)
+        self.assertIn("Batch monitoring:", body)
+        self.assertIn("Transp 10 (full-auto)", body)
+        self.assertIn("batch_database_origin4.db", body)
+        self.assertNotIn("batch_database_other_origin.db", body)
         self.assertIn("No equil+plasma sampling data available.", body)
         self.assertIn("Flux workflow", body)
         self.assertIn("data_equil", body)

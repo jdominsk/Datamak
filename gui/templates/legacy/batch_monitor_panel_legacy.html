@@ -1,0 +1,15 @@
+<!--
+  Legacy archive of the old dedicated "Batch Monitor" tab wrapper.
+  Removed from the active Datamak UI on 2026-03-27 after the monitor view was
+  integrated into the "Equilibria & Input" panel.
+-->
+<section class="panel panel-tabbed{% if selected_panel != 'monitor' %} panel-hidden{% endif %}" data-panel="monitor">
+  {% set monitor_title = 'Remote Run Monitor' %}
+  {% set monitor_note = none %}
+  {% set monitor_form_panel = 'monitor' %}
+  {% set monitor_form_id = 'monitor-run-form' %}
+  {% set monitor_dom_suffix = 'monitor' %}
+  {% set monitor_origin_details = none %}
+  {% set monitor_payload = monitor_report %}
+  {% include "_batch_monitor.html" %}
+</section>

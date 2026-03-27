@@ -1,0 +1,322 @@
+<!--
+  Legacy archive of the old "Workflow" tab/panel.
+  Removed from the active Datamak UI on 2026-03-27 after its content was
+  superseded by the origin-centric "Equilibria & Input" workflow.
+-->
+<section class="panel panel-tabbed{% if selected_panel != 'action' %} panel-hidden{% endif %}" data-panel="action">
+  <div class="workflow-grid">
+    <div class="chart-wrap">
+      <div class="chart-title">Script</div>
+      {% if action_status and action_status.message %}
+        <div class="notice">{{ action_status.message }}</div>
+      {% endif %}
+      <div class="chart-empty">
+        <ol>
+          <li>First step: populating the database with equilibria and filter which ones are valid to process.</li>
+          <li>Second step: generating local gyrokinetic inputs for these cases at various radial location.</li>
+          <li>Third step: launching the job on remote supercomputer.</li>
+          <li>Fourth step: collecting back the data.</li>
+        </ol>
+      </div>
+      <div class="row">
+        <span>Mate Kinetic EFIT</span>
+        {% if actions.get("populate_mate") %}
+          <form method="post" action="/action/populate_mate">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <button type="submit">
+              {{ actions.get("populate_mate").label }}
+            </button>
+          </form>
+        {% endif %}
+        {% if actions.get("create_inputs_mate") %}
+          <form method="post" action="/action/create_inputs_mate">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <button type="submit">
+              {{ actions.get("create_inputs_mate").label }}
+            </button>
+          </form>
+        {% endif %}
+      </div>
+      <div class="row">
+        <span>Alexei Transp 09 (semi-auto)</span>
+        {% if actions.get("populate_alexei") %}
+          <form method="post" action="/action/populate_alexei">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <button type="submit">
+              {{ actions.get("populate_alexei").label }}
+            </button>
+          </form>
+        {% endif %}
+        {% if actions.get("create_inputs_transp") %}
+          <form method="post" action="/action/create_inputs_transp">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <button type="submit">
+              {{ actions.get("create_inputs_transp").label }}
+            </button>
+          </form>
+        {% endif %}
+      </div>
+      <div class="row">
+        <span>Alexei Transp 09 (full-auto)</span>
+        {% if actions.get("populate_alexei_fullauto") %}
+          <form method="post" action="/action/populate_alexei_fullauto">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <button type="submit">
+              {{ actions.get("populate_alexei_fullauto").label }}
+            </button>
+          </form>
+        {% endif %}
+        {% if actions.get("create_inputs_transp_fullauto") %}
+          <form method="post" action="/action/create_inputs_transp_fullauto">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <button type="submit">
+              {{ actions.get("create_inputs_transp_fullauto").label }}
+            </button>
+          </form>
+        {% endif %}
+      </div>
+      <div class="row">
+        <span>Alexei Transp 10 (full-auto)</span>
+        {% if actions.get("populate_alexei_fullauto_10") %}
+          <form method="post" action="/action/populate_alexei_fullauto_10">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <button type="submit">
+              {{ actions.get("populate_alexei_fullauto_10").label }}
+            </button>
+          </form>
+        {% endif %}
+      </div>
+      <div class="row">
+        <span>Batch</span>
+        {% if actions.get("create_batch_db") %}
+          <form method="post" action="/action/create_batch_db">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="action" />
+            <button type="submit">
+              {{ actions.get("create_batch_db").label }}
+            </button>
+          </form>
+        {% endif %}
+      {% if actions.get("deploy_batch_db") %}
+        <form method="post" action="/action/deploy_batch_db">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <input type="hidden" name="panel" value="action" />
+          <button type="submit">
+            {{ actions.get("deploy_batch_db").label }}
+          </button>
+        </form>
+      {% endif %}
+      {% if actions.get("deploy_batch_db_large") %}
+        <form method="post" action="/action/deploy_batch_db_large">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <input type="hidden" name="panel" value="action" />
+          <button type="submit">
+            {{ actions.get("deploy_batch_db_large").label }}
+          </button>
+        </form>
+      {% endif %}
+      {% if actions.get("check_launched_batches") %}
+        <form method="post" action="/action/check_launched_batches">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <input type="hidden" name="panel" value="action" />
+          <button type="submit">
+            {{ actions.get("check_launched_batches").label }}
+          </button>
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#52606d; margin-top:6px;">
+            # png rsynced
+            <input name="plots_limit" type="text" size="4" value="50" />
+          </label>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+    <div class="chart-wrap">
+      <div class="chart-title">GK Model Templates</div>
+      {% if gk_model_rows|length == 0 %}
+        <div class="panel-note">No gk_model rows found.</div>
+      {% else %}
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                {% for column in gk_model_columns %}
+                  <th>{{ column }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in gk_model_rows %}
+                <tr>
+                  {% for column in gk_model_columns %}
+                    <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
+                      {{ row[column]|default('', true) }}
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="chart-wrap" style="margin-top:16px;">
+    <div class="chart-title">Batch DB</div>
+    <form method="get">
+      <input type="hidden" name="db" value="{{ db_path }}" />
+      <input type="hidden" name="panel" value="action" />
+      <div class="row">
+        <label for="batch_view">Folder</label>
+        <select id="batch_view" name="batch_view" onchange="this.form.submit()">
+          <option value="new" {% if batch_view == 'new' %}selected{% endif %}>new</option>
+          <option value="sent" {% if batch_view == 'sent' %}selected{% endif %}>sent</option>
+        </select>
+        <label for="batch_db">Batch database</label>
+        <select id="batch_db" name="batch_db" onchange="this.form.submit()">
+          {% for batch_db in batch_dbs %}
+            <option value="{{ batch_db }}" {% if batch_db == selected_batch_db %}selected{% endif %}>
+              {{ batch_db }}
+            </option>
+          {% endfor %}
+        </select>
+        <noscript><button type="submit">View</button></noscript>
+      </div>
+    </form>
+    {% if batch_dbs|length == 0 %}
+      <div class="panel-note">No batch databases found in the batch folder.</div>
+    {% elif batch_error %}
+      <div class="error">{{ batch_error }}</div>
+    {% else %}
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              {% for column in batch_columns %}
+                <th>{{ column }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in batch_rows %}
+              <tr>
+                {% for column in batch_columns %}
+                  <td class="cell-truncate" title="{{ row[column]|default('', true) }}">
+                    {{ row[column]|default('', true) }}
+                  </td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+            {% if batch_rows|length == 0 %}
+              <tr>
+                <td colspan="{{ batch_columns|length }}">No rows</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+  <div class="workflow-grid">
+    <div class="chart-wrap">
+      <div class="chart-title">Equilibrium Import and GK Input Generation</div>
+    <pre class="panel-note">Mate Kinetic EFIT
+  | -> db_update/populate_data_equil_from_Mate_KinEFIT.py
+  | -> data_origin + data_equil rows (data_equil.active = 0)
+  v
+db_update/create_gk_input_from_pyrokinetic_with_pfile_and_gfile.py
+  | -> gk_input rows (WAIT by default)
+  v
+Manually set gk_input.status = TORUN (use the Tables panel)
+
+
+Alexei Transp 09 (semi-auto)
+  | -> db_update/populate_data_equil_from_Alexei_Transp_09.py
+  | -> data_origin + data_equil rows (data_equil.active = 0)
+  v
+db_update/create_gk_input_from_pyrokinetic_with_transpfile.py
+  | -> gk_input rows (WAIT by default)
+  v
+Manually set gk_input.status = TORUN (use the Tables panel)</pre>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">Remote GK Inputs Workflow</div>
+      <pre class="panel-note">Step 1: Build remote bundle (local)
+  - db_update/build_remote_gk_inputs.py
+  - creates remote_gk_inputs_TIMESTAMP.db + templates/
+
+Step 2: Send bundle to Flux
+  - rsync remote_gk_inputs_TIMESTAMP/ -> /u/jdominsk/DTwin/remote_gk_inputs/
+
+Step 3: Generate inputs on Flux
+  - run_remote_gk_inputs_flux.py
+  - writes .in files in /u/jdominsk/DTwin/tmp_inputs
+  - updates remote DB status/content
+
+Step 4: Sync back to main DB
+  - sync_remote_gk_inputs_from_flux.py
+  - inserts/updates gk_input rows</pre>
+    </div>
+  </div>
+  <div class="workflow-grid">
+    <div class="chart-wrap">
+      <div class="chart-title">Batch Workflow</div>
+      <pre class="panel-note">gk_input (gyrokinetic_simulations.db)
+  | status=TORUN
+  v
+create_batch_database.py --copy-torun
+  | -> batch_database_TIMESTAMP.db (gk_run)
+  | -> gk_input.status = BATCH
+  | -> gk_batch.status = CREATED
+  v
+deploy_batch_large.py
+  | -> sends DBs from batch/new + hpc scripts to NERSC newbatch
+  | -> gk_batch.status = SENT
+  v
+prepare_newbatch_large.sh (NERSC, newbatch/new)
+  | -> ../batchXXXX/ + copy DB + scripts
+  v
+deploy_batch_large.py (remote)
+  | -> sbatch batchXXXX/job_submit_large.sh
+  | -> gk_batch.status = LAUNCHED
+  v
+job_execute_large.sh (NERSC)
+  | -> gk_run.status = RUNNING -> SUCCESS/CRASHED
+  | -> gk_run.job_id set per run</pre>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">job_execute_large.sh Algorithm</div>
+      <pre class="panel-note">Inputs
+  - db path (batch_database_*.db)
+  - optional NODES
+  - flags: --analyze-only, --force-running-torun
+
+Initialize
+  - ensure gk_run has t_max_initial and t_max
+  - analyze SUCCESS rows with gx_analyze.py (mark CONVERGED/RESTART)
+
+Main loop
+  - pick first TORUN row
+  - if none: pick RESTART row, set restart=true in input_content, mark TORUN
+  - if none: exit
+
+Prepare run
+  - if t_max_initial == 0, parse t_max from input_content
+  - increment t_max by t_max_initial
+  - update input_content and write input_id*_gkinputid*.in
+  - set status RUNNING, record job_id, t_max_initial, t_max
+
+Execute
+  - if analyze-only: skip srun (treat as success)
+  - else run GX with srun
+  - on failure: status CRASHED
+  - on success: status SUCCESS, run gx_analyze.py to set CONVERGED/RESTART</pre>
+    </div>
+  </div>
+</section>

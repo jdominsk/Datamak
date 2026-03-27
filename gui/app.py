@@ -939,6 +939,31 @@ def load_monitor_report(path: str) -> Optional[Dict[str, object]]:
         return None
 
 
+def filter_monitor_report_for_origin(
+    report: Optional[Dict[str, object]], origin_name: Optional[str]
+) -> Optional[Dict[str, object]]:
+    if not report or not origin_name:
+        return report
+    target = canonical_origin_name(str(origin_name or ""))
+    filtered_batches: List[Dict[str, object]] = []
+    for batch in report.get("batches", []):
+        if not isinstance(batch, dict):
+            continue
+        origins = batch.get("origin_names")
+        if not isinstance(origins, list):
+            continue
+        canonical_origins = {
+            canonical_origin_name(str(name or ""))
+            for name in origins
+            if str(name or "").strip()
+        }
+        if target in canonical_origins:
+            filtered_batches.append(batch)
+    filtered_report = dict(report)
+    filtered_report["batches"] = filtered_batches
+    return filtered_report
+
+
 def _load_usage_log() -> Dict[str, object]:
     if not os.path.exists(USAGE_LOG_PATH):
         return {"events": []}
@@ -4384,6 +4409,10 @@ def index():
     sampling_tab = (request.args.get("sampling_tab") or "equil").strip().lower()
     if panel_param == "equil-plasma-sampling":
         selected_panel = "equilibria"
+    elif panel_param == "monitor":
+        selected_panel = "equilibria"
+    elif panel_param == "action":
+        selected_panel = "equilibria"
     elif panel_param == "plasma-sampling":
         sampling_tab = "plasma"
         selected_panel = "sampling"
@@ -4616,6 +4645,7 @@ def index():
     flux_action_state: Optional[Dict[str, str]] = None
     equilibria_workflow_status: Dict[str, object] = {"stages": [], "notes": []}
     equilibria_model_registry: List[Dict[str, object]] = []
+    equilibria_monitor_report: Optional[Dict[str, object]] = monitor_report
 
     if not os.path.exists(db_path):
         return render_template(
@@ -4718,6 +4748,7 @@ def index():
             sampling_batch_columns=MHD_COLUMNS,
             sampling_batch_error="Database not found.",
             monitor_report=monitor_report,
+            equilibria_monitor_report=equilibria_monitor_report,
             surrogate_models=surrogate_models,
             surrogate_model_selected=surrogate_model_selected,
             schema_overview=[],
@@ -4876,6 +4907,10 @@ def index():
                     str(selected_origin_details.get("name") or ""),
                     str(selected_origin_details.get("file_type") or ""),
                     flux_action_state,
+                )
+                equilibria_monitor_report = filter_monitor_report_for_origin(
+                    monitor_report,
+                    selected_origin_name,
                 )
             if sampling_origin_id is None:
                 sampling_origin_id = origin_id
@@ -5351,6 +5386,7 @@ def index():
         sampling_batch_columns=sampling_batch_columns,
         sampling_batch_error=sampling_batch_error,
         monitor_report=monitor_report,
+        equilibria_monitor_report=equilibria_monitor_report,
         hpc_config=hpc_config,
         hpc_test_result=hpc_test_result,
         surrogate_models=surrogate_models,

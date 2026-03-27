@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=gk_inputs
-#SBATCH --output=logs/gk_inputs_%j.out
-#SBATCH --error=logs/gk_inputs_%j.err
+#SBATCH --job-name=transp_fullauto
+#SBATCH --output=logs/transp_fullauto_%j.out
+#SBATCH --error=logs/transp_fullauto_%j.err
 #SBATCH --time=04:00:00
 #SBATCH --partition=all
 #SBATCH --nodes=1
@@ -11,7 +11,7 @@
 
 set -o pipefail
 
-## sbatch --mem=8G --partition=all --time=04:00:00 flux/run_gk_inputs_slurm.sh /path/to/flux_equil_inputs_TIMESTAMP.db 4000 100
+## sbatch --partition=all --time=04:00:00 --mem=8G flux/run_mainsteps2_slurm.sh /path/to/flux_equil_inputs_TIMESTAMP.db
 
 set +eu
 if [[ -f /etc/profile ]]; then
@@ -47,5 +47,5 @@ cd "${ROOT_DIR}"
 mkdir -p logs
 export PYTHONUNBUFFERED=1
 echo "[wrapper] ROOT_DIR=${ROOT_DIR}"
-echo "[wrapper] invoking run_gk_inputs_local.sh with db=$1"
-./run_gk_inputs_local.sh "$@"
+echo "[wrapper] invoking MainSteps_2_launch_on_flux.sh with db=$1"
+./MainSteps_2_launch_on_flux.sh "$@"

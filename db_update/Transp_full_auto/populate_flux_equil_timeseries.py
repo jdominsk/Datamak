@@ -4,22 +4,29 @@ import json
 import random
 import os
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+ROOT_DIR = os.environ.get(
+    "DTWIN_ROOT",
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-DEFAULT_DB = "/u/jdominsk/DTwin/transp_full_auto/flux_equil_inputs.db"
+from dtwin_config import resolve_flux_profile  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Populate data_equil and transp_timeseries on Flux."
     )
-    parser.add_argument("--db", default=DEFAULT_DB, help="Flux temp DB path.")
+    parser.add_argument("--db", default="", help="Flux temp DB path.")
     parser.add_argument(
         "--origin-name",
         required=True,
-        help="data_origin.name to populate (e.g. Alexei Transp 09 (full-auto)).",
+        help="data_origin.name to populate (e.g. Transp 09 (full-auto)).",
     )
     parser.add_argument(
         "--remote-path",
@@ -99,10 +106,17 @@ def get_origin(conn: sqlite3.Connection, name: str) -> Tuple[int, str]:
 
 def main() -> None:
     args = parse_args()
-    if not os.path.exists(args.db):
-        raise SystemExit(f"Temp DB not found: {args.db}")
+    flux = resolve_flux_profile()
+    db_path = (args.db or "").strip() or os.path.join(
+        str(flux.get("base_dir") or "").strip(),
+        "flux_equil_inputs.db",
+    )
+    if not db_path:
+        raise SystemExit("Flux DB path is empty. Provide --db or configure Flux base dir.")
+    if not os.path.exists(db_path):
+        raise SystemExit(f"Temp DB not found: {db_path}")
 
-    conn = sqlite3.connect(args.db)
+    conn = sqlite3.connect(db_path)
     try:
         conn.execute("PRAGMA foreign_keys = ON")
         ensure_transp_timeseries(conn)

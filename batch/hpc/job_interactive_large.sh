@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-GX_PATH=/global/homes/j/jdominsk/GX/gx_next6
+GX_PATH="${DTWIN_GX_PATH:-$HOME/GX/gx_next6}"
 source ${GX_PATH}/module.sh
 module load cray-python/3.11.7
 WORK_DIR="${PWD}"

@@ -4,6 +4,42 @@ import os
 import sqlite3
 
 
+DATA_ORIGIN_FILE_TYPE_SQL = "file_type text not null check (file_type in ('efit', 'transp'))"
+FLUX_ACTION_LOG_STATUSES = (
+    "STAGED",
+    "SUBMITTED",
+    "RUNNING",
+    "DONE",
+    "FAILED",
+    "SYNCED",
+)
+DATA_ORIGIN_CORE_COLUMNS = {
+    "id",
+    "name",
+    "origin",
+    "copy",
+    "file_type",
+    "tokamak",
+    "creation_date",
+    "color",
+}
+GK_MODEL_UNIQUE_COLUMNS = (
+    "gk_code_id",
+    "is_linear",
+    "is_adiabatic",
+    "is_electrostatic",
+    "input_template",
+)
+ORIGIN_NAME_RENAMES = {
+    "Mate Kinetic EFIT": "Kinetic EFIT (Mate)",
+    "Alexei Transp 09 (semi-auto)": "Transp 09 (semi-auto)",
+    "Alexei Transp 09 (full-auto)": "Transp 09 (full-auto)",
+    "Alexei Transp 09 (full-auto) NEW": "Transp 09 (full-auto) NEW",
+    "Alexei Transp 09 (full-auto) OLD": "Transp 09 (full-auto) OLD",
+    "Alexei Transp 10 (full-auto)": "Transp 10 (full-auto)",
+}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Create a SQLite DB with a pfile/gfile table.",
@@ -16,6 +52,294 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _normalize_sql(sql: str | None) -> str:
+    if not sql:
+        return ""
+    return " ".join(sql.lower().split())
+
+
+def _data_origin_sql(conn: sqlite3.Connection) -> str:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'data_origin'"
+    ).fetchone()
+    return str(row[0]) if row and row[0] is not None else ""
+
+
+def _rebuild_data_origin_with_constraints(conn: sqlite3.Connection) -> None:
+    columns = [str(row[1]) for row in conn.execute("PRAGMA table_info(data_origin)").fetchall()]
+    extra_columns = sorted(
+        column
+        for column in columns
+        if column not in DATA_ORIGIN_CORE_COLUMNS
+    )
+    if extra_columns:
+        raise SystemExit(
+            "Refusing to rebuild data_origin because it contains unexpected columns: "
+            + ", ".join(extra_columns)
+        )
+
+    table_sql = f"""
+        CREATE TABLE data_origin (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            origin TEXT NOT NULL,
+            copy TEXT NOT NULL,
+            file_type TEXT NOT NULL CHECK (file_type IN ('EFIT', 'TRANSP')),
+            tokamak TEXT NOT NULL DEFAULT 'NSTX',
+            creation_date TEXT NOT NULL DEFAULT (datetime('now')),
+            color TEXT
+        )
+    """
+    target_columns = [
+        "id",
+        "name",
+        "origin",
+        "copy",
+        "file_type",
+        "tokamak",
+        "creation_date",
+        "color",
+    ]
+    select_expressions = [
+        "id",
+        "name",
+        "origin",
+        "copy",
+        "file_type",
+        "tokamak",
+        "creation_date",
+        "color" if "color" in columns else "NULL",
+    ]
+    joined_target_columns = ", ".join(target_columns)
+    joined_select_expressions = ", ".join(select_expressions)
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute("ALTER TABLE data_origin RENAME TO data_origin__old")
+        conn.execute(table_sql)
+        conn.execute(
+            f"""
+            INSERT INTO data_origin ({joined_target_columns})
+            SELECT {joined_select_expressions}
+            FROM data_origin__old
+            """
+        )
+        conn.execute("DROP TABLE data_origin__old")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+    fk_errors = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if fk_errors:
+        raise SystemExit(f"Foreign key check failed after rebuilding data_origin: {fk_errors}")
+
+
+def ensure_flux_action_log_schema(conn: sqlite3.Connection) -> None:
+    status_list = ", ".join(f"'{status}'" for status in FLUX_ACTION_LOG_STATUSES)
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS flux_action_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            data_origin_id INTEGER,
+            data_origin_name TEXT,
+            flux_db_name TEXT NOT NULL,
+            remote_host TEXT NOT NULL,
+            remote_dir TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'STAGED'
+                CHECK (status IN ({status_list})),
+            slurm_job_id TEXT,
+            status_detail TEXT,
+            submitted_at TEXT,
+            status_checked_at TEXT,
+            synced_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (data_origin_id) REFERENCES data_origin(id)
+        )
+        """
+    )
+    columns = {
+        str(row[1]) for row in conn.execute("PRAGMA table_info(flux_action_log)").fetchall()
+    }
+    if "status" not in columns:
+        conn.execute(
+            "ALTER TABLE flux_action_log ADD COLUMN status TEXT NOT NULL DEFAULT 'STAGED'"
+        )
+        columns.add("status")
+    if "slurm_job_id" not in columns:
+        conn.execute("ALTER TABLE flux_action_log ADD COLUMN slurm_job_id TEXT")
+    if "status_detail" not in columns:
+        conn.execute("ALTER TABLE flux_action_log ADD COLUMN status_detail TEXT")
+    if "submitted_at" not in columns:
+        conn.execute("ALTER TABLE flux_action_log ADD COLUMN submitted_at TEXT")
+    if "status_checked_at" not in columns:
+        conn.execute("ALTER TABLE flux_action_log ADD COLUMN status_checked_at TEXT")
+    if "synced_at" not in columns:
+        conn.execute("ALTER TABLE flux_action_log ADD COLUMN synced_at TEXT")
+    if "status" in columns:
+        conn.execute(
+            """
+            UPDATE flux_action_log
+            SET status = 'STAGED'
+            WHERE status IS NULL OR TRIM(status) = ''
+            """
+        )
+        conn.execute(
+            """
+            UPDATE flux_action_log
+            SET status = UPPER(status)
+            WHERE status IS NOT NULL AND status != UPPER(status)
+            """
+        )
+    if "status_detail" in columns:
+        conn.execute(
+            """
+            UPDATE flux_action_log
+            SET status_detail = 'PENDING'
+            WHERE status = 'SUBMITTED'
+              AND slurm_job_id IS NOT NULL
+              AND (status_detail IS NULL OR TRIM(status_detail) = '')
+            """
+        )
+        conn.execute(
+            """
+            UPDATE flux_action_log
+            SET status_detail = 'SYNCED'
+            WHERE status = 'SYNCED'
+              AND (status_detail IS NULL OR TRIM(status_detail) = '')
+            """
+        )
+    if "status_checked_at" in columns:
+        conn.execute(
+            """
+            UPDATE flux_action_log
+            SET status_checked_at = submitted_at
+            WHERE status = 'SUBMITTED'
+              AND submitted_at IS NOT NULL
+              AND status_checked_at IS NULL
+            """
+        )
+        conn.execute(
+            """
+            UPDATE flux_action_log
+            SET status_checked_at = synced_at
+            WHERE status = 'SYNCED'
+              AND synced_at IS NOT NULL
+              AND status_checked_at IS NULL
+            """
+        )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_flux_action_log_origin
+        ON flux_action_log (data_origin_id, created_at)
+        """
+    )
+
+
+def normalize_known_origin_names(conn: sqlite3.Connection) -> None:
+    data_origin_tables = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if "data_origin" in data_origin_tables:
+        for legacy_name, canonical_name in ORIGIN_NAME_RENAMES.items():
+            conn.execute(
+                """
+                UPDATE data_origin
+                SET name = ?
+                WHERE name = ?
+                """,
+                (canonical_name, legacy_name),
+            )
+    if "flux_action_log" in data_origin_tables:
+        for legacy_name, canonical_name in ORIGIN_NAME_RENAMES.items():
+            conn.execute(
+                """
+                UPDATE flux_action_log
+                SET data_origin_name = ?
+                WHERE data_origin_name = ?
+                """,
+                (canonical_name, legacy_name),
+            )
+
+
+def ensure_gk_model_uniqueness(conn: sqlite3.Connection) -> None:
+    tables = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        ).fetchall()
+    }
+    if "gk_model" not in tables:
+        return
+    gk_input_columns = (
+        {str(row[1]) for row in conn.execute("PRAGMA table_info(gk_input)").fetchall()}
+        if "gk_input" in tables
+        else set()
+    )
+    grouped_rows = conn.execute(
+        """
+        SELECT gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template,
+               GROUP_CONCAT(id), COUNT(*), MAX(active)
+        FROM gk_model
+        GROUP BY gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template
+        HAVING COUNT(*) > 1
+        ORDER BY MIN(id)
+        """
+    ).fetchall()
+    for row in grouped_rows:
+        model_ids = [
+            int(part)
+            for part in str(row[5] or "").split(",")
+            if str(part).strip()
+        ]
+        if len(model_ids) <= 1:
+            continue
+        keep_id = min(model_ids)
+        duplicate_ids = [model_id for model_id in model_ids if model_id != keep_id]
+        if not duplicate_ids:
+            continue
+
+        if "gk_model_id" in gk_input_columns:
+            placeholders = ", ".join("?" for _ in model_ids)
+            conflicts = conn.execute(
+                f"""
+                SELECT gk_study_id, psin, COUNT(*)
+                FROM gk_input
+                WHERE gk_model_id IN ({placeholders})
+                GROUP BY gk_study_id, psin
+                HAVING COUNT(*) > 1
+                """,
+                model_ids,
+            ).fetchall()
+            if conflicts:
+                raise SystemExit(
+                    "Refusing to deduplicate gk_model because duplicate gk_input rows "
+                    "would collide after remapping model ids."
+                )
+            for duplicate_id in duplicate_ids:
+                conn.execute(
+                    "UPDATE gk_input SET gk_model_id = ? WHERE gk_model_id = ?",
+                    (keep_id, duplicate_id),
+                )
+
+        conn.execute(
+            "UPDATE gk_model SET active = ? WHERE id = ?",
+            (int(row[7] or 0), keep_id),
+        )
+        placeholders = ", ".join("?" for _ in duplicate_ids)
+        conn.execute(
+            f"DELETE FROM gk_model WHERE id IN ({placeholders})",
+            duplicate_ids,
+        )
+
+
 def create_schema(conn: sqlite3.Connection) -> None:
     # Origin of the Equil (pfile,gfile)
     conn.execute(
@@ -25,12 +349,18 @@ def create_schema(conn: sqlite3.Connection) -> None:
             name TEXT NOT NULL,
             origin TEXT NOT NULL,
             copy TEXT NOT NULL,
+            file_type TEXT NOT NULL CHECK (file_type IN ('EFIT', 'TRANSP')),
             tokamak TEXT NOT NULL DEFAULT 'NSTX',
-            creation_date TEXT NOT NULL DEFAULT (datetime('now'))
+            creation_date TEXT NOT NULL DEFAULT (datetime('now')),
+            color TEXT
         )
         """
     )
     columns = {row[1] for row in conn.execute("PRAGMA table_info(data_origin)").fetchall()}
+    if "file_type" not in columns:
+        conn.execute("ALTER TABLE data_origin ADD COLUMN file_type TEXT")
+    if "color" not in columns:
+        conn.execute("ALTER TABLE data_origin ADD COLUMN color TEXT")
     if "tokamak" not in columns:
         conn.execute("ALTER TABLE data_origin ADD COLUMN tokamak TEXT NOT NULL DEFAULT 'NSTX'")
     # Database of equilibrium based on pfile and gfile
@@ -55,26 +385,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS flux_action_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            data_origin_id INTEGER,
-            data_origin_name TEXT,
-            flux_db_name TEXT NOT NULL,
-            remote_host TEXT NOT NULL,
-            remote_dir TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            FOREIGN KEY (data_origin_id) REFERENCES data_origin(id)
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_flux_action_log_origin
-        ON flux_action_log (data_origin_id, created_at)
-        """
-    )
+    ensure_flux_action_log_schema(conn)
+    normalize_known_origin_names(conn)
     equil_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(data_equil)").fetchall()
     }
@@ -88,6 +400,56 @@ def create_schema(conn: sqlite3.Connection) -> None:
         equil_columns.add("shot_variant")
     if "comment" not in equil_columns:
         conn.execute("ALTER TABLE data_equil ADD COLUMN comment TEXT")
+    conn.execute(
+        """
+        UPDATE data_origin
+        SET file_type = 'TRANSP'
+        WHERE file_type IS NULL
+          AND (
+                EXISTS (
+                    SELECT 1
+                    FROM data_equil AS de
+                    WHERE de.data_origin_id = data_origin.id
+                      AND de.transpfile IS NOT NULL
+                      AND TRIM(de.transpfile) != ''
+                )
+                OR lower(name) LIKE '%transp%'
+                OR lower(origin) LIKE '%transp%'
+                OR lower(copy) LIKE '%transp%'
+              )
+        """
+    )
+    conn.execute(
+        """
+        UPDATE data_origin
+        SET file_type = 'EFIT'
+        WHERE file_type IS NULL
+          AND (
+                EXISTS (
+                    SELECT 1
+                    FROM data_equil AS de
+                    WHERE de.data_origin_id = data_origin.id
+                      AND (
+                            (de.pfile IS NOT NULL AND TRIM(de.pfile) != '')
+                            OR (de.gfile IS NOT NULL AND TRIM(de.gfile) != '')
+                          )
+                )
+                OR lower(name) LIKE '%efit%'
+                OR lower(name) LIKE '%mate%'
+                OR lower(origin) LIKE '%efit%'
+                OR lower(copy) LIKE '%efit%'
+              )
+        """
+    )
+    conn.execute(
+        """
+        UPDATE data_origin
+        SET file_type = 'EFIT'
+        WHERE file_type IS NULL
+        """
+    )
+    if DATA_ORIGIN_FILE_TYPE_SQL not in _normalize_sql(_data_origin_sql(conn)):
+        _rebuild_data_origin_with_constraints(conn)
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS uq_data_equil_shot_variant_time
@@ -189,6 +551,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gk_input ADD COLUMN gk_model_id INTEGER")
     if "beta" not in columns:
         conn.execute("ALTER TABLE gk_input ADD COLUMN beta REAL")
+    ensure_gk_model_uniqueness(conn)
 
     conn.execute(
         """
@@ -366,6 +729,12 @@ def create_schema(conn: sqlite3.Connection) -> None:
         """
         CREATE UNIQUE INDEX IF NOT EXISTS uq_gk_input_key
         ON gk_input (gk_study_id, gk_model_id, psin)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_gk_model_key
+        ON gk_model (gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template)
         """
     )
     conn.execute(

@@ -1,12 +1,19 @@
 #!/bin/bash
 set -euo pipefail
 
-DTWIN_ROOT="${DTWIN_ROOT:-/Users/jdominsk/Documents/Projects/AIML_database/Digital_twin}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DTWIN_ROOT="${DTWIN_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 LOCAL_DIR="${DTWIN_ROOT}/transp_full_auto"
 MAIN_DB="${DTWIN_ROOT}/gyrokinetic_simulations.db"
-REMOTE_DIR="/u/jdominsk/DTwin/transp_full_auto"
-REMOTE_HOST="jdominsk@flux"
-ORIGIN_NAME="${ORIGIN_NAME:-Alexei Transp 09 (full-auto)}"
+ORIGIN_NAME="${ORIGIN_NAME:-Transp 09 (full-auto)}"
+eval "$(python3 "${DTWIN_ROOT}/tools/resolve_dtwin_env.py" --profile flux --format shell)"
+
+REMOTE_DIR="${DTWIN_FLUX_BASE_DIR:-}"
+REMOTE_HOST="${DTWIN_FLUX_REMOTE:-}"
+if [[ -z "${REMOTE_DIR}" || -z "${REMOTE_HOST}" ]]; then
+  echo "Missing Flux runtime settings. Configure Flux host/base dir in Datamak settings."
+  exit 1
+fi
 
 mkdir -p "${LOCAL_DIR}/templates"
 
@@ -19,6 +26,7 @@ rsync -av "${DTWIN_ROOT}/pyrokinetics"/*.in "${LOCAL_DIR}/templates/"
 rsync -av "${DTWIN_ROOT}/db_update/Transp_full_auto/MainSteps_2_launch_on_flux.sh" "${LOCAL_DIR}/"
 rsync -av "${DTWIN_ROOT}/db_update/Transp_full_auto/build_flux_equil_inputs.py" "${LOCAL_DIR}/"
 rsync -av "${DTWIN_ROOT}/db_update/Transp_full_auto/flux" "${LOCAL_DIR}/"
+python3 "${DTWIN_ROOT}/tools/resolve_dtwin_env.py" --profile flux --format shell > "${LOCAL_DIR}/datamak_runtime.env"
 
 RSYNC_SSH_OPTS=(
   -o ControlMaster=auto
@@ -28,7 +36,10 @@ RSYNC_SSH_OPTS=(
 RSYNC_SSH="ssh ${RSYNC_SSH_OPTS[*]}"
 
 # Open a control connection so you can complete 2FA once, then reuse it for rsync.
-ssh "${RSYNC_SSH_OPTS[@]}" -t "${REMOTE_HOST}" "true"
+python3 "${DTWIN_ROOT}/tools/ssh_with_duo.py" \
+  --duo-option "${DTWIN_FLUX_DUO_OPTION:-}" \
+  -- \
+  ssh "${RSYNC_SSH_OPTS[@]}" -t "${REMOTE_HOST}" "true"
 rsync -av -e "$RSYNC_SSH" "${LOCAL_DIR}/" "${REMOTE_HOST}:${REMOTE_DIR}/"
 
 echo "Uploaded temp DB + templates to ${REMOTE_HOST}:${REMOTE_DIR}"

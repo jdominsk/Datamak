@@ -17,4 +17,4 @@ LEFT JOIN gk_study AS gs
     ON gs.data_equil_id = de.id
 WHERE gs.id IS NULL
 AND de.active = 1
-AND do.name = 'Mate Kinetic EFIT';
+AND do.name IN ('Kinetic EFIT (Mate)', 'Mate Kinetic EFIT');

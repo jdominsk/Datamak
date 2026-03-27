@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 import argparse
+import os
+import shlex
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
-import os
 
 
 ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from dtwin_config import resolve_perlmutter_profile  # noqa: E402
+try:
+    from batch.ssh_utils import build_ssh_base_args, get_ssh_connect_timeout  # noqa: E402
+except ImportError:
+    from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout  # noqa: E402
 
 
 def main() -> None:
@@ -15,17 +25,17 @@ def main() -> None:
     )
     parser.add_argument(
         "--remote",
-        default="jdominsk@perlmutter.nersc.gov",
-        help="Remote host (user@host).",
+        default="",
+        help="Remote host (user@host). Defaults to the Datamak Perlmutter profile.",
     )
     parser.add_argument(
         "--remote-dir",
-        default="/pscratch/sd/j/jdominsk/DTwin/newbatch",
+        default="",
         help="Remote folder containing prepare_newbatch.sh.",
     )
     parser.add_argument(
         "--base-dir",
-        default="/pscratch/sd/j/jdominsk/DTwin",
+        default="",
         help="Remote base folder containing batchXXXX directories.",
     )
     parser.add_argument(
@@ -45,6 +55,23 @@ def main() -> None:
         help="Local folder containing batch_database_*.db files.",
     )
     args = parser.parse_args()
+    profile = resolve_perlmutter_profile(
+        {
+            "remote": args.remote,
+            "batch_dir": args.remote_dir,
+            "base_dir": args.base_dir,
+        }
+    )
+    remote = str(profile["remote"] or "").strip()
+    remote_dir = str((args.remote_dir or "").strip() or profile["batch_dir"]).strip()
+    base_dir = str((args.base_dir or "").strip() or profile["base_dir"]).strip()
+    gx_path = str(profile.get("gx_path") or "").strip()
+    if not remote:
+        raise SystemExit("Perlmutter remote host is empty. Configure it in Datamak settings.")
+    if not remote_dir:
+        raise SystemExit("Perlmutter remote batch directory is empty.")
+    if not base_dir:
+        raise SystemExit("Perlmutter remote base directory is empty.")
 
     batch_root = Path(args.batch_dir).resolve().parent
     batch_new = Path(args.batch_dir).resolve()
@@ -143,16 +170,24 @@ def main() -> None:
         print("No non-empty batch databases to send.")
         return
 
+    sbatch_cmd = 'sbatch "$(basename "$job")"'
+    if gx_path:
+        sbatch_cmd = (
+            f'sbatch --export=ALL,DTWIN_GX_PATH={shlex.quote(gx_path)} '
+            '"$(basename "$job")"'
+        )
+    remote_dir_q = shlex.quote(remote_dir)
+    base_dir_q = shlex.quote(base_dir)
     remote_script = f"""
 set -euo pipefail
-mkdir -p {args.remote_dir}
-tar -xf - -C {args.remote_dir}
-cd {args.remote_dir}/hpc
+mkdir -p {remote_dir_q}
+tar -xf - -C {remote_dir_q}
+cd {remote_dir_q}/hpc
 chmod +x ./prepare_newbatch.sh
-BASE_DIR="{args.base_dir}" bash ./prepare_newbatch.sh
+BASE_DIR={base_dir_q} bash ./prepare_newbatch.sh
 shopt -s nullglob
 count=0
-manifest="{args.remote_dir}/new_runs.txt"
+manifest={shlex.quote(remote_dir + "/new_runs.txt")}
 if [ ! -f "$manifest" ]; then
   echo "No new_runs.txt found; nothing to submit."
   exit 0
@@ -168,7 +203,7 @@ while IFS= read -r run_dir; do
   fi
   echo "Submitting: $job"
   count=$((count+1))
-  (cd "$run_dir" && sbatch "$(basename "$job")")
+  (cd "$run_dir" && {sbatch_cmd})
   echo "SUBMITTED	${{run_dir}}	${{db_name}}"
   if [ "$count" -ge {args.max_submit} ]; then
     echo "Reached MAX_SUBMIT={args.max_submit}, stopping."
@@ -190,7 +225,7 @@ rm -f "$manifest"
     )
     try:
         result = subprocess.run(
-            ["ssh", args.remote, "bash", "-lc", remote_script],
+            [*build_ssh_base_args(remote, get_ssh_connect_timeout(10)), "bash", "-lc", remote_script],
             text=True,
             capture_output=True,
             stdin=tar_proc.stdout,
@@ -233,7 +268,7 @@ rm -f "$manifest"
         columns = {row[1] for row in conn.execute("PRAGMA table_info(gk_batch)")}
         if "remote_host" not in columns:
             conn.execute("ALTER TABLE gk_batch ADD COLUMN remote_host TEXT")
-        remote_folder = f"{args.remote}:{args.remote_dir}"
+        remote_folder = f"{remote}:{remote_dir}"
         for db_path in non_empty_dbs:
             conn.execute(
                 """
@@ -243,11 +278,11 @@ rm -f "$manifest"
                     remote_host = ?
                 WHERE batch_database_name = ?
                 """,
-                (remote_folder, args.remote, db_path.name),
+                (remote_folder, remote, db_path.name),
             )
             db_path.replace(batch_sent / db_path.name)
         for run_dir, db_name in submitted:
-            remote_folder = f"{args.remote}:{run_dir}"
+            remote_folder = f"{remote}:{run_dir}"
             conn.execute(
                 """
                 UPDATE gk_batch
@@ -256,7 +291,7 @@ rm -f "$manifest"
                     remote_host = ?
                 WHERE batch_database_name = ?
                 """,
-                (remote_folder, args.remote, db_name),
+                (remote_folder, remote, db_name),
             )
         conn.commit()
     finally:

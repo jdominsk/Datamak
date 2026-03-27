@@ -3,32 +3,44 @@ import argparse
 import glob
 import os
 import sqlite3
+import sys
 from typing import List, Tuple
 
+ROOT_DIR = os.environ.get("DTWIN_ROOT", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-DEFAULT_ROOT = (
-    "/Users/jdominsk/Library/CloudStorage/GoogleDrive-jdominsk@pppl.gov/"
-    ".shortcut-targets-by-id/1kj-B0-wc_W7TfwX403yBtOj5YFm9P9ml/Finished kEFIT runs"
-)
+from dtwin_config import require_source_path  # noqa: E402
+
+
 DEFAULT_DB = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     ".",
     "gyrokinetic_simulations.db",
 )
 DEFAULT_ACTIVATE_SQL = "update_activate_Mate_KinEFIT.sql"
+DEFAULT_FILE_TYPE = "EFIT"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Populate data_equil with p/g file pairs from subfolders.",
     )
-    parser.add_argument("--root", default=DEFAULT_ROOT, help="Root folder to scan.")
+    parser.add_argument(
+        "--root",
+        default="",
+        help="Root folder to scan. Defaults to DTWIN_MATE_ROOT or the Datamak user config.",
+    )
     parser.add_argument(
         "--db", default=DEFAULT_DB, help="Path to the SQLite database file."
     )
-    parser.add_argument("--origin-name", default="Mate Kinetic EFIT", help="data_origin.name value.")
+    parser.add_argument("--origin-name", default="Kinetic EFIT (Mate)", help="data_origin.name value.")
     parser.add_argument("--origin", default="Google drive", help="data_origin.origin value.")
-    parser.add_argument("--copy", default=DEFAULT_ROOT, help="data_origin.copy value.")
+    parser.add_argument(
+        "--copy",
+        default="",
+        help="data_origin.copy value. Defaults to the resolved Mate root.",
+    )
     return parser.parse_args()
 
 
@@ -57,15 +69,21 @@ def build_pairs(root: str) -> List[Tuple[str, str]]:
 def get_or_create_origin_id(
     conn: sqlite3.Connection, name: str, origin: str, copy: str
 ) -> int:
+    name_candidates = [(name or "").strip()]
+    if name_candidates[0] == "Kinetic EFIT (Mate)":
+        name_candidates.append("Mate Kinetic EFIT")
+    elif name_candidates[0] == "Mate Kinetic EFIT":
+        name_candidates.append("Kinetic EFIT (Mate)")
+    placeholders = ", ".join("?" for _ in name_candidates)
     row = conn.execute(
-        "SELECT id FROM data_origin WHERE name=? AND origin=? AND copy=?",
-        (name, origin, copy),
+        f"SELECT id FROM data_origin WHERE name IN ({placeholders}) AND origin=? AND copy=?",
+        (*name_candidates, origin, copy),
     ).fetchone()
     if row:
         return int(row[0])
     cur = conn.execute(
-        "INSERT INTO data_origin (name, origin, copy, tokamak) VALUES (?, ?, ?, ?)",
-        (name, origin, copy, "NSTX"),
+        "INSERT INTO data_origin (name, origin, copy, file_type, tokamak) VALUES (?, ?, ?, ?, ?)",
+        (name, origin, copy, DEFAULT_FILE_TYPE, "NSTX"),
     )
     return int(cur.lastrowid)
 
@@ -125,15 +143,17 @@ def insert_pairs(
 
 def main() -> None:
     args = parse_args()
+    root = require_source_path("mate_root", args.root)
+    copy_value = (args.copy or "").strip() or root
     if not os.path.exists(args.db):
         raise SystemExit(f"Database not found: {args.db}")
-    pairs = build_pairs(args.root)
+    pairs = build_pairs(root)
     if not pairs:
         raise SystemExit("No p/g pairs found.")
     conn = sqlite3.connect(args.db)
     try:
         conn.execute("PRAGMA foreign_keys = ON")
-        origin_id = get_or_create_origin_id(conn, args.origin_name, args.origin, args.copy)
+        origin_id = get_or_create_origin_id(conn, args.origin_name, args.origin, copy_value)
         inserted = insert_pairs(conn, origin_id, args.origin_name, pairs)
         sql_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), DEFAULT_ACTIVATE_SQL)
         with open(sql_path, "r", encoding="utf-8") as handle:

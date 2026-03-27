@@ -30,7 +30,7 @@ class BatchRemoteSyncWorkflowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "main.db"
             batch_name = "batch_database_20260216_120000.db"
-            remote_path = "/pscratch/sd/j/jdominsk/DTwin/newbatch/batch0001"
+            remote_path = "/pscratch/sd/o/operator/DTwin/newbatch/batch0001"
             self._create_main_db(
                 db_path,
                 batch_name=batch_name,

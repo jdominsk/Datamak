@@ -153,7 +153,7 @@ def fetch_studies(conn: sqlite3.Connection) -> List[Tuple[int, str, str, str, st
         JOIN gk_code AS gc ON gc.id = gs.gk_code_id
         JOIN data_origin AS do ON do.id = de.data_origin_id
         WHERE de.active = 1
-        AND do.name = 'Mate Kinetic EFIT';
+        AND do.name IN ('Kinetic EFIT (Mate)', 'Mate Kinetic EFIT');
         """
     ).fetchall()
     return [

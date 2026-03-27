@@ -28,6 +28,7 @@ def _create_min_equil_schema(conn: sqlite3.Connection) -> None:
             name TEXT NOT NULL,
             origin TEXT NOT NULL,
             copy TEXT NOT NULL,
+            file_type TEXT NOT NULL,
             tokamak TEXT NOT NULL DEFAULT 'NSTX'
         )
         """
@@ -68,7 +69,7 @@ class EquilibriumPopulationWorkflowTests(unittest.TestCase):
             conn = sqlite3.connect(":memory:")
             try:
                 _create_min_equil_schema(conn)
-                origin_name = "Mate Kinetic EFIT"
+                origin_name = "Kinetic EFIT (Mate)"
                 origin_id = get_or_create_mate_origin_id(
                     conn,
                     origin_name,
@@ -84,17 +85,19 @@ class EquilibriumPopulationWorkflowTests(unittest.TestCase):
 
                 row = conn.execute(
                     """
-                    SELECT pfile, gfile, pfile_content, gfile_content
-                    FROM data_equil
-                    WHERE data_origin_id = ?
+                    SELECT do.file_type, de.pfile, de.gfile, de.pfile_content, de.gfile_content
+                    FROM data_equil AS de
+                    JOIN data_origin AS do ON do.id = de.data_origin_id
+                    WHERE de.data_origin_id = ?
                     """,
                     (origin_id,),
                 ).fetchone()
                 self.assertIsNotNone(row)
-                self.assertEqual(str(row[0]), "p1234")
-                self.assertEqual(str(row[1]), "g1234")
-                self.assertEqual(str(row[2]), "p-content")
-                self.assertEqual(str(row[3]), "g-content")
+                self.assertEqual(str(row[0]), "EFIT")
+                self.assertEqual(str(row[1]), "p1234")
+                self.assertEqual(str(row[2]), "g1234")
+                self.assertEqual(str(row[3]), "p-content")
+                self.assertEqual(str(row[4]), "g-content")
             finally:
                 conn.close()
 
@@ -114,7 +117,7 @@ class EquilibriumPopulationWorkflowTests(unittest.TestCase):
                 _create_min_equil_schema(conn)
                 origin_id = get_or_create_mate_origin_id(
                     conn,
-                    "Mate Kinetic EFIT",
+                    "Kinetic EFIT (Mate)",
                     "Google drive",
                     tmpdir,
                 )
@@ -122,7 +125,7 @@ class EquilibriumPopulationWorkflowTests(unittest.TestCase):
                     insert_pairs(
                         conn,
                         origin_id,
-                        "Mate Kinetic EFIT",
+                        "Kinetic EFIT (Mate)",
                         [(str(pfile), str(gfile))],
                     )
             finally:
@@ -134,7 +137,7 @@ class EquilibriumPopulationWorkflowTests(unittest.TestCase):
             _create_min_equil_schema(conn)
             origin_id = get_or_create_alexei_origin_id(
                 conn,
-                "Alexei Transp 09 (semi-auto)",
+                "Transp 09 (semi-auto)",
                 "/remote/transp",
                 "/local/copy",
             )
@@ -148,18 +151,19 @@ class EquilibriumPopulationWorkflowTests(unittest.TestCase):
 
             rows = conn.execute(
                 """
-                SELECT transpfile, shot_number, shot_variant, active
-                FROM data_equil
-                WHERE data_origin_id = ?
-                ORDER BY transpfile
+                SELECT do.file_type, de.transpfile, de.shot_number, de.shot_variant, de.active
+                FROM data_equil AS de
+                JOIN data_origin AS do ON do.id = de.data_origin_id
+                WHERE de.data_origin_id = ?
+                ORDER BY de.transpfile
                 """,
                 (origin_id,),
             ).fetchall()
             self.assertEqual(
-                [(str(r[0]), str(r[1]), str(r[2]), int(r[3])) for r in rows],
+                [(str(r[0]), str(r[1]), str(r[2]), str(r[3]), int(r[4])) for r in rows],
                 [
-                    ("204118A05.CDF", "204118", "A05", 0),
-                    ("204118A06.CDF", "204118", "A06", 0),
+                    ("TRANSP", "204118A05.CDF", "204118", "A05", 0),
+                    ("TRANSP", "204118A06.CDF", "204118", "A06", 0),
                 ],
             )
             self.assertEqual(parse_transpfile("204118A05.CDF"), ("204118", "A05"))
@@ -177,7 +181,7 @@ class EquilibriumPopulationWorkflowTests(unittest.TestCase):
             "db_update.populate_data_equil_from_Alexei_Transp_09.subprocess.run",
             return_value=mocked,
         ):
-            files = list_remote_cdf_files("jdominsk@flux", "/remote/transp")
+            files = list_remote_cdf_files("operator@flux", "/remote/transp")
         self.assertEqual(files, ["204118A05.CDF", "204118A06.CDF"])
 
 

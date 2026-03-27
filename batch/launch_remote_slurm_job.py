@@ -5,7 +5,14 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
-from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout
+try:
+    from batch.ssh_utils import (
+        build_ssh_base_args,
+        get_default_remote_user,
+        get_ssh_connect_timeout,
+    )
+except ImportError:
+    from ssh_utils import build_ssh_base_args, get_default_remote_user, get_ssh_connect_timeout
 
 ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
 
@@ -38,7 +45,7 @@ def main() -> int:
     parser.add_argument(
         "--user",
         default="",
-        help="Username for squeue checks (optional).",
+        help="Username for squeue checks (defaults to the Datamak Perlmutter user setting).",
     )
     parser.add_argument(
         "--timeout",
@@ -85,7 +92,7 @@ def main() -> int:
     host, remote_path = parse_remote(remote_folder, remote_host)
     base_dir = remote_path.rstrip("/")
     job_script = f"{base_dir}/job_submit_large.sh"
-    squeue_user = args.user.strip()
+    squeue_user = args.user.strip() or get_default_remote_user()
 
     payload = f"""
 set -euo pipefail

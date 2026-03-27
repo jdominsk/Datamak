@@ -354,6 +354,10 @@
         margin: 0 0 8px;
         font-size: 14px;
       }
+      .equilibria-heading {
+        font-size: 16px;
+        font-weight: 700;
+      }
       .chart-empty {
         color: #52606d;
         font-size: 13px;
@@ -416,6 +420,177 @@
         gap: 16px;
         margin-top: 16px;
       }
+      .equilibria-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      .equilibria-side-panel {
+        display: grid;
+        gap: 10px;
+      }
+      .equilibria-side-panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .equilibria-side-panel-title {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .equilibria-side-panel-title .chart-title {
+        color: #1f2933;
+      }
+      .equilibria-side-panel-title-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #7b8794;
+        font-weight: 500;
+      }
+      .equilibria-side-panel-title-meta .color-swatch {
+        margin-right: 0;
+      }
+      .equilibria-side-panel-actions {
+        flex: 0 0 auto;
+        display: flex;
+        justify-content: flex-end;
+        align-items: flex-start;
+      }
+      .equilibria-status-list {
+        display: grid;
+        gap: 6px;
+      }
+      .equilibria-status-row {
+        display: grid;
+        grid-template-columns: 112px 84px minmax(0, 1fr);
+        gap: 8px;
+        align-items: start;
+        font-size: 12px;
+      }
+      .equilibria-status-name {
+        font-weight: 600;
+        color: #52606d;
+      }
+      .equilibria-status-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: fit-content;
+        padding: 1px 7px;
+        border: 1px solid #d9e2ec;
+        border-radius: 999px;
+        background: #f8fbff;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: #243b53;
+      }
+      .equilibria-status-chip.equilibria-state-running,
+      .equilibria-status-chip.equilibria-state-active {
+        border-color: #9ec5ff;
+        background: #eef6ff;
+        color: #0b3d91;
+      }
+      .equilibria-status-chip.equilibria-state-ready,
+      .equilibria-status-chip.equilibria-state-done,
+      .equilibria-status-chip.equilibria-state-synced {
+        border-color: #b7e4c7;
+        background: #eefcf3;
+        color: #17603a;
+      }
+      .equilibria-status-chip.equilibria-state-pending,
+      .equilibria-status-chip.equilibria-state-staged,
+      .equilibria-status-chip.equilibria-state-submitted,
+      .equilibria-status-chip.equilibria-state-none,
+      .equilibria-status-chip.equilibria-state-empty {
+        border-color: #d9e2ec;
+        background: #f8fafc;
+        color: #52606d;
+      }
+      .equilibria-status-chip.equilibria-state-failed,
+      .equilibria-status-chip.equilibria-state-mixed {
+        border-color: #f7b7a3;
+        background: #fff4ef;
+        color: #9a3412;
+      }
+      .equilibria-status-detail {
+        min-width: 0;
+        color: #334e68;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+      .equilibria-status-notes {
+        display: grid;
+        gap: 6px;
+      }
+      .equilibria-status-note {
+        padding: 7px 8px;
+        border: 1px solid #fde3cf;
+        border-radius: 6px;
+        background: #fff8f1;
+        font-size: 12px;
+        color: #8d3b12;
+        line-height: 1.35;
+      }
+      .equilibria-action-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+      .equilibria-action-strip form {
+        margin: 0;
+      }
+      .equilibria-action-strip button {
+        padding: 5px 9px;
+        font-size: 12px;
+      }
+      .equilibria-section-label {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #7b8794;
+      }
+      .equilibria-origin-table {
+        width: 100%;
+        min-width: 100%;
+        table-layout: auto;
+      }
+      .equilibria-origin-table td {
+        border: none;
+        min-width: 0;
+        padding: 7px 8px;
+        background: transparent;
+      }
+      .equilibria-origin-table tbody tr + tr td {
+        border-top: 1px solid #eef2f6;
+      }
+      .equilibria-origin-table td:first-child {
+        width: 200px;
+        min-width: 200px;
+        font-weight: 600;
+        color: #243b53;
+      }
+      .equilibria-origin-table td:nth-child(2) {
+        color: #334e68;
+      }
+      .equilibria-origin-row {
+        cursor: pointer;
+      }
+      .equilibria-origin-row:hover td {
+        background: #f8fbff;
+      }
+      .equilibria-origin-row.selected td {
+        background: #eef6ff;
+      }
+      .equilibria-origin-row.selected td:first-child {
+        box-shadow: inset 3px 0 0 #0b3d91;
+      }
       .input-editor {
         width: 100%;
         min-height: 320px;
@@ -437,6 +612,97 @@
       .panel-note {
         color: #52606d;
         font-size: 13px;
+      }
+      .eqp-collapsible {
+        margin: 12px 0;
+      }
+      .eqp-collapsible summary {
+        cursor: pointer;
+        color: #52606d;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+      .eqp-collapsible[open] summary {
+        margin-bottom: 10px;
+      }
+      .eqp-collapsible-content {
+        display: grid;
+        gap: 8px;
+      }
+      .eqp-controls-row {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        align-items: center;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .eqp-controls-row label,
+      .eqp-controls-row span,
+      .eqp-controls-row button,
+      .eqp-controls-row input,
+      .eqp-controls-row select {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+      .eqp-controls-row .panel-note {
+        font-size: 12px;
+      }
+      .eqp-controls-row select,
+      .eqp-controls-row input[type="number"],
+      .eqp-controls-row .eqp-update-button {
+        height: 30px;
+        box-sizing: border-box;
+      }
+      .eqp-controls-row select,
+      .eqp-controls-row input[type="number"] {
+        padding-top: 3px;
+        padding-bottom: 3px;
+      }
+      .eqp-controls-row .eqp-update-button {
+        margin-left: auto;
+      }
+      .eqp-section-header {
+        display: flex;
+        justify-content: flex-start;
+        align-items: baseline;
+        gap: 12px;
+        margin: 16px 0 8px;
+      }
+      .eqp-section-meta {
+        color: #52606d;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      .eqp-inline-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 8px;
+        color: #52606d;
+        font-size: 13px;
+      }
+      .eqp-inline-summary-main {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        min-width: 0;
+      }
+      .eqp-inline-summary-item {
+        white-space: nowrap;
+      }
+      .eqp-inline-summary-actions {
+        margin-left: auto;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .eqp-inline-summary-actions form {
+        margin: 0;
       }
       .error {
         color: #a61b1b;
@@ -552,6 +818,47 @@
         box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
         z-index: 21;
       }
+      @media (max-width: 980px) {
+        .eqp-controls-row {
+          flex-wrap: wrap;
+          overflow-x: visible;
+        }
+        .eqp-controls-row .eqp-update-button {
+          margin-left: 0;
+        }
+        .eqp-section-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 4px;
+        }
+        .eqp-section-meta {
+          white-space: normal;
+        }
+        .eqp-inline-summary {
+          gap: 4px 10px;
+        }
+        .eqp-inline-summary-main,
+        .eqp-inline-summary-actions {
+          width: 100%;
+        }
+        .eqp-inline-summary-actions {
+          margin-left: 0;
+        }
+        .eqp-inline-summary-item {
+          white-space: normal;
+        }
+        .equilibria-side-panel-header {
+          flex-direction: column;
+        }
+        .equilibria-side-panel-actions,
+        .equilibria-action-strip {
+          justify-content: flex-start;
+        }
+        .equilibria-status-row {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -576,8 +883,8 @@
         <button class="tab{% if selected_panel == 'monitor' %} active{% endif %}" type="button" data-tab="monitor">
           Batch Monitor
         </button>
-        <button class="tab{% if selected_panel == 'equil-plasma-sampling' %} active{% endif %}" type="button" data-tab="equil-plasma-sampling">
-          Input Sampling
+        <button class="tab{% if selected_panel == 'equilibria' %} active{% endif %}" type="button" data-tab="equilibria">
+          Equilibria &amp; Input
         </button>
         <button class="tab{% if selected_panel == 'action' %} active{% endif %}" type="button" data-tab="action">
           Workflow
@@ -1898,288 +2205,6 @@
           {% endif %}
         </div>
       </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'equil-plasma-sampling' %} panel-hidden{% endif %}" data-panel="equil-plasma-sampling">
-        <div class="chart-wrap borderless" style="margin-bottom:16px;">
-          <form method="get">
-            <input type="hidden" name="db" value="{{ db_path }}" />
-            <input type="hidden" name="panel" value="equil-plasma-sampling" />
-            <input type="hidden" name="table" value="{{ selected_table }}" />
-            <div class="row">
-              <label for="origin_id_eqp">Data origin</label>
-              <select id="origin_id_eqp" name="origin_id" data-origin-select="1" onchange="this.form.submit()">
-                {% for origin_id, origin_name, _ in data_origins %}
-                  <option value="{{ origin_id }}" {% if selected_origin_id == origin_id %}selected{% endif %}>
-                    {{ origin_id }} - {{ origin_name }}
-                  </option>
-                {% endfor %}
-              </select>
-              <label for="eqp_method">Method</label>
-              <select id="eqp_method" name="eqp_method" onchange="this.form.submit()">
-                <option value="farthest" {% if eqp_method == 'farthest' %}selected{% endif %}>Farthest-point</option>
-                <option value="kmeans" {% if eqp_method == 'kmeans' %}selected{% endif %}>K-means medoids</option>
-              </select>
-              <label for="eqp_target">Selection size</label>
-              <input
-                id="eqp_target"
-                name="eqp_target"
-                type="number"
-                min="5"
-                max="5000"
-                value="{{ eqp_target }}"
-                style="width:110px;"
-              />
-              <button type="submit">Update</button>
-              <noscript><button type="submit">Filter</button></noscript>
-            </div>
-            <div class="row" style="margin-top:6px;">
-              <label for="eqp_max">Max rows</label>
-              <input
-                id="eqp_max"
-                name="eqp_max"
-                type="number"
-                min="200"
-                {% if eqp_coverage_enabled %}max="20000"{% endif %}
-                value="{{ eqp_max }}"
-                style="width:100px;"
-              />
-              <label for="eqp_coverage">Coverage diagnostics</label>
-              <input
-                id="eqp_coverage"
-                name="eqp_coverage"
-                type="checkbox"
-                value="1"
-                {% if eqp_coverage_enabled %}checked{% endif %}
-              />
-            </div>
-            <div class="row" style="margin-top:6px;">
-              <label for="eqp_ion_tprim_min">Ion tprim min</label>
-              <input
-                id="eqp_ion_tprim_min"
-                name="eqp_ion_tprim_min"
-                type="number"
-                step="any"
-                value="{{ eqp_ion_tprim_min if eqp_ion_tprim_min is not none else '' }}"
-                style="width:120px;"
-              />
-              <span class="panel-note" style="margin:0;">
-                Set to 0 to exclude ion_tprim &lt; 0 (adiabatic electrons).
-              </span>
-            </div>
-          </form>
-        </div>
-        {% if eqp_method == 'kmeans' %}
-          <div class="panel-note" style="margin-bottom:12px;">
-            K-means performance:
-            {% if have_numpy %}
-              NumPy acceleration enabled.
-            {% else %}
-              NumPy not available (using pure Python).
-            {% endif %}
-          </div>
-        {% endif %}
-
-        {% if eqp_report %}
-          <div class="panel-note" style="margin-bottom:12px;">
-            Total rows: {{ "{:,}".format(eqp_report.total_rows) }}
-            {% if eqp_status_counts %}
-              | WAIT: {{ "{:,}".format(eqp_status_counts["WAIT"]) }}
-              | TORUN: {{ "{:,}".format(eqp_status_counts["TORUN"]) }}
-              | BATCH: {{ "{:,}".format(eqp_status_counts["BATCH"]) }}
-              | SUCCESS: {{ "{:,}".format(eqp_status_counts["SUCCESS"]) }}
-            {% endif %}
-          </div>
-          <div class="panel-note" style="margin-bottom:12px;">
-            <strong>Analysis 1 — basic statistics (equil + plasma features)</strong>
-            {% if eqp_report.duration_sec is defined %}
-              | time = {{ "{:.2f}".format(eqp_report.duration_sec) }} s
-            {% endif %}
-          </div>
-          <div class="table-wrapper" style="max-height:320px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Feature</th>
-                  <th>Count</th>
-                  <th>Missing</th>
-                  <th>Mean</th>
-                  <th>Std</th>
-                  <th>Min</th>
-                  <th>Median</th>
-                  <th>Max</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for col in eqp_columns %}
-                  {% set stats = eqp_report.stats[col] %}
-                  <tr>
-                    <td>{{ col }}</td>
-                    <td>{{ stats.count }}</td>
-                    <td>{{ stats.missing }}</td>
-                    <td>{{ "{:.4g}".format(stats.mean) if stats.mean is not none else "—" }}</td>
-                    <td>{{ "{:.4g}".format(stats.std) if stats.std is not none else "—" }}</td>
-                    <td>{{ "{:.4g}".format(stats.min) if stats.min is not none else "—" }}</td>
-                    <td>{{ "{:.4g}".format(stats.median) if stats.median is not none else "—" }}</td>
-                    <td>{{ "{:.4g}".format(stats.max) if stats.max is not none else "—" }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <div class="panel-note">No equil+plasma sampling data available.</div>
-        {% endif %}
-
-        {% if eqp_coverage %}
-          <div class="panel-note" style="margin:16px 0 8px;">
-            <strong>Coverage diagnostics (standardized space)</strong>
-            {% if eqp_coverage.duration_sec is defined %}
-              | time = {{ "{:.2f}".format(eqp_coverage.duration_sec) }} s
-            {% endif %}
-          </div>
-          {% if eqp_coverage.pairwise %}
-            <div class="panel-note" style="margin-bottom:8px;">
-              Rows used: {{ eqp_coverage.used }} {% if eqp_coverage.sampled %}(sampled from {{ eqp_coverage.total }}){% else %}(total {{ eqp_coverage.total }}){% endif %}
-            </div>
-            <div class="table-wrapper" style="max-height:220px;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Metric</th>
-                    <th>Min</th>
-                    <th>Median</th>
-                    <th>P95</th>
-                    <th>Max</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Pairwise distance</td>
-                    <td>{{ "{:.4g}".format(eqp_coverage.pairwise.min) }}</td>
-                    <td>{{ "{:.4g}".format(eqp_coverage.pairwise.median) }}</td>
-                    <td>{{ "{:.4g}".format(eqp_coverage.pairwise.p95) }}</td>
-                    <td>{{ "{:.4g}".format(eqp_coverage.pairwise.max) }}</td>
-                  </tr>
-                  <tr>
-                    <td>Nearest-neighbor distance</td>
-                    <td>{{ "{:.4g}".format(eqp_coverage.nearest.min) }}</td>
-                    <td>{{ "{:.4g}".format(eqp_coverage.nearest.median) }}</td>
-                    <td>{{ "{:.4g}".format(eqp_coverage.nearest.p95) }}</td>
-                    <td>{{ "{:.4g}".format(eqp_coverage.nearest.max) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <div class="panel-note">Not enough complete rows to compute coverage.</div>
-          {% endif %}
-        {% endif %}
-
-        {% if eqp_selection %}
-          <div class="panel-note" style="margin:16px 0 8px;">
-            <strong>Subset selection ({{ eqp_method }})</strong>
-          </div>
-          {% if eqp_selection.metrics %}
-            <div class="panel-note" style="margin-bottom:8px;">
-              Rows used: {{ eqp_selection.used }} {% if eqp_selection.sampled %}(sampled from {{ eqp_selection.total }}){% else %}(total {{ eqp_selection.total }}){% endif %}
-              | target = {{ eqp_target }}
-              {% if eqp_selection.duration_sec is defined %}
-                | time = {{ "{:.2f}".format(eqp_selection.duration_sec) }} s
-              {% endif %}
-            </div>
-            <div style="display:inline-flex; gap:12px; align-items:flex-start; max-width:100%;">
-              <div class="table-wrapper" style="max-height:200px; flex:0 0 auto;">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Metric</th>
-                      <th>Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>Avg distance to nearest selected</td>
-                      <td>{{ "{:.4g}".format(eqp_selection.metrics.avg_nearest) if eqp_selection.metrics.avg_nearest is not none else "—" }}</td>
-                    </tr>
-                    <tr>
-                      <td>P95 distance to nearest selected</td>
-                      <td>{{ "{:.4g}".format(eqp_selection.metrics.p95_nearest) if eqp_selection.metrics.p95_nearest is not none else "—" }}</td>
-                    </tr>
-                    <tr>
-                      <td>Max distance to nearest selected</td>
-                      <td>{{ "{:.4g}".format(eqp_selection.metrics.max_nearest) if eqp_selection.metrics.max_nearest is not none else "—" }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              {% if eqp_selection.selected_ids|length > 0 %}
-                {% if action_status and action_status.key == "deploy_batch_db_large" and not action_status.running %}
-                  <form method="get" action="/" style="margin-top:4px;">
-                    <input type="hidden" name="db" value="{{ db_path }}" />
-                    <input type="hidden" name="panel" value="monitor" />
-                    <input type="hidden" name="monitor_autorun" value="1" />
-                    <button type="submit">Go to Batch Monitor</button>
-                  </form>
-                {% elif eqp_status_counts and eqp_status_counts["TORUN"] > 0 %}
-                  <form method="post" action="/action/create_batch_db" style="margin-top:4px;">
-                    <input type="hidden" name="db" value="{{ db_path }}" />
-                    <input type="hidden" name="panel" value="equil-plasma-sampling" />
-                    <button type="submit">Create Batch DB</button>
-                    <span style="margin-left:8px;">
-                      TORUN: {{ "{:,}".format(eqp_status_counts["TORUN"]) }}
-                    </span>
-                  </form>
-                {% elif batch_dbs and actions.get("deploy_batch_db_large") %}
-                  <form method="post" action="/action/deploy_batch_db_large" style="margin-top:4px;">
-                    <input type="hidden" name="db" value="{{ db_path }}" />
-                    <input type="hidden" name="panel" value="equil-plasma-sampling" />
-                    <button type="submit">Deploy Batch DB (Large)</button>
-                    <span style="margin-left:8px;">
-                      New batch DBs: {{ batch_dbs|length }}
-                    </span>
-                  </form>
-                {% else %}
-                  <form method="post" action="/update_status_bulk" style="margin-top:4px;">
-                    <input type="hidden" name="db" value="{{ db_path }}" />
-                    <input type="hidden" name="panel" value="equil-plasma-sampling" />
-                    <input
-                      type="hidden"
-                      name="row_ids"
-                      value="{{ eqp_selection.selected_ids|join(',') }}"
-                    />
-                    <button type="submit">Select these inputs</button>
-                  </form>
-                {% endif %}
-              {% endif %}
-            </div>
-          {% else %}
-            <div class="panel-note">Not enough complete rows for selection.</div>
-          {% endif %}
-        {% endif %}
-        <div style="height:12px;"></div>
-        <div style="height:12px;"></div>
-        <div class="panel-note" style="margin-top:12px;">
-          <strong>Definitions</strong>
-        </div>
-        <div class="panel-note">
-          <strong>P95 definition:</strong>
-          Let $d_i$ be the distance from point $i$ to its nearest selected point.
-          The 95th percentile is
-          $P_{95} = \inf\{d : \frac{1}{N}\sum_{i=1}^{N}\mathbf{1}[d_i \le d] \ge 0.95\}$.
-          <br />
-          The median is
-          $P_{50} = \inf\{d : \frac{1}{N}\sum_{i=1}^{N}\mathbf{1}[d_i \le d] \ge 0.5\}$.
-        </div>
-        <div class="panel-note">
-          Features used:
-          {{ eqp_columns|join(", ") }}
-        </div>
-        <div class="panel-note" style="margin-bottom:12px;">
-          Ratios: temp_ratio = ion_temp / electron_temp,
-          dens_ratio = ion_dens / electron_dens,
-          mass_ratio = ion_mass / (electron_mass * 1836).
-        </div>
-        </div>
-        </section>
       <section class="panel panel-tabbed{% if selected_panel != 'surrogate' %} panel-hidden{% endif %}" data-panel="surrogate">
         <div class="panel-note" style="margin-bottom:12px;">
           Train and manage surrogate models. Models are saved under <code>db_surrogate/models</code>
@@ -3012,6 +3037,154 @@
                 </div>
               </div>
             {% endif %}
+          </div>
+        {% endif %}
+      </section>
+      <section class="panel panel-tabbed{% if selected_panel != 'equilibria' %} panel-hidden{% endif %}" data-panel="equilibria">
+        {% if action_status and action_status.message %}
+          <div class="notice">{{ action_status.message }}</div>
+        {% endif %}
+        {% if origin_details and origin_details|length > 0 %}
+          <div class="equilibria-layout">
+            <div class="chart-wrap">
+              <div class="chart-title equilibria-heading">Origin Registry</div>
+              <div class="panel-note" style="margin-bottom:8px;">
+                Select a data origin here to inspect its preparation state, Flux workflow, and the batch-launch tools below.
+              </div>
+              {% if selected_origin_details and eqp_report %}
+                <div class="panel-note" style="margin-bottom:8px;">
+                  Input status for this origin:
+                  total rows {{ "{:,}".format(eqp_report.total_rows) }}
+                  {% if eqp_status_counts %}
+                    | WAIT {{ "{:,}".format(eqp_status_counts["WAIT"]) }}
+                    | TORUN {{ "{:,}".format(eqp_status_counts["TORUN"]) }}
+                    | BATCH {{ "{:,}".format(eqp_status_counts["BATCH"]) }}
+                    | SUCCESS {{ "{:,}".format(eqp_status_counts["SUCCESS"]) }}
+                  {% endif %}
+                </div>
+              {% endif %}
+              <form id="equilibria-origin-row-form" method="get" style="display:none;">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="equilibria" />
+                <input id="equilibria-origin-row-input" type="hidden" name="origin_id" value="{{ selected_origin_details['id'] if selected_origin_details else '' }}" />
+                {% if equilibria_valid_only %}
+                  <input type="hidden" name="equilibria_valid_only" value="1" />
+                {% endif %}
+              </form>
+              <div class="table-wrapper" style="margin-top:12px;">
+                <table class="equilibria-origin-table" aria-label="Origin registry">
+                  <tbody>
+                    {% for origin in origin_details %}
+                      <tr
+                        class="equilibria-origin-row{% if selected_origin_details and origin['id'] == selected_origin_details['id'] %} selected{% endif %}"
+                        data-equilibria-origin-id="{{ origin['id'] }}"
+                        tabindex="0"
+                      >
+                        <td>
+                          <span class="color-swatch" data-color="{{ origin['color'] if origin['color'] else data_origin_colors.get(origin['name'], '#1f77b4') }}"></span>
+                          {{ origin['name'] }}
+                        </td>
+                        <td class="cell-truncate" title="{{ origin['origin'] or '' }}">{{ origin['origin'] or "" }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="chart-wrap equilibria-side-panel">
+              {% if selected_origin_details %}
+                <div class="equilibria-side-panel-header">
+                  <div class="equilibria-side-panel-title">
+                    <div class="chart-title equilibria-heading">
+                      <span>Scan Equilibria &amp; Generate Inputs:</span>
+                      <span class="equilibria-side-panel-title-meta">
+                        <span
+                          class="color-swatch"
+                          data-color="{{ selected_origin_details['color'] if selected_origin_details['color'] else data_origin_colors.get(selected_origin_details['name'], '#1f77b4') }}"
+                        ></span>
+                        {{ selected_origin_details['name'] }}
+                        {% if selected_origin_details['file_type'] %} | {{ selected_origin_details['file_type'] }}{% endif %}
+                        {% if selected_origin_details['tokamak'] %} | {{ selected_origin_details['tokamak'] }}{% endif %}
+                      </span>
+                    </div>
+                    <div class="panel-note" style="margin-bottom:0;">
+                      Use this section to see what has already been built for the selected origin: equilibria, studies, inputs, batch state, and Flux progress.
+                    </div>
+                  </div>
+                  {% if equilibria_actions %}
+                    <div class="equilibria-side-panel-actions">
+                      <div class="equilibria-action-strip">
+                        {% for item in equilibria_actions %}
+                          {% if actions.get(item.key) %}
+                            <form
+                              method="post"
+                              action="/action/{{ item.key }}"
+                              {% if item.key in ['run_on_flux', 'sync_back_from_flux', 'check_flux_status'] %}
+                                class="flux-remote-action-form"
+                                data-flux-action="{{ item.key }}"
+                                data-origin-name="{{ selected_origin_details['name'] }}"
+                                data-flux-status="{{ flux_action_state['status'] if flux_action_state else '' }}"
+                                data-flux-job-id="{{ flux_action_state['slurm_job_id'] if flux_action_state else '' }}"
+                              {% endif %}
+                            >
+                              <input type="hidden" name="db" value="{{ db_path }}" />
+                              <input type="hidden" name="panel" value="equilibria" />
+                              <input type="hidden" name="origin_id" value="{{ selected_origin_details['id'] }}" />
+                              <input type="hidden" name="origin_name" value="{{ selected_origin_details['name'] }}" />
+                              {% if equilibria_valid_only %}
+                                <input type="hidden" name="equilibria_valid_only" value="1" />
+                              {% endif %}
+                              <button type="submit">{{ item.title }}</button>
+                            </form>
+                          {% endif %}
+                        {% endfor %}
+                      </div>
+                    </div>
+                  {% endif %}
+                </div>
+                {% if equilibria_workflow_status.stages %}
+                  <div class="equilibria-section-label">Workflow Status</div>
+                  <div class="equilibria-status-list">
+                    {% for item in equilibria_workflow_status.stages %}
+                      <div class="equilibria-status-row">
+                        <div class="equilibria-status-name">{{ item.label }}</div>
+                        <div>
+                          <span class="equilibria-status-chip equilibria-state-{{ item.state_class }}">{{ item.state }}</span>
+                        </div>
+                        <div class="equilibria-status-detail">{{ item.detail }}</div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if equilibria_workflow_status.notes %}
+                  <div class="equilibria-status-notes">
+                    {% for note in equilibria_workflow_status.notes %}
+                      <div class="equilibria-status-note">{{ note }}</div>
+                    </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                {% if not equilibria_actions %}
+                  <div class="panel-note">No direct GUI action is wired for this origin yet.</div>
+                {% endif %}
+              {% else %}
+                <div class="panel-note">Select a data origin to inspect its preparation workflow.</div>
+              {% endif %}
+            </div>
+          </div>
+          {% if selected_origin_details %}
+            <div class="chart-wrap" style="margin-top:16px;">
+              {% set eqp_form_panel = 'equilibria' %}
+              {% set eqp_show_origin_selector = False %}
+              {% set eqp_title = 'Launch Batch of Simulations:' %}
+              {% set eqp_dom_suffix = 'equilibria' %}
+              {% include "_equil_plasma_sampling.html" %}
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="panel-note">
+            No `data_origin` rows are available yet. This panel will become the new origin-centric preparation view once origins exist in the database.
           </div>
         {% endif %}
       </section>
@@ -4492,6 +4665,28 @@ Execute
             localStorage.setItem("dtwin_origin_id", val);
           } else {
             localStorage.removeItem("dtwin_origin_id");
+          }
+        });
+      });
+    }
+    const equilibriaOriginForm = document.getElementById("equilibria-origin-row-form");
+    const equilibriaOriginInput = document.getElementById("equilibria-origin-row-input");
+    if (equilibriaOriginForm && equilibriaOriginInput) {
+      document.querySelectorAll(".equilibria-origin-row").forEach((row) => {
+        const submitOriginRow = () => {
+          const originId = row.dataset.equilibriaOriginId;
+          if (!originId) {
+            return;
+          }
+          equilibriaOriginInput.value = originId;
+          localStorage.setItem("dtwin_origin_id", originId);
+          equilibriaOriginForm.submit();
+        };
+        row.addEventListener("click", submitOriginRow);
+        row.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            submitOriginRow();
           }
         });
       });

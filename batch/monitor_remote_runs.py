@@ -8,7 +8,20 @@ from datetime import datetime
 from typing import List, Optional
 from pathlib import Path
 
-from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout, get_ssh_identity_file
+try:
+    from batch.ssh_utils import (
+        build_ssh_base_args,
+        get_default_remote_user,
+        get_ssh_connect_timeout,
+        get_ssh_identity_file,
+    )
+except ImportError:
+    from ssh_utils import (
+        build_ssh_base_args,
+        get_default_remote_user,
+        get_ssh_connect_timeout,
+        get_ssh_identity_file,
+    )
 
 
 ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
@@ -81,7 +94,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--user",
-        default=os.environ.get("DTWIN_REMOTE_USER", os.environ.get("USER", "")),
+        default=os.environ.get("DTWIN_REMOTE_USER", get_default_remote_user()),
         help="Username to query with squeue on the remote host.",
     )
     args = parser.parse_args()

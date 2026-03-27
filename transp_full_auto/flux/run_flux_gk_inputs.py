@@ -5,23 +5,38 @@ import os
 import random
 import re
 import sqlite3
+import sys
 import tempfile
 import time
 import warnings
-from typing import Dict, List, Tuple
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import pyrokinetics as pk
 
+ROOT_DIR = os.environ.get(
+    "DTWIN_ROOT",
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-DEFAULT_DB = "/u/jdominsk/DTwin/transp_full_auto/flux_equil_inputs.db"
-DEFAULT_TMP_DIR = "/u/jdominsk/DTwin/tmp_inputs"
+from dtwin_config import resolve_flux_profile  # noqa: E402
+
+
+def _default_tmp_dir(base_dir: str) -> str:
+    if not base_dir:
+        return ""
+    parent = Path(base_dir).expanduser().parent
+    return str(parent / "tmp_inputs")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate GX inputs on Flux and store into gk_input.content."
     )
-    parser.add_argument("--db", default=DEFAULT_DB, help="Flux temp DB path.")
+    parser.add_argument("--db", default="", help="Flux temp DB path.")
     parser.add_argument(
         "--template-dir",
         default="",
@@ -29,12 +44,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--tmp-dir",
-        default=DEFAULT_TMP_DIR,
+        default="",
         help="Temporary directory for generated GX inputs.",
     )
     parser.add_argument("--status", default="WAIT")
     parser.add_argument("--max-mem-gb", type=float, default=1.0)
-    parser.add_argument("--max-rows", type=int, default=100)
+    parser.add_argument("--max-rows", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=0)
     parser.add_argument("--loop", action="store_true")
     parser.add_argument("--randomize", action="store_true")
@@ -65,6 +80,11 @@ def get_rss_gb() -> float:
     except OSError:
         return 0.0
     return 0.0
+
+
+def log(msg: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {msg}", flush=True)
 
 
 def drop_gx_nkx_nky(content: str) -> Tuple[str, bool]:
@@ -181,29 +201,54 @@ def commit_with_retry(
             sleep_time *= backoff
 
 
-def claim_rows(
-    conn: sqlite3.Connection, batch_size: int, randomize: bool
-) -> List[Dict[str, object]]:
-    order = "RANDOM()" if randomize else "id"
+def claim_equilibrium_rows(
+    conn: sqlite3.Connection, randomize: bool
+) -> Tuple[Optional[Dict[str, object]], List[Dict[str, object]]]:
+    order = "RANDOM()" if randomize else "de.id"
     if conn.in_transaction:
         commit_with_retry(conn)
     sleep_time = 0.2
     for attempt in range(10):
         try:
             conn.execute("BEGIN IMMEDIATE")
+            equil = conn.execute(
+                f"""
+                SELECT de.id AS data_equil_id,
+                       de.shot_number,
+                       de.shot_variant,
+                       de.shot_time
+                FROM gk_input AS gi
+                JOIN gk_study AS gs ON gs.id = gi.gk_study_id
+                JOIN data_equil AS de ON de.id = gs.data_equil_id
+                WHERE gi.status = 'NEW'
+                  AND (gi.content IS NULL OR gi.content = '')
+                GROUP BY de.id
+                ORDER BY {order}
+                LIMIT 1
+                """
+            ).fetchone()
+            if not equil:
+                commit_with_retry(conn)
+                return None, []
+            data_equil_id = int(equil["data_equil_id"])
             ids = [
                 row[0]
                 for row in conn.execute(
-                    f"SELECT id FROM gk_input "
-                    f"WHERE status = 'NEW' "
-                    f"  AND (content IS NULL OR content = '') "
-                    f"ORDER BY {order} LIMIT ?",
-                    (batch_size,),
+                    """
+                    SELECT gi.id
+                    FROM gk_input AS gi
+                    JOIN gk_study AS gs ON gs.id = gi.gk_study_id
+                    WHERE gs.data_equil_id = ?
+                      AND gi.status = 'NEW'
+                      AND (gi.content IS NULL OR gi.content = '')
+                    ORDER BY gi.id
+                    """,
+                    (data_equil_id,),
                 ).fetchall()
             ]
             if not ids:
                 commit_with_retry(conn)
-                return []
+                return None, []
             conn.executemany(
                 "UPDATE gk_input SET status = 'WAIT' WHERE id = ?",
                 [(int(i),) for i in ids],
@@ -221,13 +266,17 @@ def claim_rows(
             time.sleep(sleep_time)
             sleep_time *= 1.5
     else:
-        return []
+        return None, []
     placeholders = ", ".join("?" for _ in ids)
     rows = conn.execute(
         f"""
         SELECT gi.id, gi.gk_study_id, gi.gk_model_id, gi.psin,
                gm.input_template,
-               de.folder_path, de.transpfile, de.shot_time,
+               de.id AS data_equil_id,
+               de.shot_number,
+               de.shot_variant,
+               de.shot_time,
+               de.folder_path, de.transpfile,
                gc.name AS gk_code
         FROM gk_input AS gi
         JOIN gk_model AS gm ON gm.id = gi.gk_model_id
@@ -235,10 +284,11 @@ def claim_rows(
         JOIN data_equil AS de ON de.id = gs.data_equil_id
         JOIN gk_code AS gc ON gc.id = gs.gk_code_id
         WHERE gi.id IN ({placeholders})
+        ORDER BY gi.id
         """,
         ids,
     ).fetchall()
-    return [dict(row) for row in rows]
+    return dict(equil), [dict(row) for row in rows]
 
 
 def read_file(path: str) -> str:
@@ -259,63 +309,88 @@ def process_rows(
     db_dir = os.path.dirname(os.path.abspath(args.db))
     template_dir = args.template_dir or os.path.join(db_dir, "templates")
     os.makedirs(args.tmp_dir, exist_ok=True)
+    if not rows:
+        return processed_rows, stop_early
+
+    first = rows[0]
+    transpfile = str(first["transpfile"])
+    folder_path = str(first["folder_path"])
+    transp_time = first["shot_time"]
+    template_name = str(first["input_template"])
+
+    if transp_time is None:
+        for row in rows:
+            execute_with_retry(
+                conn,
+                "UPDATE gk_input SET status = 'CRASHED', comment = ? WHERE id = ?",
+                ("Missing shot_time for data_equil.", int(row["id"])),
+            )
+        return processed_rows, stop_early
+
+    transpfile_path = os.path.join(folder_path, transpfile)
+    if not os.path.isfile(transpfile_path):
+        for row in rows:
+            execute_with_retry(
+                conn,
+                "UPDATE gk_input SET status = 'CRASHED', comment = ? WHERE id = ?",
+                (f"Missing CDF: {transpfile_path}", int(row["id"])),
+            )
+        return processed_rows, stop_early
+
+    template_path = os.path.join(template_dir, template_name)
+    if not os.path.isfile(template_path):
+        for row in rows:
+            execute_with_retry(
+                conn,
+                "UPDATE gk_input SET status = 'CRASHED', comment = ? WHERE id = ?",
+                (f"Template missing: {template_path}", int(row["id"])),
+            )
+        return processed_rows, stop_early
+
+    log(
+        "Initializing equilibrium: "
+        f"transpfile={transpfile} shot_time={transp_time} template={template_name}"
+    )
+    init_start = time.monotonic()
+    try:
+        with warnings.catch_warnings(record=True) as caught_init:
+            warnings.simplefilter("always")
+            pyro_transp = pk.Pyro(
+                eq_file=transpfile_path,
+                eq_type="TRANSP",
+                eq_kwargs={"time": float(transp_time), "neighbors": 256},
+                kinetics_file=transpfile_path,
+                kinetics_type="TRANSP",
+                kinetics_kwargs={"time": float(transp_time)},
+                gk_file=template_path,
+            )
+        init_elapsed = time.monotonic() - init_start
+        log(f"Equilibrium init finished in {init_elapsed:.1f}s")
+        if caught_init:
+            warning_msgs = [str(w.message).strip() for w in caught_init if str(w.message).strip()]
+            if warning_msgs:
+                comment_init = "warnings: " + "; ".join(warning_msgs)
+            else:
+                comment_init = ""
+        else:
+            comment_init = ""
+    except Exception as exc:
+        for row in rows:
+            execute_with_retry(
+                conn,
+                "UPDATE gk_input SET status = 'CRASHED', comment = ? WHERE id = ?",
+                (f"WARNING: error: {exc}", int(row["id"])),
+            )
+        return processed_rows, stop_early
+
     for row in rows:
         if stop_early:
             break
         row_id = int(row["id"])
         psin = float(row["psin"])
-        transpfile = str(row["transpfile"])
-        folder_path = str(row["folder_path"])
-        transp_time = row["shot_time"]
-        if transp_time is None:
-            execute_with_retry(
-                conn,
-                "UPDATE gk_input SET status = 'CRASHED', comment = ? WHERE id = ?",
-                ("Missing shot_time for data_equil.", row_id),
-            )
-            continue
-        transpfile_path = os.path.join(folder_path, transpfile)
-        if not os.path.isfile(transpfile_path):
-            execute_with_retry(
-                conn,
-                "UPDATE gk_input SET status = 'CRASHED', comment = ? WHERE id = ?",
-                (f"Missing CDF: {transpfile_path}", row_id),
-            )
-            continue
-        template_name = str(row["input_template"])
-        template_path = os.path.join(template_dir, template_name)
-        if not os.path.isfile(template_path):
-            execute_with_retry(
-                conn,
-                "UPDATE gk_input SET status = 'CRASHED', comment = ? WHERE id = ?",
-                (f"Template missing: {template_path}", row_id),
-            )
-            continue
-
         comment_parts: List[str] = []
-        try:
-            with warnings.catch_warnings(record=True) as caught_init:
-                warnings.simplefilter("always")
-                pyro_transp = pk.Pyro(
-                    eq_file=transpfile_path,
-                    eq_type="TRANSP",
-                    eq_kwargs={"time": float(transp_time), "neighbors": 256},
-                    kinetics_file=transpfile_path,
-                    kinetics_type="TRANSP",
-                    kinetics_kwargs={"time": float(transp_time)},
-                    gk_file=template_path,
-                )
-            if caught_init:
-                warning_msgs = [str(w.message).strip() for w in caught_init if str(w.message).strip()]
-                if warning_msgs:
-                    comment_parts.append("warnings: " + "; ".join(warning_msgs))
-        except Exception as exc:
-            execute_with_retry(
-                conn,
-                "UPDATE gk_input SET status = 'CRASHED', comment = ? WHERE id = ?",
-                (f"WARNING: error: {exc}", row_id),
-            )
-            continue
+        if comment_init:
+            comment_parts.append(comment_init)
 
         tmp_name = f"gk_input_{row_id}.in"
         tmp_path = os.path.join(args.tmp_dir, tmp_name)
@@ -387,7 +462,8 @@ def process_rows(
         print(
             f"progress {processed_rows}/{max_rows} ({total_rows}): "
             f"row_id={row_id} psin={psin:.3f} elapsed={elapsed:.1f}s "
-            f"eta={remaining:.1f}s rss={rss_gb:.2f}GB"
+            f"eta={remaining:.1f}s rss={rss_gb:.2f}GB",
+            flush=True,
         )
         if processed_rows % 100 == 0:
             commit_with_retry(conn)
@@ -400,13 +476,21 @@ def process_rows(
             stop_early = True
         if processed_rows >= max_rows:
             stop_early = True
-        del pyro_transp
         gc.collect()
+    del pyro_transp
     return processed_rows, stop_early
 
 
 def main() -> None:
     args = parse_args()
+    flux = resolve_flux_profile()
+    flux_base_dir = str(flux.get("base_dir") or "").strip()
+    args.db = (args.db or "").strip() or os.path.join(flux_base_dir, "flux_equil_inputs.db")
+    args.tmp_dir = (args.tmp_dir or "").strip() or _default_tmp_dir(flux_base_dir)
+    if not args.db:
+        raise SystemExit("Flux DB path is empty. Provide --db or configure Flux base dir.")
+    if not args.tmp_dir:
+        raise SystemExit("Flux tmp dir is empty. Provide --tmp-dir or configure Flux base dir.")
     if not os.path.exists(args.db):
         raise SystemExit(f"DB not found: {args.db}")
     os.makedirs(args.tmp_dir, exist_ok=True)
@@ -423,7 +507,12 @@ def main() -> None:
         start_time = time.monotonic()
         if args.batch_size and args.batch_size > 0:
             total_rows = conn.execute(
-                "SELECT COUNT(*) FROM gk_input WHERE status = 'NEW'"
+                """
+                SELECT COUNT(*)
+                FROM gk_input
+                WHERE status = 'NEW'
+                  AND (content IS NULL OR content = '')
+                """
             ).fetchone()[0]
             if total_rows == 0:
                 print("No NEW gk_input rows found.")
@@ -434,14 +523,63 @@ def main() -> None:
             while True:
                 if processed_rows >= max_rows:
                     break
-                batch_size = args.batch_size
-                remaining = max_rows - processed_rows
-                if remaining < batch_size:
-                    batch_size = remaining
-                rows = claim_rows(conn, batch_size, args.randomize)
+                batch_target = args.batch_size
+                batch_done = 0
+                while batch_done < batch_target and processed_rows < max_rows:
+                    equil, rows = claim_equilibrium_rows(conn, args.randomize)
+                    if not rows:
+                        print("No NEW gk_input rows found.")
+                        return
+                    if equil:
+                        print(
+                            "Selected equil: "
+                            f"shot={equil['shot_number']} "
+                            f"variant={equil['shot_variant']} "
+                            f"time={equil['shot_time']}"
+                        )
+                    processed_rows, stop_early = process_rows(
+                        conn,
+                        args,
+                        rows,
+                        processed_rows,
+                        total_rows,
+                        max_rows,
+                        start_time,
+                    )
+                    batch_done += len(rows)
+                    if stop_early:
+                        break
+                if stop_early:
+                    break
+                if not args.loop:
+                    break
+        else:
+            total_rows = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM gk_input
+                WHERE status = 'NEW'
+                  AND (content IS NULL OR content = '')
+                """
+            ).fetchone()[0]
+            if total_rows == 0:
+                print("No NEW gk_input rows found.")
+                return
+            max_rows = (
+                args.max_rows if args.max_rows and args.max_rows > 0 else total_rows
+            )
+            while processed_rows < max_rows:
+                equil, rows = claim_equilibrium_rows(conn, args.randomize)
                 if not rows:
                     print("No NEW gk_input rows found.")
-                    break
+                    return
+                if equil:
+                    print(
+                        "Selected equil: "
+                        f"shot={equil['shot_number']} "
+                        f"variant={equil['shot_variant']} "
+                        f"time={equil['shot_time']}"
+                    )
                 processed_rows, stop_early = process_rows(
                     conn,
                     args,
@@ -453,40 +591,6 @@ def main() -> None:
                 )
                 if stop_early:
                     break
-                if not args.loop:
-                    break
-        else:
-            rows = conn.execute(
-                """
-                SELECT gi.id, gi.gk_study_id, gi.gk_model_id, gi.psin,
-                       gm.input_template,
-                       de.folder_path, de.transpfile, de.shot_time,
-                       gc.name AS gk_code
-                FROM gk_input AS gi
-                JOIN gk_model AS gm ON gm.id = gi.gk_model_id
-                JOIN gk_study AS gs ON gs.id = gi.gk_study_id
-                JOIN data_equil AS de ON de.id = gs.data_equil_id
-                JOIN gk_code AS gc ON gc.id = gs.gk_code_id
-                WHERE gi.status = 'NEW'
-                ORDER BY gi.id
-                """
-            ).fetchall()
-            if not rows:
-                print("No NEW gk_input rows found.")
-                return
-            total_rows = len(rows)
-            max_rows = (
-                args.max_rows if args.max_rows and args.max_rows > 0 else total_rows
-            )
-            process_rows(
-                conn,
-                args,
-                [dict(row) for row in rows],
-                processed_rows,
-                total_rows,
-                max_rows,
-                start_time,
-            )
         commit_with_retry(conn)
     finally:
         conn.close()

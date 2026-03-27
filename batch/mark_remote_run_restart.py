@@ -5,7 +5,14 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
-from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout
+try:
+    from batch.ssh_utils import (
+        build_ssh_base_args,
+        get_default_remote_user,
+        get_ssh_connect_timeout,
+    )
+except ImportError:
+    from ssh_utils import build_ssh_base_args, get_default_remote_user, get_ssh_connect_timeout
 
 ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
 
@@ -134,8 +141,9 @@ PY
     if args.follow_monitor:
         monitor_path = ROOT_DIR / "batch" / "monitor_remote_runs.py"
         cmd = ["python3", str(monitor_path), "--db", args.db]
-        if args.monitor_user:
-            cmd.extend(["--user", args.monitor_user])
+        monitor_user = args.monitor_user.strip() or get_default_remote_user()
+        if monitor_user:
+            cmd.extend(["--user", monitor_user])
         if args.monitor_timeout is not None:
             cmd.extend(["--timeout", str(args.monitor_timeout)])
         try:

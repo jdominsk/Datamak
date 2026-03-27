@@ -5,24 +5,38 @@ import os
 import random
 import re
 import sqlite3
+import sys
 import tempfile
 import time
 import warnings
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pyrokinetics as pk
 
+ROOT_DIR = os.environ.get(
+    "DTWIN_ROOT",
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
 
-DEFAULT_DB = "/u/jdominsk/DTwin/transp_full_auto/flux_equil_inputs.db"
-DEFAULT_TMP_DIR = "/u/jdominsk/DTwin/tmp_inputs"
+from dtwin_config import resolve_flux_profile  # noqa: E402
+
+
+def _default_tmp_dir(base_dir: str) -> str:
+    if not base_dir:
+        return ""
+    parent = Path(base_dir).expanduser().parent
+    return str(parent / "tmp_inputs")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate GX inputs on Flux and store into gk_input.content."
     )
-    parser.add_argument("--db", default=DEFAULT_DB, help="Flux temp DB path.")
+    parser.add_argument("--db", default="", help="Flux temp DB path.")
     parser.add_argument(
         "--template-dir",
         default="",
@@ -30,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--tmp-dir",
-        default=DEFAULT_TMP_DIR,
+        default="",
         help="Temporary directory for generated GX inputs.",
     )
     parser.add_argument("--status", default="WAIT")
@@ -469,6 +483,14 @@ def process_rows(
 
 def main() -> None:
     args = parse_args()
+    flux = resolve_flux_profile()
+    flux_base_dir = str(flux.get("base_dir") or "").strip()
+    args.db = (args.db or "").strip() or os.path.join(flux_base_dir, "flux_equil_inputs.db")
+    args.tmp_dir = (args.tmp_dir or "").strip() or _default_tmp_dir(flux_base_dir)
+    if not args.db:
+        raise SystemExit("Flux DB path is empty. Provide --db or configure Flux base dir.")
+    if not args.tmp_dir:
+        raise SystemExit("Flux tmp dir is empty. Provide --tmp-dir or configure Flux base dir.")
     if not os.path.exists(args.db):
         raise SystemExit(f"DB not found: {args.db}")
     os.makedirs(args.tmp_dir, exist_ok=True)

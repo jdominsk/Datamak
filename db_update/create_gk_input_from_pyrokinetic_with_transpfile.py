@@ -4,9 +4,16 @@ import os
 import re
 import sqlite3
 import subprocess
+import sys
 from typing import Dict, List, Tuple
 
 import pyrokinetics as pk
+
+ROOT_DIR = os.environ.get("DTWIN_ROOT", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
+from dtwin_config import resolve_flux_profile  # noqa: E402
 
 
 DEFAULT_DB = os.path.join(
@@ -19,8 +26,7 @@ DEFAULT_TEMPLATE_DIR = os.path.join(
     "pyrokinetics",
 )
 DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gk_inputs")
-DEFAULT_REMOTE = "jdominsk@flux"
-DEFAULT_ORIGIN_NAME = "Alexei Transp 09 (semi-auto)"
+DEFAULT_ORIGIN_NAME = "Transp 09 (semi-auto)"
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,7 +37,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--template-dir", default=DEFAULT_TEMPLATE_DIR, help="GK input templates.")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Output folder for GK inputs.")
     parser.add_argument("--file-prefix", default="gk_input_", help="Prefix for generated filenames.")
-    parser.add_argument("--remote", default=DEFAULT_REMOTE, help="SSH host for remote copy.")
+    parser.add_argument(
+        "--remote",
+        default="",
+        help="SSH host for remote copy. Defaults to the Datamak Flux profile.",
+    )
     parser.add_argument(
         "--origin-name",
         default=DEFAULT_ORIGIN_NAME,
@@ -401,19 +411,26 @@ def fetch_active_models(
 def fetch_active_transp_studies(
     conn: sqlite3.Connection, origin_name: str
 ) -> List[Tuple[int, int, str, str, str, str, float]]:
+    origin_name = (origin_name or "").strip()
+    name_candidates = [origin_name]
+    if origin_name.startswith("Alexei "):
+        name_candidates.append(origin_name[len("Alexei ") :])
+    elif origin_name.startswith("Transp "):
+        name_candidates.append(f"Alexei {origin_name}")
+    placeholders = ", ".join("?" for _ in name_candidates)
     rows = conn.execute(
-        """
+        f"""
         SELECT gs.id, gs.gk_code_id, de.transpfile, do.origin, do.copy, gc.name, de.shot_time
         FROM gk_study AS gs
         JOIN data_equil AS de ON de.id = gs.data_equil_id
         JOIN data_origin AS do ON do.id = de.data_origin_id
         JOIN gk_code AS gc ON gc.id = gs.gk_code_id
         WHERE de.active = 1
-          AND do.name = ?
+          AND do.name IN ({placeholders})
           AND de.transpfile IS NOT NULL
           AND de.transpfile != ''
         """,
-        (origin_name,),
+        name_candidates,
     ).fetchall()
     return [
         (int(r[0]), int(r[1]), str(r[2]), str(r[3]), str(r[4]), str(r[5]), r[6])
@@ -435,6 +452,9 @@ def scp_if_missing(remote: str, remote_path: str, copy_path: str, filename: str)
 
 def main() -> None:
     args = parse_args()
+    remote = str(resolve_flux_profile({"remote": args.remote}).get("remote") or "").strip()
+    if not remote:
+        raise SystemExit("Flux remote host is empty. Configure it in Datamak settings.")
     if not os.path.exists(args.db):
         raise SystemExit(f"Database not found: {args.db}")
     if not os.path.isdir(args.template_dir):
@@ -458,7 +478,7 @@ def main() -> None:
             gk_code,
             transp_time,
         ) in studies:
-            filepath = scp_if_missing(args.remote, origin_path, copy_path, transpfile)
+            filepath = scp_if_missing(remote, origin_path, copy_path, transpfile)
             time_val = args.time if transp_time is None else float(transp_time)
             existing = existing_inputs(conn, study_id)
             for model in models:

@@ -2,7 +2,7 @@
 -- Requires SQLite readfile() support (sqlite3 CLI).
 -- Run from repo root so the relative paths resolve.
 
-INSERT INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id, active)
+INSERT OR IGNORE INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id, active)
 VALUES (
     1,
     1,
@@ -12,7 +12,7 @@ VALUES (
     1
 );
 
-INSERT INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id)
+INSERT OR IGNORE INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id)
 VALUES (
     1,
     0,
@@ -21,7 +21,7 @@ VALUES (
     (SELECT id FROM gk_code WHERE name = 'GX' ORDER BY id LIMIT 1)
 );
 
-INSERT INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id)
+INSERT OR IGNORE INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id)
 VALUES (
     0,
     1,
@@ -30,7 +30,7 @@ VALUES (
     (SELECT id FROM gk_code WHERE name = 'GX' ORDER BY id LIMIT 1)
 );
 
-INSERT INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id)
+INSERT OR IGNORE INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id)
 VALUES (
     0,
     0,
@@ -39,7 +39,7 @@ VALUES (
     (SELECT id FROM gk_code WHERE name = 'GX' ORDER BY id LIMIT 1)
 );
 
-INSERT INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id)
+INSERT OR IGNORE INTO gk_model (is_linear, is_adiabatic, is_electrostatic, input_template, gk_code_id)
 VALUES (
     0,
     0,

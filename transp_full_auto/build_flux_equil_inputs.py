@@ -63,8 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--psin-step", type=float, default=0.1)
     parser.add_argument(
         "--status",
-        default="WAIT",
-        help="Status for newly created gk_input rows (default: WAIT).",
+        default="NEW",
+        help="Status for newly created gk_input rows (default: NEW).",
     )
     return parser.parse_args()
 
@@ -297,16 +297,21 @@ def populate_equil_and_timeseries(
     }
     existing_equil_rows = conn.execute(
         """
-        SELECT id, shot_number, shot_variant, shot_time
+        SELECT id, transpfile, shot_number, shot_variant, shot_time
         FROM data_equil
         WHERE data_origin_id = ?
         """,
         (origin_id,),
     ).fetchall()
     equil_by_key: Dict[Tuple[str, Optional[str]], List[Tuple[int, Optional[float]]]] = {}
-    for row_id, shot_number, shot_variant, shot_time in existing_equil_rows:
+    processed_transpfiles = set()
+    for row_id, transpfile, shot_number, shot_variant, shot_time in existing_equil_rows:
         key = (str(shot_number), shot_variant)
         equil_by_key.setdefault(key, []).append((int(row_id), shot_time))
+        if transpfile and shot_time is not None:
+            ts_key = (origin_id, str(shot_number), shot_variant)
+            if ts_key in existing_ts:
+                processed_transpfiles.add(str(transpfile))
 
     inserted_equil = 0
     inserted_ts = 0
@@ -314,6 +319,8 @@ def populate_equil_and_timeseries(
     total_files = len(files)
     for idx, name in enumerate(files, start=1):
         print(f"\rReading CDF [{idx}/{total_files}]: {name}", end="", flush=True)
+        if name in processed_transpfiles:
+            continue
         shot_number, shot_variant = parse_transpfile(name)
         if not shot_number:
             continue

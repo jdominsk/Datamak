@@ -3,7 +3,20 @@ import argparse
 import subprocess
 from typing import List
 
-from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout
+try:
+    from batch.ssh_utils import (
+        build_ssh_base_args,
+        get_default_remote_host,
+        get_default_remote_user,
+        get_ssh_connect_timeout,
+    )
+except ImportError:
+    from ssh_utils import (
+        build_ssh_base_args,
+        get_default_remote_host,
+        get_default_remote_user,
+        get_ssh_connect_timeout,
+    )
 
 
 def _split_ssh_args(args: List[str]) -> tuple[List[str], str]:
@@ -18,13 +31,13 @@ def main() -> int:
     )
     parser.add_argument(
         "--host",
-        default="perlmutter.nersc.gov",
-        help="Remote SSH host (default: perlmutter.nersc.gov).",
+        default="",
+        help="Remote SSH host (defaults to the Datamak Perlmutter host setting).",
     )
     parser.add_argument(
         "--user",
         default="",
-        help="SSH username (optional).",
+        help="SSH username (defaults to the Datamak Perlmutter user setting).",
     )
     parser.add_argument(
         "--timeout",
@@ -34,9 +47,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    host = args.host.strip()
-    if args.user and "@" not in host:
-        host = f"{args.user}@{host}"
+    host = args.host.strip() or get_default_remote_host()
+    user = args.user.strip() or get_default_remote_user()
+    if user and "@" not in host:
+        host = f"{user}@{host}"
     connect_timeout = get_ssh_connect_timeout(max(1, args.timeout))
     ssh_args = build_ssh_base_args(host, connect_timeout)
     base_args, host_arg = _split_ssh_args(ssh_args)

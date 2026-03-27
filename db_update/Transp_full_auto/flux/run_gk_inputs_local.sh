@@ -5,8 +5,13 @@ DB_PATH="${1:?Usage: run_gk_inputs_local.sh /path/to/flux_equil_inputs.db [total
 TOTAL_ROWS="${2:-1000}"
 CHUNK_ROWS="${3:-100}"
 MAX_MEM_GB="${MAX_MEM_GB:-4}"
-PYTHON_BIN="${PYTHON_BIN:-/u/jdominsk/pyrokinetics/.venv/bin/python}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RUNTIME_ENV="${SCRIPT_DIR}/../datamak_runtime.env"
+if [[ -f "${RUNTIME_ENV}" ]]; then
+  # shellcheck disable=SC1090
+  source "${RUNTIME_ENV}"
+fi
+PYTHON_BIN="${PYTHON_BIN:-${DTWIN_FLUX_PYTHON:-python3}}"
 
 total_done=0
 while [ "${total_done}" -lt "${TOTAL_ROWS}" ]; do

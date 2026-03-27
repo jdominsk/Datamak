@@ -1,11 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
-DTWIN_ROOT="${DTWIN_ROOT:-/Users/jdominsk/Documents/Projects/AIML_database/Digital_twin}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DTWIN_ROOT="${DTWIN_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 MAIN_DB="${DTWIN_ROOT}/gyrokinetic_simulations.db"
 LOCAL_DIR="${DTWIN_ROOT}/transp_full_auto"
-REMOTE_DIR="/u/jdominsk/DTwin/transp_full_auto"
-REMOTE_HOST="jdominsk@flux"
+eval "$(python3 "${DTWIN_ROOT}/tools/resolve_dtwin_env.py" --profile flux --format shell)"
+REMOTE_DIR="${DTWIN_FLUX_BASE_DIR:-}"
+REMOTE_HOST="${DTWIN_FLUX_REMOTE:-}"
+if [[ -z "${REMOTE_DIR}" || -z "${REMOTE_HOST}" ]]; then
+  echo "Missing Flux runtime settings. Configure Flux host/base dir in Datamak settings."
+  exit 1
+fi
 
 FLUX_DB_LOCAL="${2:-}"
 REMOTE_DB_PATH="${1:-}"
@@ -43,7 +49,9 @@ PY
   )
   if [[ "${#META[@]}" -ge 3 && -n "${META[0]}" ]]; then
     REMOTE_DB_NAME="${META[0]}"
-    REMOTE_DB_HOST="${META[1]}"
+    if [[ -z "${REMOTE_DB_HOST}" ]]; then
+      REMOTE_DB_HOST="${META[1]}"
+    fi
     REMOTE_DB_DIR="${META[2]}"
     REMOTE_DB_PATH="${REMOTE_DB_DIR}/${REMOTE_DB_NAME}"
   fi
@@ -71,7 +79,10 @@ RSYNC_SSH_OPTS=(
 RSYNC_SSH="ssh ${RSYNC_SSH_OPTS[*]}"
 
 # Open a control connection so you can complete 2FA once, then reuse it for rsync.
-ssh "${RSYNC_SSH_OPTS[@]}" -t "${REMOTE_DB_HOST}" "true"
+python3 "${DTWIN_ROOT}/tools/ssh_with_duo.py" \
+  --duo-option "${DTWIN_FLUX_DUO_OPTION:-}" \
+  -- \
+  ssh "${RSYNC_SSH_OPTS[@]}" -t "${REMOTE_DB_HOST}" "true"
 if [[ -n "${REMOTE_DB_NAME}" ]]; then
   rsync -av -e "$RSYNC_SSH" "${REMOTE_DB_HOST}:${REMOTE_DB_DIR}/${REMOTE_DB_NAME}" "${LOCAL_DIR}/"
 else

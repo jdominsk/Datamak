@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import shlex
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
-import os
 
 
 ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from dtwin_config import resolve_perlmutter_profile  # noqa: E402
+try:
+    from batch.ssh_utils import build_ssh_base_args, get_ssh_connect_timeout  # noqa: E402
+except ImportError:
+    from ssh_utils import build_ssh_base_args, get_ssh_connect_timeout  # noqa: E402
 
 
 def main() -> None:
@@ -21,8 +30,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--remote",
-        default="jdominsk@perlmutter.nersc.gov:/pscratch/sd/j/jdominsk/DTwin/newbatch",
-        help="Remote base destination (user@host:/path).",
+        default="",
+        help="Remote base destination (user@host:/path). Defaults to the Datamak Perlmutter batch directory.",
     )
     parser.add_argument(
         "--gk-db",
@@ -30,6 +39,7 @@ def main() -> None:
         help="Local gyrokinetic database for logging gk_batch entries.",
     )
     args = parser.parse_args()
+    profile = resolve_perlmutter_profile()
 
     batch_path = Path(args.batch_dir)
     if not batch_path.is_dir():
@@ -125,7 +135,10 @@ def main() -> None:
             print("No non-empty batch databases to send.")
             return
 
-        remote_base = args.remote.rstrip("/")
+        remote_base = (args.remote or "").strip()
+        if not remote_base:
+            remote_base = f"{profile['remote']}:{profile['batch_dir']}"
+        remote_base = remote_base.rstrip("/")
         if ":" not in remote_base:
             raise SystemExit("Remote must be in the form user@host:/path")
         remote_host, remote_root = remote_base.split(":", 1)
@@ -145,7 +158,7 @@ def main() -> None:
         )
         try:
             subprocess.run(
-                ["ssh", remote_host, remote_cmd],
+                [*build_ssh_base_args(remote_host, get_ssh_connect_timeout(10)), remote_cmd],
                 check=True,
                 stdin=tar_proc.stdout,
             )

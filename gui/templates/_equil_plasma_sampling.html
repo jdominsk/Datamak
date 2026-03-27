@@ -1,0 +1,270 @@
+{% if eqp_title %}
+  <div class="chart-title equilibria-heading">
+    <span>{{ eqp_title }}</span>
+    {% if not eqp_show_origin_selector and selected_origin_details %}
+      <span class="equilibria-side-panel-title-meta">
+        <span
+          class="color-swatch"
+          data-color="{{ selected_origin_details['color'] if selected_origin_details['color'] else data_origin_colors.get(selected_origin_details['name'], '#1f77b4') }}"
+        ></span>
+        {{ selected_origin_details['name'] }}
+        {% if selected_origin_details['file_type'] %} | {{ selected_origin_details['file_type'] }}{% endif %}
+        {% if selected_origin_details['tokamak'] %} | {{ selected_origin_details['tokamak'] }}{% endif %}
+      </span>
+    {% endif %}
+  </div>
+  <div class="panel-note" style="margin-bottom:8px;">
+    Use these controls to analyze the available inputs for this origin, choose a representative subset, and prepare the next simulation batch.
+  </div>
+{% endif %}
+{% set eqp_dom_suffix = eqp_dom_suffix|default('main') %}
+<div class="chart-wrap borderless" style="margin-bottom:16px;">
+  <form method="get">
+    <input type="hidden" name="db" value="{{ db_path }}" />
+    <input type="hidden" name="panel" value="{{ eqp_form_panel }}" />
+    <input type="hidden" name="table" value="{{ selected_table }}" />
+    {% if not eqp_show_origin_selector and selected_origin_id %}
+      <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
+    {% endif %}
+    <div class="row eqp-controls-row">
+      {% if eqp_show_origin_selector %}
+        <label for="origin_id_eqp_{{ eqp_dom_suffix }}">Data origin</label>
+        <select id="origin_id_eqp_{{ eqp_dom_suffix }}" name="origin_id" data-origin-select="1" onchange="this.form.submit()">
+          {% for origin_id, origin_name, _ in data_origins %}
+            <option value="{{ origin_id }}" {% if selected_origin_id == origin_id %}selected{% endif %}>
+              {{ origin_id }} - {{ origin_name }}
+            </option>
+          {% endfor %}
+        </select>
+      {% endif %}
+      <label for="eqp_method_{{ eqp_dom_suffix }}">Method</label>
+      <select id="eqp_method_{{ eqp_dom_suffix }}" name="eqp_method" onchange="this.form.submit()">
+        <option value="farthest" {% if eqp_method == 'farthest' %}selected{% endif %}>Farthest-point</option>
+        <option value="kmeans" {% if eqp_method == 'kmeans' %}selected{% endif %}>K-means medoids</option>
+      </select>
+      <label for="eqp_target_{{ eqp_dom_suffix }}">Selection size</label>
+      <input
+        id="eqp_target_{{ eqp_dom_suffix }}"
+        name="eqp_target"
+        type="number"
+        min="5"
+        max="5000"
+        value="{{ eqp_target }}"
+        style="width:110px;"
+        title="Number of representative inputs to keep in the selected subset."
+      />
+      <label for="eqp_max_{{ eqp_dom_suffix }}">Max rows</label>
+      <input
+        id="eqp_max_{{ eqp_dom_suffix }}"
+        name="eqp_max"
+        type="number"
+        min="200"
+        {% if eqp_coverage_enabled %}max="20000"{% endif %}
+        value="{{ eqp_max }}"
+        style="width:100px;"
+        title="Maximum number of candidate rows to analyze before building the subset."
+      />
+      <label for="eqp_coverage_{{ eqp_dom_suffix }}">Coverage diagnostics</label>
+      <input
+        id="eqp_coverage_{{ eqp_dom_suffix }}"
+        name="eqp_coverage"
+        type="checkbox"
+        value="1"
+        {% if eqp_coverage_enabled %}checked{% endif %}
+        title="Compute extra distance-based coverage metrics to evaluate how well the selected subset spans the candidate input space."
+      />
+      <label for="eqp_ion_tprim_min_{{ eqp_dom_suffix }}">Ion tprim min</label>
+      <input
+        id="eqp_ion_tprim_min_{{ eqp_dom_suffix }}"
+        name="eqp_ion_tprim_min"
+        type="number"
+        step="any"
+        value="{{ eqp_ion_tprim_min if eqp_ion_tprim_min is not none else '' }}"
+        style="width:120px;"
+        title="Set to 0 to exclude ion_tprim &lt; 0 (adiabatic electrons)."
+      />
+      <button class="eqp-update-button" type="submit">Update</button>
+      <noscript><button type="submit">Filter</button></noscript>
+    </div>
+  </form>
+</div>
+{% if eqp_method == 'kmeans' %}
+  <div class="panel-note" style="margin-bottom:12px;">
+    K-means performance:
+    {% if have_numpy %}
+      NumPy acceleration enabled.
+    {% else %}
+      NumPy not available (using pure Python).
+    {% endif %}
+  </div>
+{% endif %}
+
+{% if eqp_report %}
+{% else %}
+  <div class="panel-note">No equil+plasma sampling data available.</div>
+{% endif %}
+
+{% if eqp_coverage %}
+  <div class="panel-note" style="margin:16px 0 8px;">
+    <strong>Coverage diagnostics (standardized space)</strong>
+    {% if eqp_coverage.duration_sec is defined %}
+      | time = {{ "{:.2f}".format(eqp_coverage.duration_sec) }} s
+    {% endif %}
+  </div>
+  {% if eqp_coverage.pairwise %}
+    <div class="panel-note" style="margin-bottom:8px;">
+      Rows used: {{ eqp_coverage.used }} {% if eqp_coverage.sampled %}(sampled from {{ eqp_coverage.total }}){% else %}(total {{ eqp_coverage.total }}){% endif %}
+    </div>
+    <div class="table-wrapper" style="max-height:220px;">
+      <table>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Min</th>
+            <th>Median</th>
+            <th>P95</th>
+            <th>Max</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Pairwise distance</td>
+            <td>{{ "{:.4g}".format(eqp_coverage.pairwise.min) }}</td>
+            <td>{{ "{:.4g}".format(eqp_coverage.pairwise.median) }}</td>
+            <td>{{ "{:.4g}".format(eqp_coverage.pairwise.p95) }}</td>
+            <td>{{ "{:.4g}".format(eqp_coverage.pairwise.max) }}</td>
+          </tr>
+          <tr>
+            <td>Nearest-neighbor distance</td>
+            <td>{{ "{:.4g}".format(eqp_coverage.nearest.min) }}</td>
+            <td>{{ "{:.4g}".format(eqp_coverage.nearest.median) }}</td>
+            <td>{{ "{:.4g}".format(eqp_coverage.nearest.p95) }}</td>
+            <td>{{ "{:.4g}".format(eqp_coverage.nearest.max) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="panel-note">Not enough complete rows to compute coverage.</div>
+  {% endif %}
+{% endif %}
+
+{% if eqp_selection %}
+  {% if eqp_selection.metrics %}
+    <div class="eqp-inline-summary">
+      <div class="eqp-inline-summary-main">
+        <span class="eqp-inline-summary-item">
+          Selection of {{ eqp_target }} inputs among {{ eqp_selection.total }}
+          {% if eqp_selection.duration_sec is defined %}
+            in {{ "{:.2f}".format(eqp_selection.duration_sec) }}s.
+          {% else %}
+            .
+          {% endif %}
+        </span>
+        <span class="eqp-inline-summary-item">
+          These selected inputs are distance by
+          {{ "{:.4g}".format(eqp_selection.metrics.get('avg_nearest')) if eqp_selection.metrics.get('avg_nearest') is not none else "—" }} (avg),
+          {{ "{:.4g}".format(eqp_selection.metrics.get('p95_nearest')) if eqp_selection.metrics.get('p95_nearest') is not none else "—" }} (<span title="P95 is the 95th percentile: 95% of candidate inputs are at or below this distance to their nearest selected input.">P95</span>),
+          {{ "{:.4g}".format(eqp_selection.metrics.get('max_nearest')) if eqp_selection.metrics.get('max_nearest') is not none else "—" }} (max).
+        </span>
+      </div>
+      <div class="eqp-inline-summary-actions">
+        {% if eqp_selection.selected_ids|length > 0 %}
+          {% if action_status and action_status.key == "deploy_batch_db_large" and not action_status.running %}
+            <form method="get" action="/">
+              <input type="hidden" name="db" value="{{ db_path }}" />
+              <input type="hidden" name="panel" value="monitor" />
+              <input type="hidden" name="monitor_autorun" value="1" />
+              <button type="submit">Go to Batch Monitor</button>
+            </form>
+          {% elif eqp_status_counts and eqp_status_counts["TORUN"] > 0 %}
+            <form method="post" action="/action/create_batch_db">
+              <input type="hidden" name="db" value="{{ db_path }}" />
+              <input type="hidden" name="panel" value="{{ eqp_form_panel }}" />
+              <input type="hidden" name="origin_id" value="{{ selected_origin_id if selected_origin_id else '' }}" />
+              <button type="submit">Create Batch DB</button>
+              <span style="margin-left:8px;">
+                TORUN: {{ "{:,}".format(eqp_status_counts["TORUN"]) }}
+              </span>
+            </form>
+          {% elif batch_dbs and actions.get("deploy_batch_db_large") %}
+            <form method="post" action="/action/deploy_batch_db_large">
+              <input type="hidden" name="db" value="{{ db_path }}" />
+              <input type="hidden" name="panel" value="{{ eqp_form_panel }}" />
+              <input type="hidden" name="origin_id" value="{{ selected_origin_id if selected_origin_id else '' }}" />
+              <button type="submit">Deploy Batch DB (Large)</button>
+            </form>
+          {% else %}
+            <form method="post" action="/update_status_bulk">
+              <input type="hidden" name="db" value="{{ db_path }}" />
+              <input type="hidden" name="panel" value="{{ eqp_form_panel }}" />
+              <input type="hidden" name="origin_id" value="{{ selected_origin_id if selected_origin_id else '' }}" />
+              <input
+                type="hidden"
+                name="row_ids"
+                value="{{ eqp_selection.selected_ids|join(',') }}"
+              />
+              <button type="submit">Select these inputs</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="panel-note">Not enough complete rows for selection.</div>
+  {% endif %}
+{% endif %}
+{% if eqp_report %}
+  <details class="eqp-collapsible">
+    <summary>
+      Statistical analysis of equilibrium and plasma parameters
+      {% if eqp_report.duration_sec is defined %}
+        ({{ "{:.2f}".format(eqp_report.duration_sec) }}s)
+      {% endif %}
+    </summary>
+    <div class="eqp-collapsible-content">
+      <div class="table-wrapper" style="max-height:320px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Count</th>
+              <th>Missing</th>
+              <th>Mean</th>
+              <th>Std</th>
+              <th>Min</th>
+              <th>Median</th>
+              <th>Max</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for col in eqp_columns %}
+              {% set stats = eqp_report.stats[col] %}
+              <tr>
+                <td>{{ col }}</td>
+                <td>{{ stats.count }}</td>
+                <td>{{ stats.missing }}</td>
+                <td>{{ "{:.4g}".format(stats.mean) if stats.mean is not none else "—" }}</td>
+                <td>{{ "{:.4g}".format(stats.std) if stats.std is not none else "—" }}</td>
+                <td>{{ "{:.4g}".format(stats.min) if stats.min is not none else "—" }}</td>
+                <td>{{ "{:.4g}".format(stats.median) if stats.median is not none else "—" }}</td>
+                <td>{{ "{:.4g}".format(stats.max) if stats.max is not none else "—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="panel-note">
+        Features used:
+        {{ eqp_columns|join(", ") }}
+      </div>
+      <div class="panel-note">
+        Ratios: temp_ratio = ion_temp / electron_temp,
+        dens_ratio = ion_dens / electron_dens,
+        mass_ratio = ion_mass / (electron_mass * 1836).
+      </div>
+    </div>
+  </details>
+{% endif %}
+<div style="height:12px;"></div>
+<div style="height:12px;"></div>

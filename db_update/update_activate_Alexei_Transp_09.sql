@@ -67,4 +67,4 @@ LEFT JOIN gk_study AS gs
     ON gs.data_equil_id = de.id
 WHERE gs.id IS NULL
 AND de.active = 1
-AND do.name = 'Alexei Transp 09 (semi-auto)';
+AND do.name IN ('Transp 09 (semi-auto)', 'Alexei Transp 09 (semi-auto)');

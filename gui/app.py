@@ -14,7 +14,6 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, url_for
 try:
     import numpy as np
@@ -25,6 +24,11 @@ except Exception:
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.environ.get("DTWIN_ROOT", os.path.dirname(APP_DIR))
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
+
+from dtwin_config import load_gui_workflow_config, resolve_perlmutter_profile, save_gui_workflow_config  # noqa: E402
+
 DEFAULT_DB = os.path.join(PROJECT_DIR, "gyrokinetic_simulations.db")
 DB_UPDATE_DIR = os.path.join(PROJECT_DIR, "db_update")
 DOCS_DIR = os.path.join(PROJECT_DIR, "docs")
@@ -38,7 +42,6 @@ AI_FEEDBACK_PATH = os.path.join(APP_DIR, "ai_feedback.json")
 AI_FEEDBACK_LOCK = threading.Lock()
 MONITOR_REPORT_PATH = os.path.join(ANALYSIS_DIR, "remote_monitor_report.json")
 HPC_TEST_PATH = os.path.join(ANALYSIS_DIR, "hpc_test_result.json")
-HPC_CONFIG_PATH = os.path.join(ANALYSIS_DIR, "hpc_config.json")
 USAGE_LOG_PATH = os.path.join(ANALYSIS_DIR, "monitor_feedback.json")
 USAGE_LOG_LOCK = threading.Lock()
 
@@ -80,6 +83,24 @@ ACTIONS = {
         "script": os.path.join(
             DB_UPDATE_DIR, "create_gk_input_from_pyrokinetic_with_transpfile_fullauto.py"
         ),
+        "use_db": True,
+        "db_arg": "--db",
+    },
+    "run_on_flux": {
+        "label": "Run On Flux",
+        "script": os.path.join(DB_UPDATE_DIR, "Transp_full_auto", "run_on_flux.py"),
+        "use_db": True,
+        "db_arg": "--db",
+    },
+    "sync_back_from_flux": {
+        "label": "Sync Back From Flux",
+        "script": os.path.join(DB_UPDATE_DIR, "Transp_full_auto", "sync_back_from_flux.py"),
+        "use_db": True,
+        "db_arg": "--db",
+    },
+    "check_flux_status": {
+        "label": "Check Flux Status",
+        "script": os.path.join(DB_UPDATE_DIR, "Transp_full_auto", "check_flux_job_status.py"),
         "use_db": True,
         "db_arg": "--db",
     },
@@ -209,37 +230,12 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-DEFAULT_HPC_CONFIG: Dict[str, str] = {
-    "ssh_user": "jdominsk",
-    "ssh_host": "perlmutter.nersc.gov",
-    "ssh_identity": str(Path.home() / ".ssh" / "nersc"),
-    "ssh_control_path": "/tmp/datamak_ssh_%r@%h_%p",
-    "ssh_control_persist": "10m",
-    "ssh_connect_timeout": "10",
-    "monitor_timeout": "120",
-}
-
-
 def load_hpc_config() -> Dict[str, str]:
-    config = dict(DEFAULT_HPC_CONFIG)
-    try:
-        with open(HPC_CONFIG_PATH, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict):
-            for key in config.keys():
-                if key in data and data[key] is not None:
-                    config[key] = str(data[key])
-    except FileNotFoundError:
-        pass
-    except Exception:
-        pass
-    return config
+    return load_gui_workflow_config()
 
 
 def save_hpc_config(payload: Dict[str, str]) -> None:
-    Path(HPC_CONFIG_PATH).parent.mkdir(parents=True, exist_ok=True)
-    with open(HPC_CONFIG_PATH, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
+    save_gui_workflow_config(payload)
 
 
 def load_hpc_test_result() -> Optional[Dict[str, object]]:
@@ -995,13 +991,623 @@ def get_data_origins(conn: sqlite3.Connection) -> List[Tuple[int, str, Optional[
     return [(int(row["id"]), str(row["name"]), None) for row in rows]
 
 
+def canonical_origin_name(name: str) -> str:
+    value = (name or "").strip()
+    if value == "Mate Kinetic EFIT":
+        return "Kinetic EFIT (Mate)"
+    if value.startswith("Alexei "):
+        return value[len("Alexei ") :]
+    return value
+
+
+def get_data_origin_details(conn: sqlite3.Connection) -> List[Dict[str, object]]:
+    columns = get_table_columns(conn, "data_origin")
+    select_columns = [
+        column
+        for column in ("id", "name", "file_type", "tokamak", "origin", "copy", "color", "creation_date")
+        if column in columns
+    ]
+    if not select_columns:
+        return []
+    rows = conn.execute(
+        f"SELECT {', '.join(select_columns)} FROM data_origin ORDER BY id"
+    ).fetchall()
+    details: List[Dict[str, object]] = []
+    for row in rows:
+        item = {column: row[column] for column in select_columns}
+        item.setdefault("file_type", "")
+        item.setdefault("tokamak", "")
+        item.setdefault("origin", "")
+        item.setdefault("copy", "")
+        item.setdefault("color", None)
+        details.append(item)
+    return details
+
+
+def get_latest_flux_action_state(
+    conn: sqlite3.Connection, origin_id: int, origin_name: str
+) -> Optional[Dict[str, str]]:
+    try:
+        columns = get_table_columns(conn, "flux_action_log")
+    except sqlite3.OperationalError:
+        return None
+    if not columns:
+        return None
+    select_parts = [
+        "id",
+        "flux_db_name",
+        "created_at",
+        "status" if "status" in columns else "'STAGED' AS status",
+        "slurm_job_id" if "slurm_job_id" in columns else "'' AS slurm_job_id",
+        "status_detail" if "status_detail" in columns else "'' AS status_detail",
+        "status_checked_at" if "status_checked_at" in columns else "'' AS status_checked_at",
+    ]
+    row = conn.execute(
+        f"""
+        SELECT {', '.join(select_parts)}
+        FROM flux_action_log
+        WHERE data_origin_id = ?
+           OR data_origin_name = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (origin_id, origin_name),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": str(row["id"] or ""),
+        "flux_db_name": str(row["flux_db_name"] or ""),
+        "created_at": str(row["created_at"] or ""),
+        "status": str(row["status"] or ""),
+        "slurm_job_id": str(row["slurm_job_id"] or ""),
+        "status_detail": str(row["status_detail"] or ""),
+        "status_checked_at": str(row["status_checked_at"] or ""),
+    }
+
+
+def get_equilibria_origin_actions(
+    origin_name: str,
+    file_type: Optional[str],
+    flux_action_state: Optional[Dict[str, str]] = None,
+) -> Tuple[List[Dict[str, str]], List[str]]:
+    actions: List[Dict[str, str]] = []
+    notes: List[str] = []
+    name = (origin_name or "").strip()
+    canonical_name = canonical_origin_name(name)
+    file_type_value = (file_type or "").strip().upper()
+    lowered = canonical_name.lower()
+    flux_status = str((flux_action_state or {}).get("status") or "").strip().upper()
+    flux_job_id = str((flux_action_state or {}).get("slurm_job_id") or "").strip()
+    has_flux_job = bool(flux_job_id)
+    if canonical_name == "Kinetic EFIT (Mate)":
+        actions.append({"title": "Populate equilibria", "key": "populate_mate"})
+        actions.append({"title": "Generate GK inputs", "key": "create_inputs_mate"})
+        return actions, notes
+    if canonical_name == "Transp 09 (semi-auto)":
+        actions.append({"title": "Populate equilibria", "key": "populate_alexei"})
+        actions.append({"title": "Generate GK inputs", "key": "create_inputs_transp"})
+        return actions, notes
+    if "transp 09" in lowered and "full-auto" in lowered:
+        if flux_status in {"SUBMITTED", "RUNNING"}:
+            actions.append({"title": "Check Flux Status", "key": "check_flux_status"})
+            actions.append({"title": "Sync Back From Flux", "key": "sync_back_from_flux"})
+            job_fragment = f" (job {flux_job_id})" if flux_job_id else ""
+            notes.append(
+                "A Flux run is already active for this origin"
+                f"{job_fragment}. Do not launch a second parallel job; sync back first."
+            )
+            return actions, notes
+        actions.append({"title": "Run On Flux", "key": "run_on_flux"})
+        if has_flux_job:
+            actions.append({"title": "Check Flux Status", "key": "check_flux_status"})
+        actions.append({"title": "Sync Back From Flux", "key": "sync_back_from_flux"})
+        notes.append(
+            "Run On Flux reuses an existing staged Flux DB for this origin when one is already logged, otherwise it stages once and submits step 2 through Slurm."
+        )
+        return actions, notes
+    if "transp 10" in lowered and "full-auto" in lowered:
+        if flux_status in {"SUBMITTED", "RUNNING"}:
+            actions.append({"title": "Check Flux Status", "key": "check_flux_status"})
+            actions.append({"title": "Sync Back From Flux", "key": "sync_back_from_flux"})
+            job_fragment = f" (job {flux_job_id})" if flux_job_id else ""
+            notes.append(
+                "A Flux run is already active for this origin"
+                f"{job_fragment}. Do not launch a second parallel job; sync back first."
+            )
+            return actions, notes
+        actions.append({"title": "Run On Flux", "key": "run_on_flux"})
+        if has_flux_job:
+            actions.append({"title": "Check Flux Status", "key": "check_flux_status"})
+        actions.append({"title": "Sync Back From Flux", "key": "sync_back_from_flux"})
+        notes.append(
+            "Run On Flux reuses an existing staged Flux DB for this origin when one is already logged, otherwise it stages once and submits step 2 through Slurm."
+        )
+        return actions, notes
+    if file_type_value == "EFIT":
+        notes.append(
+            "This EFIT origin is not wired to a dedicated GUI action yet. The current EFIT create-input script still targets the built-in Mate workflow."
+        )
+    elif file_type_value == "TRANSP":
+        notes.append(
+            "This TRANSP origin is not wired to a dedicated GUI action yet. Current GUI actions cover only the known semi-auto and full-auto origins."
+        )
+    else:
+        notes.append("No GUI action mapping is available for this origin yet.")
+    return actions, notes
+
+
+def get_equilibria_origin_summary(
+    conn: sqlite3.Connection, origin_id: int, tables: List[str]
+) -> Dict[str, int]:
+    summary = {
+        "equilibria_total": 0,
+        "equilibria_active": 0,
+        "gk_input_total": 0,
+        "transp_timeseries_total": 0,
+    }
+    if "data_equil" in tables:
+        summary["equilibria_total"] = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM data_equil WHERE data_origin_id = ?",
+                (origin_id,),
+            ).fetchone()[0]
+        )
+        data_equil_columns = get_table_columns(conn, "data_equil")
+        if "active" in data_equil_columns:
+            summary["equilibria_active"] = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM data_equil
+                    WHERE data_origin_id = ? AND active = 1
+                    """,
+                    (origin_id,),
+                ).fetchone()[0]
+            )
+    if "gk_input" in tables and "gk_study" in tables and "data_equil" in tables:
+        gk_input_columns = get_table_columns(conn, "gk_input")
+        gk_study_columns = get_table_columns(conn, "gk_study")
+        if "gk_study_id" in gk_input_columns and "data_equil_id" in gk_study_columns:
+            summary["gk_input_total"] = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM gk_input AS gi
+                    JOIN gk_study AS gs ON gs.id = gi.gk_study_id
+                    JOIN data_equil AS de ON de.id = gs.data_equil_id
+                    WHERE de.data_origin_id = ?
+                    """,
+                    (origin_id,),
+                ).fetchone()[0]
+            )
+    if "transp_timeseries" in tables:
+        transp_columns = get_table_columns(conn, "transp_timeseries")
+        if "data_origin_id" in transp_columns:
+            summary["transp_timeseries_total"] = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM transp_timeseries WHERE data_origin_id = ?",
+                    (origin_id,),
+                ).fetchone()[0]
+            )
+    return summary
+
+
+def _format_count_breakdown(
+    counts: Dict[str, int], preferred_order: Tuple[str, ...]
+) -> str:
+    ordered_keys: List[str] = [
+        key for key in preferred_order if int(counts.get(key, 0)) > 0
+    ]
+    ordered_keys.extend(
+        sorted(
+            key
+            for key, value in counts.items()
+            if int(value) > 0 and key not in ordered_keys
+        )
+    )
+    return ", ".join(f"{counts[key]} {key}" for key in ordered_keys)
+
+
+def _workflow_state_row(label: str, state: str, detail: str) -> Dict[str, str]:
+    normalized_state = (state or "UNKNOWN").strip().upper()
+    state_class = re.sub(r"[^a-z0-9]+", "-", normalized_state.lower()).strip("-")
+    return {
+        "label": label,
+        "state": normalized_state,
+        "state_class": state_class or "unknown",
+        "detail": detail,
+    }
+
+
+def _gk_model_label(row: sqlite3.Row) -> str:
+    code = str(row["gk_code_name"] or "GK").strip().upper()
+    linearity = "linear" if int(row["is_linear"] or 0) == 1 else "nonlinear"
+    adiabatic_value = int(row["is_adiabatic"] or 0)
+    if adiabatic_value == 1:
+        species = "adiabatic"
+    elif adiabatic_value == 0:
+        species = "kinetic"
+    else:
+        species = "mixed"
+    field_type = "electrostatic" if int(row["is_electrostatic"] or 0) == 1 else "electromagnetic"
+    template_name = os.path.basename(str(row["input_template"] or "").strip())
+    label = f"#{int(row['id'])} {code} {linearity} {species} {field_type}"
+    if template_name:
+        label = f"{label} ({template_name})"
+    return label
+
+
+def _gk_model_description(row: sqlite3.Row) -> str:
+    code = str(row["gk_code_name"] or "GK").strip().upper()
+    linearity = "linear" if int(row["is_linear"] or 0) == 1 else "nonlinear"
+    adiabatic_value = int(row["is_adiabatic"] or 0)
+    if adiabatic_value == 1:
+        species = "adiabatic"
+    elif adiabatic_value == 0:
+        species = "kinetic"
+    else:
+        species = "mixed"
+    field_type = (
+        "electrostatic" if int(row["is_electrostatic"] or 0) == 1 else "electromagnetic"
+    )
+    return f"{code} {linearity} {species} {field_type}"
+
+
+def get_gk_model_registry(
+    conn: sqlite3.Connection, tables: List[str]
+) -> List[Dict[str, object]]:
+    if "gk_model" not in tables:
+        return []
+    gk_model_columns = get_table_columns(conn, "gk_model")
+    join_gk_code = "gk_code" in tables and "gk_code_id" in gk_model_columns
+    select_parts = [
+        "gm.id",
+        "gc.name AS gk_code_name" if join_gk_code else "'' AS gk_code_name",
+        "gm.is_linear" if "is_linear" in gk_model_columns else "0 AS is_linear",
+        "gm.is_adiabatic" if "is_adiabatic" in gk_model_columns else "0 AS is_adiabatic",
+        "gm.is_electrostatic"
+        if "is_electrostatic" in gk_model_columns
+        else "0 AS is_electrostatic",
+        "gm.input_template" if "input_template" in gk_model_columns else "'' AS input_template",
+        "gm.active" if "active" in gk_model_columns else "0 AS active",
+    ]
+    join_clause = "LEFT JOIN gk_code AS gc ON gc.id = gm.gk_code_id" if join_gk_code else ""
+    rows = conn.execute(
+        f"""
+        SELECT {', '.join(select_parts)}
+        FROM gk_model AS gm
+        {join_clause}
+        ORDER BY
+          CASE WHEN COALESCE(gm.active, 0) = 1 THEN 0 ELSE 1 END,
+          gm.id
+        """
+    ).fetchall()
+    registry: List[Dict[str, object]] = []
+    for row in rows:
+        registry.append(
+            {
+                "id": int(row["id"]),
+                "description": _gk_model_description(row),
+                "template_name": os.path.basename(str(row["input_template"] or "").strip()) or "—",
+                "active": int(row["active"] or 0) == 1,
+            }
+        )
+    return registry
+
+
+def get_equilibria_origin_workflow_status(
+    conn: sqlite3.Connection,
+    origin_id: int,
+    origin_name: str,
+    file_type: str,
+    tables: List[str],
+    flux_action_state: Optional[Dict[str, str]] = None,
+) -> Dict[str, object]:
+    summary = get_equilibria_origin_summary(conn, origin_id, tables)
+    gk_study_total = 0
+    gk_input_status_counts: Dict[str, int] = {}
+    gk_batch_status_counts: Dict[str, int] = {}
+    gk_run_status_counts: Dict[str, int] = {}
+    gk_model_usage: List[Tuple[str, int]] = []
+    gk_model_active_labels: List[str] = []
+
+    if "gk_study" in tables and "data_equil" in tables:
+        gk_study_total = int(
+            conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM gk_study AS gs
+                JOIN data_equil AS de ON de.id = gs.data_equil_id
+                WHERE de.data_origin_id = ?
+                """,
+                (origin_id,),
+            ).fetchone()[0]
+        )
+
+    if "gk_input" in tables and "gk_study" in tables and "data_equil" in tables:
+        for row in conn.execute(
+            """
+            SELECT gi.status, COUNT(*)
+            FROM gk_input AS gi
+            JOIN gk_study AS gs ON gs.id = gi.gk_study_id
+            JOIN data_equil AS de ON de.id = gs.data_equil_id
+            WHERE de.data_origin_id = ?
+            GROUP BY gi.status
+            """,
+            (origin_id,),
+        ).fetchall():
+            status_key = str(row[0] or "").strip().upper()
+            if status_key:
+                gk_input_status_counts[status_key] = int(row[1])
+
+        if "gk_model" in tables:
+            for row in conn.execute(
+                """
+                SELECT gm.id, gc.name AS gk_code_name, gm.is_linear, gm.is_adiabatic,
+                       gm.is_electrostatic, gm.input_template, COUNT(*) AS row_count
+                FROM gk_input AS gi
+                JOIN gk_model AS gm ON gm.id = gi.gk_model_id
+                LEFT JOIN gk_code AS gc ON gc.id = gm.gk_code_id
+                JOIN gk_study AS gs ON gs.id = gi.gk_study_id
+                JOIN data_equil AS de ON de.id = gs.data_equil_id
+                WHERE de.data_origin_id = ?
+                GROUP BY gm.id, gc.name, gm.is_linear, gm.is_adiabatic, gm.is_electrostatic, gm.input_template
+                ORDER BY gm.id
+                """,
+                (origin_id,),
+            ).fetchall():
+                gk_model_usage.append((_gk_model_label(row), int(row["row_count"])))
+
+    if "gk_model" in tables:
+        seen_active_labels: set[str] = set()
+        for row in conn.execute(
+            """
+            SELECT gm.id, gc.name AS gk_code_name, gm.is_linear, gm.is_adiabatic,
+                   gm.is_electrostatic, gm.input_template
+            FROM gk_model AS gm
+            LEFT JOIN gk_code AS gc ON gc.id = gm.gk_code_id
+            WHERE gm.active = 1
+            ORDER BY gm.id
+            """
+        ).fetchall():
+            label = _gk_model_label(row)
+            if label not in seen_active_labels:
+                seen_active_labels.add(label)
+                gk_model_active_labels.append(label)
+
+    if (
+        "gk_batch" in tables
+        and "gk_run" in tables
+        and "gk_input" in tables
+        and "gk_study" in tables
+        and "data_equil" in tables
+    ):
+        for row in conn.execute(
+            """
+            SELECT b.status, COUNT(DISTINCT b.id)
+            FROM gk_batch AS b
+            JOIN gk_run AS r ON r.gk_batch_id = b.id
+            JOIN gk_input AS gi ON gi.id = r.gk_input_id
+            JOIN gk_study AS gs ON gs.id = gi.gk_study_id
+            JOIN data_equil AS de ON de.id = gs.data_equil_id
+            WHERE de.data_origin_id = ?
+            GROUP BY b.status
+            """,
+            (origin_id,),
+        ).fetchall():
+            status_key = str(row[0] or "").strip().upper()
+            if status_key:
+                gk_batch_status_counts[status_key] = int(row[1])
+
+    if "gk_run" in tables and "gk_input" in tables and "gk_study" in tables and "data_equil" in tables:
+        for row in conn.execute(
+            """
+            SELECT r.status, COUNT(*)
+            FROM gk_run AS r
+            JOIN gk_input AS gi ON gi.id = r.gk_input_id
+            JOIN gk_study AS gs ON gs.id = gi.gk_study_id
+            JOIN data_equil AS de ON de.id = gs.data_equil_id
+            WHERE de.data_origin_id = ?
+            GROUP BY r.status
+            """,
+            (origin_id,),
+        ).fetchall():
+            status_key = str(row[0] or "").strip().upper()
+            if status_key:
+                gk_run_status_counts[status_key] = int(row[1])
+
+    stages: List[Dict[str, str]] = []
+    notes: List[str] = []
+
+    flux_status = str((flux_action_state or {}).get("status") or "").strip().upper()
+    flux_detail_parts: List[str] = []
+    status_detail = str((flux_action_state or {}).get("status_detail") or "").strip()
+    if status_detail and status_detail.upper() != flux_status:
+        flux_detail_parts.append(status_detail)
+    slurm_job_id = str((flux_action_state or {}).get("slurm_job_id") or "").strip()
+    if slurm_job_id:
+        flux_detail_parts.append(f"job {slurm_job_id}")
+    flux_db_name = str((flux_action_state or {}).get("flux_db_name") or "").strip()
+    if flux_db_name:
+        flux_detail_parts.append(flux_db_name)
+    status_checked_at = str((flux_action_state or {}).get("status_checked_at") or "").strip()
+    if status_checked_at:
+        flux_detail_parts.append(f"checked {status_checked_at}")
+    if flux_status or flux_detail_parts:
+        stages.append(
+            _workflow_state_row(
+                "Flux workflow",
+                flux_status or "STAGED",
+                " | ".join(part for part in flux_detail_parts if part) or "recorded in flux_action_log",
+            )
+        )
+
+    equilibria_state = "READY" if summary["equilibria_total"] > 0 else "EMPTY"
+    stages.append(
+        _workflow_state_row(
+            "data_equil",
+            equilibria_state,
+            f"{summary['equilibria_total']} rows, {summary['equilibria_active']} active",
+        )
+    )
+
+    if (file_type or "").strip().upper() == "TRANSP":
+        transp_state = "READY" if summary["transp_timeseries_total"] > 0 else "EMPTY"
+        stages.append(
+            _workflow_state_row(
+                "transp_timeseries",
+                transp_state,
+                f"{summary['transp_timeseries_total']} rows",
+            )
+        )
+
+    studies_state = (
+        "READY"
+        if gk_study_total > 0
+        else ("PENDING" if summary["equilibria_total"] > 0 else "EMPTY")
+    )
+    stages.append(
+        _workflow_state_row("gk_study", studies_state, f"{gk_study_total} rows")
+    )
+
+    if gk_model_usage:
+        model_detail = ", ".join(f"{label}: {count}" for label, count in gk_model_usage)
+        model_state = "USED"
+    elif gk_model_active_labels:
+        model_detail = ", ".join(gk_model_active_labels)
+        model_state = "CONFIGURED"
+    else:
+        model_detail = "no gk_model rows configured"
+        model_state = "EMPTY"
+    stages.append(_workflow_state_row("gk_model", model_state, model_detail))
+
+    gk_input_total = summary["gk_input_total"]
+    input_detail = f"{gk_input_total} rows"
+    input_breakdown = _format_count_breakdown(
+        gk_input_status_counts,
+        ("NEW", "WAIT", "TORUN", "BATCH", "RUNNING", "SUCCESS", "CRASHED", "ERROR"),
+    )
+    if input_breakdown:
+        input_detail = f"{input_detail} | {input_breakdown}"
+    if gk_input_total > 0:
+        if any(gk_input_status_counts.get(key, 0) > 0 for key in ("TORUN", "BATCH", "RUNNING", "WAIT", "NEW")):
+            input_state = "ACTIVE"
+        elif any(gk_input_status_counts.get(key, 0) > 0 for key in ("CRASHED", "ERROR")):
+            input_state = "FAILED"
+        else:
+            input_state = "READY"
+    else:
+        input_state = "PENDING" if gk_study_total > 0 or summary["equilibria_total"] > 0 else "EMPTY"
+    stages.append(_workflow_state_row("gk_input", input_state, input_detail))
+
+    batch_total = sum(gk_batch_status_counts.values())
+    batch_detail = (
+        _format_count_breakdown(gk_batch_status_counts, ("CREATED", "SENT", "LAUNCHED", "SYNCED"))
+        or "no batch DB linked to this origin"
+    )
+    if batch_total == 0:
+        batch_state = "NONE"
+    elif any(gk_batch_status_counts.get(key, 0) > 0 for key in ("CREATED", "SENT", "LAUNCHED")):
+        batch_state = "ACTIVE"
+    elif gk_batch_status_counts.get("SYNCED", 0) > 0:
+        batch_state = "SYNCED"
+    else:
+        batch_state = "READY"
+    stages.append(_workflow_state_row("gk_batch", batch_state, batch_detail))
+
+    run_total = sum(gk_run_status_counts.values())
+    run_detail = (
+        _format_count_breakdown(
+            gk_run_status_counts,
+            ("TORUN", "RUNNING", "RESTART", "CONVERGED", "SUCCESS", "CRASHED", "ERROR", "INTERRUPTED"),
+        )
+        or "no remote runs linked to this origin"
+    )
+    if run_total == 0:
+        run_state = "NONE"
+    elif any(gk_run_status_counts.get(key, 0) > 0 for key in ("TORUN", "RUNNING", "RESTART")):
+        run_state = "ACTIVE"
+    elif any(gk_run_status_counts.get(key, 0) > 0 for key in ("CRASHED", "ERROR", "INTERRUPTED")):
+        run_state = "MIXED"
+    else:
+        run_state = "DONE"
+    stages.append(_workflow_state_row("gk_run", run_state, run_detail))
+
+    if flux_status == "SYNCED" and summary["equilibria_total"] > 0 and gk_study_total == 0:
+        notes.append(
+            "Flux sync completed, but this origin still has no gk_study rows in the main DB."
+        )
+    if gk_study_total > 0 and gk_input_total == 0:
+        notes.append(
+            "gk_study rows exist, but gk_input creation has not produced any rows yet."
+        )
+    if gk_input_total > 0 and batch_total == 0 and run_total == 0:
+        notes.append(
+            "gk_input rows exist, but no batch DB or remote run is linked to this origin yet."
+        )
+
+    return {"stages": stages, "notes": notes}
+
+
+def get_equilibria_preview(
+    conn: sqlite3.Connection,
+    origin_id: int,
+    valid_only: bool,
+    limit: int = 40,
+) -> Tuple[List[str], List[sqlite3.Row], int]:
+    if "data_equil" not in list_tables(conn):
+        return [], [], 0
+    columns = get_table_columns(conn, "data_equil")
+    select_columns = [
+        column
+        for column in (
+            "id",
+            "shot_number",
+            "shot_variant",
+            "shot_time",
+            "active",
+            "transpfile",
+            "gfile",
+            "pfile",
+            "comment",
+            "creation_date",
+        )
+        if column in columns
+    ]
+    if not select_columns:
+        return [], [], 0
+    where_clauses = ["data_origin_id = ?"]
+    params: List[object] = [origin_id]
+    if valid_only and "active" in columns:
+        where_clauses.append("active = 1")
+    where_sql = " AND ".join(where_clauses)
+    total = int(
+        conn.execute(
+            f"SELECT COUNT(*) FROM data_equil WHERE {where_sql}",
+            params,
+        ).fetchone()[0]
+    )
+    rows = conn.execute(
+        f"""
+        SELECT {', '.join(select_columns)}
+        FROM data_equil
+        WHERE {where_sql}
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        [*params, limit],
+    ).fetchall()
+    return select_columns, rows, total
+
+
 def data_origin_color(origin_name: str, color: Optional[str] = None) -> str:
     if color:
         return str(color)
-    name = str(origin_name)
-    if name == "Alexei Transp 09 (full-auto)":
+    name = canonical_origin_name(str(origin_name))
+    if name == "Transp 09 (full-auto)":
         return "#2ca02c"
-    if name.startswith("Alexei Transp 09"):
+    if name.startswith("Transp 09"):
         return "#d62728"
     return "#1f77b4"
 
@@ -1118,7 +1724,7 @@ def get_ai_suggestions(
                     "id": "gk_input_wait",
                     "text": (
                         f"{wait_count} gk_input rows are WAIT. "
-                        "Open Input Sampling to review and mark TORUN, then batch/launch runs."
+                        "Open Equilibria & Input to review and mark TORUN, then batch/launch runs."
                     ),
                 }
             )
@@ -1451,7 +2057,10 @@ def get_gk_input_points(
     if origin_id is not None:
         base_query += " AND data_equil.data_origin_id = ?"
         params.append(origin_id)
-    rows = conn.execute(base_query, params).fetchall()
+    try:
+        rows = conn.execute(base_query, params).fetchall()
+    except sqlite3.OperationalError:
+        return []
     points = []
     for x_val, y_val, origin_name, origin_color in rows:
         points.append(
@@ -2178,6 +2787,7 @@ def build_sampling_selection(
     n = len(vectors)
     selected, min_dists = _farthest_point_indices(vectors, target)
     avg_dist = sum(min_dists) / len(min_dists) if min_dists else None
+    min_dist = min(min_dists) if min_dists else None
     max_dist = max(min_dists) if min_dists else None
     selected_ids = []
     for idx in selected[:50]:
@@ -2191,6 +2801,7 @@ def build_sampling_selection(
         "sampled": sampled,
         "target": target,
         "metrics": {
+            "min_nearest": min_dist,
             "avg_nearest": avg_dist,
             "p95_nearest": _percentile(sorted_dists, 0.95) if sorted_dists else None,
             "max_nearest": max_dist,
@@ -2255,6 +2866,7 @@ def build_two_stage_selection(
         selected = [merged_indices[i] for i in final_selected]
         min_dists = _min_dists_to_selected(vectors, selected)
     avg_dist = sum(min_dists) / len(min_dists) if min_dists else None
+    min_dist = min(min_dists) if min_dists else None
     max_dist = max(min_dists) if min_dists else None
     sorted_dists = sorted(min_dists) if min_dists else []
     selected_ids = []
@@ -2268,6 +2880,7 @@ def build_two_stage_selection(
         "sampled": sampled,
         "target": target,
         "metrics": {
+            "min_nearest": min_dist,
             "avg_nearest": avg_dist,
             "p95_nearest": _percentile(sorted_dists, 0.95) if sorted_dists else None,
             "max_nearest": max_dist,
@@ -2356,6 +2969,7 @@ def build_kmeans_selection(
                     min_dist = dist
             min_dists.append(min_dist if min_dist is not None else 0.0)
     avg_dist = sum(min_dists) / len(min_dists) if min_dists else None
+    min_dist = min(min_dists) if min_dists else None
     max_dist = max(min_dists) if min_dists else None
     sorted_dists = sorted(min_dists) if min_dists else []
     selected_ids = []
@@ -2369,6 +2983,7 @@ def build_kmeans_selection(
         "sampled": sampled,
         "k": k,
         "metrics": {
+            "min_nearest": min_dist,
             "avg_nearest": avg_dist,
             "p95_nearest": _percentile(sorted_dists, 0.95) if sorted_dists else None,
             "max_nearest": max_dist,
@@ -3263,6 +3878,10 @@ def _run_action(
         ACTION_STATE["completed_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
 
+def _redirect_to_index(**kwargs):
+    return redirect(url_for("index", **kwargs))
+
+
 def _start_action(
     action_name: str,
     db_path: str,
@@ -3275,12 +3894,12 @@ def _start_action(
     if action is None:
         with ACTION_LOCK:
             ACTION_STATE["message"] = f"Unknown action '{action_name}'."
-        return redirect(url_for("index", panel=panel, db=db_path))
+        return _redirect_to_index(panel=panel, db=db_path)
     with ACTION_LOCK:
         if ACTION_STATE["running"]:
             current = ACTION_STATE["name"] or "another action"
             ACTION_STATE["message"] = f"Action '{current}' is already running."
-            return redirect(url_for("index", panel=panel, db=db_path))
+            return _redirect_to_index(panel=panel, db=db_path)
         ACTION_STATE["token"] = int(ACTION_STATE.get("token") or 0) + 1
         ACTION_STATE["running"] = True
         ACTION_STATE["name"] = action["label"]
@@ -3303,18 +3922,30 @@ def _start_action(
     redirect_kwargs: Dict[str, object] = {"panel": panel, "db": db_path}
     if redirect_params:
         redirect_kwargs.update(redirect_params)
-    return redirect(url_for("index", **redirect_kwargs))
+    return _redirect_to_index(**redirect_kwargs)
 
 
 @app.route("/action/<action_name>", methods=["POST"])
 def run_action(action_name: str):
     db_path = request.form.get("db", DEFAULT_DB)
     panel = request.form.get("panel", "action")
+    if panel == "hpc":
+        panel = "action"
     log_usage("action_click", {"action": action_name, "panel": panel, "db": db_path})
     extra_args: List[str] = []
     env_overrides: Optional[Dict[str, str]] = None
+    redirect_params: Dict[str, object] = {}
+    if (request.form.get("hpc_open") or "").strip():
+        redirect_params["hpc"] = "1"
+    origin_id = (request.form.get("origin_id") or "").strip()
+    if origin_id.isdigit():
+        redirect_params["origin_id"] = origin_id
+    origin_name = (request.form.get("origin_name") or "").strip()
+    if (request.form.get("equilibria_valid_only") or "").strip() in {"1", "true", "on", "yes"}:
+        redirect_params["equilibria_valid_only"] = "1"
     hpc_config = load_hpc_config()
-    hpc_user = (hpc_config.get("ssh_user") or "").strip() or "jdominsk"
+    perlmutter_profile = resolve_perlmutter_profile()
+    hpc_user = (hpc_config.get("ssh_user") or "").strip() or str(perlmutter_profile.get("user") or "").strip()
     if action_name in {
         "monitor_remote_runs",
         "mark_remote_running_interrupted",
@@ -3384,12 +4015,12 @@ def run_action(action_name: str):
         if monitor_timeout:
             extra_args.extend(["--monitor-timeout", monitor_timeout])
     if action_name == "open_ssh_pipe":
-        host = (hpc_config.get("ssh_host") or "").strip() or "perlmutter.nersc.gov"
+        host = (hpc_config.get("ssh_host") or "").strip() or str(perlmutter_profile.get("host") or "").strip()
         extra_args.extend(["--host", host])
         if hpc_user:
             extra_args.extend(["--user", hpc_user])
     if action_name == "test_hpc_connection":
-        host = (hpc_config.get("ssh_host") or "").strip() or "perlmutter.nersc.gov"
+        host = (hpc_config.get("ssh_host") or "").strip() or str(perlmutter_profile.get("host") or "").strip()
         extra_args.extend(["--host", host])
         if hpc_user:
             extra_args.extend(["--user", hpc_user])
@@ -3398,7 +4029,7 @@ def run_action(action_name: str):
         if not model_name:
             with ACTION_LOCK:
                 ACTION_STATE["message"] = "Surrogate name is required."
-            return redirect(url_for("index", panel="surrogate", db=db_path))
+            return _redirect_to_index(panel="surrogate", db=db_path)
         extra_args.extend(["--name", model_name])
         mapsto = (request.form.get("surrogate_mapsto") or "").strip()
         if mapsto and mapsto.upper() == "ALL":
@@ -3433,14 +4064,14 @@ def run_action(action_name: str):
         if not surrogate_id.isdigit():
             with ACTION_LOCK:
                 ACTION_STATE["message"] = "Surrogate id is required."
-            return redirect(url_for("index", panel="surrogate", db=db_path))
+            return _redirect_to_index(panel="surrogate", db=db_path)
         extra_args.extend(["--surrogate-id", surrogate_id])
         return _start_action(
             action_name,
             db_path,
             extra_args or None,
             panel=panel,
-            redirect_params={"surrogate_id": surrogate_id},
+            redirect_params={**redirect_params, "surrogate_id": surrogate_id},
             env_overrides=env_overrides,
         )
     if action_name == "delete_surrogate_model":
@@ -3448,21 +4079,31 @@ def run_action(action_name: str):
         if not surrogate_id.isdigit():
             with ACTION_LOCK:
                 ACTION_STATE["message"] = "Surrogate id is required."
-            return redirect(url_for("index", panel="surrogate", db=db_path))
+            return _redirect_to_index(panel="surrogate", db=db_path)
         extra_args.extend(["--surrogate-id", surrogate_id])
         return _start_action(
             action_name,
             db_path,
             extra_args or None,
             panel=panel,
-            redirect_params={"surrogate_id": surrogate_id},
+            redirect_params={**redirect_params, "surrogate_id": surrogate_id},
             env_overrides=env_overrides,
         )
+    if action_name in {"run_on_flux", "sync_back_from_flux", "check_flux_status"}:
+        if origin_id.isdigit():
+            extra_args.extend(["--origin-id", origin_id])
+        elif origin_name:
+            extra_args.extend(["--origin-name", origin_name])
+        else:
+            with ACTION_LOCK:
+                ACTION_STATE["message"] = "A selected data origin is required for this Flux action."
+            return _redirect_to_index(panel=panel, db=db_path, **redirect_params)
     return _start_action(
         action_name,
         db_path,
         extra_args or None,
         panel=panel,
+        redirect_params=redirect_params or None,
         env_overrides=env_overrides,
     )
 
@@ -3470,6 +4111,9 @@ def run_action(action_name: str):
 @app.route("/save_hpc_config", methods=["POST"])
 def save_hpc_config_route():
     db_path = request.form.get("db", DEFAULT_DB)
+    panel = (request.form.get("panel") or "action").strip() or "action"
+    if panel == "hpc":
+        panel = "action"
     payload = {
         "ssh_user": (request.form.get("ssh_user") or "").strip(),
         "ssh_host": (request.form.get("ssh_host") or "").strip(),
@@ -3478,9 +4122,17 @@ def save_hpc_config_route():
         "ssh_control_persist": (request.form.get("ssh_control_persist") or "").strip(),
         "ssh_connect_timeout": (request.form.get("ssh_connect_timeout") or "").strip(),
         "monitor_timeout": (request.form.get("monitor_timeout") or "").strip(),
+        "perlmutter_base_dir": (request.form.get("perlmutter_base_dir") or "").strip(),
+        "perlmutter_batch_dir": (request.form.get("perlmutter_batch_dir") or "").strip(),
+        "gx_path": (request.form.get("gx_path") or "").strip(),
+        "flux_user": (request.form.get("flux_user") or "").strip(),
+        "flux_host": (request.form.get("flux_host") or "").strip(),
+        "flux_base_dir": (request.form.get("flux_base_dir") or "").strip(),
+        "flux_python_bin": (request.form.get("flux_python_bin") or "").strip(),
+        "flux_duo_option": (request.form.get("flux_duo_option") or "").strip(),
     }
     save_hpc_config(payload)
-    return redirect(url_for("index", panel="hpc", db=db_path))
+    return _redirect_to_index(panel=panel, db=db_path, hpc="1")
 
 
 @app.route("/suggestion_action", methods=["POST"])
@@ -3489,25 +4141,35 @@ def suggestion_action():
     action_name = request.form.get("action_name", "")
     suggestion_id = request.form.get("suggestion_id", "")
     panel = request.form.get("panel", "action")
+    if panel == "hpc":
+        panel = "action"
+    redirect_params: Dict[str, object] = {}
+    if (request.form.get("suggestions_open") or "").strip():
+        redirect_params["suggestions"] = "1"
     if suggestion_id and action_name:
         record_ai_feedback(suggestion_id, action_name)
         log_usage(
             "suggestion_click",
             {"action": action_name, "panel": panel, "suggestion_id": suggestion_id},
         )
-    return _start_action(action_name, db_path, panel=panel)
+    return _start_action(
+        action_name,
+        db_path,
+        panel=panel,
+        redirect_params=redirect_params or None,
+    )
 
 
 @app.route("/update_status", methods=["GET", "POST"])
 def update_status():
     if request.method != "POST":
-        return redirect(url_for("index"))
+        return _redirect_to_index()
     db_path = request.form.get("db", DEFAULT_DB)
     table = request.form.get("table")
     row_id = request.form.get("row_id")
     panel = request.form.get("panel", "tables")
     if table != "gk_input" or not row_id or not row_id.isdigit():
-        return redirect(url_for("index", panel=panel, db=db_path, table=table))
+        return _redirect_to_index(panel=panel, db=db_path, table=table)
     conn = get_connection(db_path)
     try:
         conn.execute(
@@ -3518,13 +4180,17 @@ def update_status():
     finally:
         conn.close()
     log_usage("status_update", {"table": table, "row_id": int(row_id), "panel": panel})
-    return redirect(url_for("index", panel=panel, db=db_path, table=table))
+    return _redirect_to_index(panel=panel, db=db_path, table=table)
 
 
 @app.route("/update_status_bulk", methods=["POST"])
 def update_status_bulk():
     db_path = request.form.get("db", DEFAULT_DB)
     panel = request.form.get("panel", "tables")
+    redirect_params: Dict[str, object] = {}
+    origin_id = (request.form.get("origin_id") or "").strip()
+    if origin_id.isdigit():
+        redirect_params["origin_id"] = origin_id
     row_ids_raw = request.form.get("row_ids", "")
     row_ids: List[int] = []
     for part in row_ids_raw.split(","):
@@ -3532,7 +4198,7 @@ def update_status_bulk():
         if part.isdigit():
             row_ids.append(int(part))
     if not row_ids:
-        return redirect(url_for("index", panel=panel, db=db_path))
+        return _redirect_to_index(panel=panel, db=db_path, **redirect_params)
     placeholders = ",".join(["?"] * len(row_ids))
     conn = get_connection(db_path)
     try:
@@ -3547,7 +4213,7 @@ def update_status_bulk():
         "status_update_bulk",
         {"table": "gk_input", "count": len(row_ids), "panel": panel},
     )
-    return redirect(url_for("index", panel=panel, db=db_path))
+    return _redirect_to_index(panel=panel, db=db_path, **redirect_params)
 
 
 @app.route("/usage", methods=["POST"])
@@ -3573,14 +4239,11 @@ def edit_gk_input():
         {"action": action, "gk_input_id": gk_input_id, "db": db_path},
     )
     if not gk_input_id.isdigit():
-        return redirect(
-            url_for(
-                "index",
-                panel=panel,
-                db=db_path,
-                gk_input_id=gk_input_id,
-                edit_error="Enter a numeric gk_input id.",
-            )
+        return _redirect_to_index(
+            panel=panel,
+            db=db_path,
+            gk_input_id=gk_input_id,
+            edit_error="Enter a numeric gk_input id.",
         )
     if action == "save":
         content = request.form.get("gk_input_content", "")
@@ -3591,25 +4254,19 @@ def edit_gk_input():
                 (int(gk_input_id),),
             ).fetchone()
             if row is None:
-                return redirect(
-                    url_for(
-                        "index",
-                        panel=panel,
-                        db=db_path,
-                        gk_input_id=gk_input_id,
-                        edit_error="No gk_input row found for that id.",
-                    )
+                return _redirect_to_index(
+                    panel=panel,
+                    db=db_path,
+                    gk_input_id=gk_input_id,
+                    edit_error="No gk_input row found for that id.",
                 )
             if str(row["status"]) != "WAIT":
-                return redirect(
-                    url_for(
-                        "index",
-                        panel=panel,
-                        db=db_path,
-                        gk_input_id=gk_input_id,
-                        edit_error="Edits allowed only when status is WAIT.",
-                        edit_status=str(row["status"]),
-                    )
+                return _redirect_to_index(
+                    panel=panel,
+                    db=db_path,
+                    gk_input_id=gk_input_id,
+                    edit_error="Edits allowed only when status is WAIT.",
+                    edit_status=str(row["status"]),
                 )
             allowed_keys = set(ALLOWED_STATS_COLUMNS + SPECIES_COLUMNS + ["psin"])
             parsed = parse_numeric_fields(content)
@@ -3642,24 +4299,27 @@ def edit_gk_input():
         if updates:
             keys = ", ".join(sorted(updates.keys()))
             warning = f"Updated columns based on content: {keys}"
-        return redirect(
-            url_for(
-                "index",
-                panel=panel,
-                db=db_path,
-                gk_input_id=gk_input_id,
-                edit_message="Saved.",
-                edit_warning=warning,
-            )
-        )
-    return redirect(
-        url_for(
-            "index",
+        return _redirect_to_index(
             panel=panel,
             db=db_path,
             gk_input_id=gk_input_id,
+            edit_message="Saved.",
+            edit_warning=warning,
         )
+    return _redirect_to_index(
+        panel=panel,
+        db=db_path,
+        gk_input_id=gk_input_id,
     )
+
+
+@app.route("/app2", methods=["GET"])
+def legacy_app2_redirect():
+    target = url_for("index")
+    if request.query_string:
+        query = request.query_string.decode("utf-8", errors="ignore")
+        target = f"{target}?{query}"
+    return redirect(target)
 
 
 @app.route("/", methods=["GET"])
@@ -3668,7 +4328,7 @@ def index():
     selected_table = request.args.get("table")
     panel_param = request.args.get("panel", "results")
     selected_panel = panel_param
-    if selected_panel == "hpc":
+    if selected_panel in {"hpc", "overview"}:
         selected_panel = "results"
     log_usage(
         "page_view",
@@ -3722,7 +4382,9 @@ def index():
     )
     sampling_report_file = request.args.get("sampling_report_file", "")
     sampling_tab = (request.args.get("sampling_tab") or "equil").strip().lower()
-    if panel_param == "plasma-sampling":
+    if panel_param == "equil-plasma-sampling":
+        selected_panel = "equilibria"
+    elif panel_param == "plasma-sampling":
         sampling_tab = "plasma"
         selected_panel = "sampling"
     elif panel_param == "sampling-batch":
@@ -3736,6 +4398,12 @@ def index():
         if sampling_batch_origin_raw and sampling_batch_origin_raw.isdigit()
         else None
     )
+    equilibria_valid_only = request.args.get("equilibria_valid_only") in {
+        "1",
+        "true",
+        "on",
+        "yes",
+    }
     sampling_k_raw = request.args.get("sampling_k", "6")
     sampling_k = int(sampling_k_raw) if sampling_k_raw.isdigit() else 6
     plasma_k_raw = request.args.get("plasma_k", "6")
@@ -3809,6 +4477,8 @@ def index():
     results_y_min = _parse_limit(request.args.get("results_y_min"))
     results_y_max = _parse_limit(request.args.get("results_y_max"))
     eqp_ion_tprim_min = _parse_limit(request.args.get("eqp_ion_tprim_min"))
+    if eqp_ion_tprim_min is None:
+        eqp_ion_tprim_min = 0.1
     results_x_scale = (request.args.get("results_x_scale") or "linear").strip().lower()
     results_y_scale = (request.args.get("results_y_scale") or "linear").strip().lower()
     results_x2_min = _parse_limit(request.args.get("results_x2_min"))
@@ -3923,11 +4593,29 @@ def index():
     monitor_report = load_monitor_report(MONITOR_REPORT_PATH)
     hpc_config = load_hpc_config()
     hpc_test_result = load_hpc_test_result()
+    action_state = get_action_state()
     surrogate_models: List[Dict[str, object]] = []
     surrogate_model_selected = (request.args.get("surrogate_model") or "").strip()
     surrogate_id_raw = (request.args.get("surrogate_id") or "").strip()
     surrogate_id = int(surrogate_id_raw) if surrogate_id_raw.isdigit() else None
     surrogate_estimate_summary: Optional[Dict[str, object]] = None
+    selected_origin_name: Optional[str] = None
+    origin_details: List[Dict[str, object]] = []
+    selected_origin_details: Optional[Dict[str, object]] = None
+    equilibria_summary = {
+        "equilibria_total": 0,
+        "equilibria_active": 0,
+        "gk_input_total": 0,
+        "transp_timeseries_total": 0,
+    }
+    equilibria_preview_columns: List[str] = []
+    equilibria_preview_rows: List[sqlite3.Row] = []
+    equilibria_preview_total = 0
+    equilibria_actions: List[Dict[str, str]] = []
+    equilibria_action_notes: List[str] = []
+    flux_action_state: Optional[Dict[str, str]] = None
+    equilibria_workflow_status: Dict[str, object] = {"stages": [], "notes": []}
+    equilibria_model_registry: List[Dict[str, object]] = []
 
     if not os.path.exists(db_path):
         return render_template(
@@ -4074,13 +4762,25 @@ def index():
             table_filtered_count=0,
             ai_suggestions=[],
             actions=ACTIONS,
-            action_status=get_action_state(),
+            action_status=action_state,
             have_numpy=HAVE_NUMPY,
             error=f"Database not found: {db_path}",
             surrogate_id=surrogate_id,
             surrogate_estimate_summary=surrogate_estimate_summary,
-            hpc_config=load_hpc_config(),
+            hpc_config=hpc_config,
             hpc_test_result=hpc_test_result,
+            origin_details=origin_details,
+            selected_origin_details=selected_origin_details,
+            equilibria_summary=equilibria_summary,
+            equilibria_preview_columns=equilibria_preview_columns,
+            equilibria_preview_rows=equilibria_preview_rows,
+            equilibria_preview_total=equilibria_preview_total,
+            equilibria_valid_only=equilibria_valid_only,
+            equilibria_actions=equilibria_actions,
+            equilibria_action_notes=equilibria_action_notes,
+            flux_action_state=flux_action_state,
+            equilibria_workflow_status=equilibria_workflow_status,
+            equilibria_model_registry=equilibria_model_registry,
         )
 
     conn = get_connection(db_path)
@@ -4138,12 +4838,45 @@ def index():
             )
         if "data_origin" in tables:
             data_origins = get_data_origins(conn)
+            origin_details = get_data_origin_details(conn)
             data_origin_colors = {
                 origin_name: data_origin_color(origin_name, origin_color)
                 for _, origin_name, origin_color in data_origins
             }
             if origin_id is None and data_origins:
                 origin_id = data_origins[0][0]
+            if origin_id is not None:
+                for origin_detail in origin_details:
+                    data_origin_id = int(origin_detail.get("id") or 0)
+                    if data_origin_id == origin_id:
+                        selected_origin_details = origin_detail
+                        selected_origin_name = str(origin_detail.get("name") or "")
+                        break
+            if selected_origin_details is not None and origin_id is not None:
+                equilibria_summary = get_equilibria_origin_summary(conn, origin_id, tables)
+                (
+                    equilibria_preview_columns,
+                    equilibria_preview_rows,
+                    equilibria_preview_total,
+                ) = get_equilibria_preview(conn, origin_id, equilibria_valid_only)
+                flux_action_state = get_latest_flux_action_state(
+                    conn,
+                    origin_id,
+                    str(selected_origin_details.get("name") or ""),
+                )
+                equilibria_workflow_status = get_equilibria_origin_workflow_status(
+                    conn,
+                    origin_id,
+                    str(selected_origin_details.get("name") or ""),
+                    str(selected_origin_details.get("file_type") or ""),
+                    tables,
+                    flux_action_state,
+                )
+                equilibria_actions, equilibria_action_notes = get_equilibria_origin_actions(
+                    str(selected_origin_details.get("name") or ""),
+                    str(selected_origin_details.get("file_type") or ""),
+                    flux_action_state,
+                )
             if sampling_origin_id is None:
                 sampling_origin_id = origin_id
             if plasma_origin_id is None:
@@ -4203,7 +4936,10 @@ def index():
                         plasma_max,
                         id_column=MHD_ID_COLUMN,
                     )
-            if selected_panel == "equil-plasma-sampling":
+            if selected_panel in {"equil-plasma-sampling", "equilibria"} and {
+                "gk_study",
+                "data_equil",
+            }.issubset(tables):
                 dataset, total_rows = get_equil_plasma_dataset(
                     conn, origin_id, ion_tprim_min=eqp_ion_tprim_min
                 )
@@ -4390,77 +5126,78 @@ def index():
                 results_filter_sql = "AND r.status IN ('SUCCESS', 'CONVERGED')"
             elif results_filter == "growth":
                 results_filter_sql = "AND r.gamma_max IS NOT NULL AND r.gamma_max != 0"
-            plot_rows = conn.execute(
-                f"""
-                SELECT r.id AS run_id,
-                       r.gk_input_id AS gk_input_id,
-                       r.input_name AS input_name,
-                       b.batch_database_name AS batch_db
-                FROM gk_run r
-                LEFT JOIN gk_batch b ON b.id = r.gk_batch_id
-                LEFT JOIN gk_input gi ON gi.id = r.gk_input_id
-                {"LEFT JOIN gk_study gs ON gs.id = gi.gk_study_id" if join_study else ""}
-                {"LEFT JOIN data_equil de ON de.id = gs.data_equil_id" if join_equil else ""}
-                WHERE r.input_name IS NOT NULL
-                {origin_filter_sql}
-                {results_filter_sql}
-                ORDER BY r.id DESC
-                LIMIT 500
-                """,
-                plot_params,
-            ).fetchall()
-            results_plot_options = [
-                {
-                    "run_id": int(row["run_id"]),
-                    "gk_input_id": int(row["gk_input_id"] or 0),
-                    "input_name": row["input_name"],
-                    "batch_db": row["batch_db"],
-                }
-                for row in plot_rows
-            ]
-            selected_run_id = results_plot_run_id
-            if results_plot_options and selected_run_id is None:
-                selected_run_id = int(results_plot_options[0]["run_id"])
-            if selected_run_id is not None:
-                selected_row = next(
-                    (
-                        row
-                        for row in results_plot_options
-                        if int(row["run_id"]) == selected_run_id
-                    ),
-                    None,
-                )
-                if selected_row:
-                    input_name = selected_row.get("input_name") or ""
-                    batch_db = selected_row.get("batch_db") or ""
-                    base = input_name[:-3] if input_name.endswith(".in") else input_name
-                    subdir = batch_db.replace(".db", "")
-                    growth_name = f"{base}_growth_rate.png"
-                    gamma_name = f"{base}_gamma_vs_ky.png"
-                    growth_path = os.path.join(BATCH_BASE_DIR, "plots", subdir, growth_name)
-                    gamma_path = os.path.join(BATCH_BASE_DIR, "plots", subdir, gamma_name)
-                    results_plot_selected = {
-                        "run_id": selected_run_id,
-                        "gk_input_id": selected_row.get("gk_input_id"),
-                        "growth_url": url_for("plots_file", filename=f"{subdir}/{growth_name}")
-                        if os.path.exists(growth_path)
-                        else None,
-                        "gamma_url": url_for("plots_file", filename=f"{subdir}/{gamma_name}")
-                        if os.path.exists(gamma_path)
-                        else None,
+            if "gk_run" in tables:
+                plot_rows = conn.execute(
+                    f"""
+                    SELECT r.id AS run_id,
+                           r.gk_input_id AS gk_input_id,
+                           r.input_name AS input_name,
+                           b.batch_database_name AS batch_db
+                    FROM gk_run r
+                    LEFT JOIN gk_batch b ON b.id = r.gk_batch_id
+                    LEFT JOIN gk_input gi ON gi.id = r.gk_input_id
+                    {"LEFT JOIN gk_study gs ON gs.id = gi.gk_study_id" if join_study else ""}
+                    {"LEFT JOIN data_equil de ON de.id = gs.data_equil_id" if join_equil else ""}
+                    WHERE r.input_name IS NOT NULL
+                    {origin_filter_sql}
+                    {results_filter_sql}
+                    ORDER BY r.id DESC
+                    LIMIT 500
+                    """,
+                    plot_params,
+                ).fetchall()
+                results_plot_options = [
+                    {
+                        "run_id": int(row["run_id"]),
+                        "gk_input_id": int(row["gk_input_id"] or 0),
+                        "input_name": row["input_name"],
+                        "batch_db": row["batch_db"],
                     }
-                    results_highlight = _fetch_run_point(
-                        selected_run_id, results_x_col, results_y_col
+                    for row in plot_rows
+                ]
+                selected_run_id = results_plot_run_id
+                if results_plot_options and selected_run_id is None:
+                    selected_run_id = int(results_plot_options[0]["run_id"])
+                if selected_run_id is not None:
+                    selected_row = next(
+                        (
+                            row
+                            for row in results_plot_options
+                            if int(row["run_id"]) == selected_run_id
+                        ),
+                        None,
                     )
-                    results_highlight_2 = _fetch_run_point(
-                        selected_run_id, results_x2_col, results_y2_col
-                    )
-                    results_highlight_3 = _fetch_run_point(
-                        selected_run_id, results_x3_col, results_y3_col
-                    )
-                    results_highlight_4 = _fetch_run_point(
-                        selected_run_id, results_x4_col, results_y4_col
-                    )
+                    if selected_row:
+                        input_name = selected_row.get("input_name") or ""
+                        batch_db = selected_row.get("batch_db") or ""
+                        base = input_name[:-3] if input_name.endswith(".in") else input_name
+                        subdir = batch_db.replace(".db", "")
+                        growth_name = f"{base}_growth_rate.png"
+                        gamma_name = f"{base}_gamma_vs_ky.png"
+                        growth_path = os.path.join(BATCH_BASE_DIR, "plots", subdir, growth_name)
+                        gamma_path = os.path.join(BATCH_BASE_DIR, "plots", subdir, gamma_name)
+                        results_plot_selected = {
+                            "run_id": selected_run_id,
+                            "gk_input_id": selected_row.get("gk_input_id"),
+                            "growth_url": url_for("plots_file", filename=f"{subdir}/{growth_name}")
+                            if os.path.exists(growth_path)
+                            else None,
+                            "gamma_url": url_for("plots_file", filename=f"{subdir}/{gamma_name}")
+                            if os.path.exists(gamma_path)
+                            else None,
+                        }
+                        results_highlight = _fetch_run_point(
+                            selected_run_id, results_x_col, results_y_col
+                        )
+                        results_highlight_2 = _fetch_run_point(
+                            selected_run_id, results_x2_col, results_y2_col
+                        )
+                        results_highlight_3 = _fetch_run_point(
+                            selected_run_id, results_x3_col, results_y3_col
+                        )
+                        results_highlight_4 = _fetch_run_point(
+                            selected_run_id, results_x4_col, results_y4_col
+                        )
             if edit_gk_input_id and edit_gk_input_id.isdigit():
                 row = conn.execute(
                     "SELECT content, status FROM gk_input WHERE id = ?",
@@ -4475,6 +5212,7 @@ def index():
             gk_model_columns, gk_model_rows, _, _ = get_table_rows(
                 conn, "gk_model", False
             )
+            equilibria_model_registry = get_gk_model_registry(conn, tables)
     finally:
         conn.close()
 
@@ -4642,12 +5380,24 @@ def index():
         eqp_selection=eqp_selection,
         eqp_status_counts=eqp_status_counts,
         actions=ACTIONS,
-        action_status=get_action_state(),
+        action_status=action_state,
         ai_suggestions=ai_suggestions,
         have_numpy=HAVE_NUMPY,
         error=None,
         surrogate_id=surrogate_id,
         surrogate_estimate_summary=surrogate_estimate_summary,
+        origin_details=origin_details,
+        selected_origin_details=selected_origin_details,
+        equilibria_summary=equilibria_summary,
+        equilibria_preview_columns=equilibria_preview_columns,
+        equilibria_preview_rows=equilibria_preview_rows,
+        equilibria_preview_total=equilibria_preview_total,
+        equilibria_valid_only=equilibria_valid_only,
+        equilibria_actions=equilibria_actions,
+        equilibria_action_notes=equilibria_action_notes,
+        flux_action_state=flux_action_state,
+        equilibria_workflow_status=equilibria_workflow_status,
+        equilibria_model_registry=equilibria_model_registry,
     )
 
 

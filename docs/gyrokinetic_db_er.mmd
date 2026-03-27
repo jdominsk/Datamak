@@ -9,9 +9,11 @@ erDiagram
     STRING gfile_content
     STRING transpfile
     STRING shot_number
-    FLOAT time
+    FLOAT shot_time
     INT active
     STRING creation_date
+    STRING shot_variant
+    STRING comment
   }
 
   data_origin {
@@ -19,7 +21,27 @@ erDiagram
     STRING name
     STRING origin
     STRING copy
+    STRING tokamak
     STRING creation_date
+    STRING color
+  }
+
+  flux_action_log {
+    INT id PK
+    INT data_origin_id FK
+    STRING data_origin_name
+    STRING flux_db_name
+    STRING remote_host
+    STRING remote_dir
+    STRING created_at
+  }
+
+  gk_batch {
+    INT id PK
+    STRING batch_database_name
+    STRING remote_folder
+    STRING remote_host
+    STRING status
   }
 
   gk_code {
@@ -29,23 +51,34 @@ erDiagram
     STRING creation_date
   }
 
-  gk_study {
+  gk_convergence_timeseries {
     INT id PK
-    INT data_equil_id FK
-    INT gk_code_id FK
-    STRING comment
+    INT gk_run_id FK
+    INT gk_input_id FK
+    BLOB phi2_tot_f32
+    INT n_points
+    FLOAT window_t_min
+    FLOAT window_t_max
+    FLOAT gamma_mean
+    FLOAT relstd
+    FLOAT slope_norm
+    STRING method
+    FLOAT r2
+    FLOAT ky_abs_mean
+    FLOAT gamma_max
+    FLOAT diffusion
+    INT is_converged
     STRING creation_date
   }
 
   gk_input {
     INT id PK
-    INT simu_id FK
+    INT gk_study_id FK
+    INT gk_model_id FK
     STRING file_name
     STRING file_path
     STRING content
     FLOAT psin
-    INT is_linear
-    INT is_adiabatic_electron
     STRING status
     STRING comment
 
@@ -61,6 +94,7 @@ erDiagram
     FLOAT tri
     FLOAT tripri
     FLOAT betaprim
+    FLOAT beta
 
     FLOAT electron_z
     FLOAT electron_mass
@@ -82,41 +116,67 @@ erDiagram
 
     STRING creation_date
   }
-
-  gk_linear_run {
+  gk_model {
     INT id PK
-    INT simu_id FK
-    FLOAT ky
-    FLOAT gamma
-    FLOAT omega
-    STRING units
-    INT mode
-    STRING remote_host
-    STRING remote_path
-    STRING status
+    INT active
+    INT gk_code_id FK
+    INT is_linear
+    INT is_adiabatic
+    INT is_electrostatic
+    STRING input_template
     STRING creation_date
   }
 
-  gk_nonlinear_run {
+  gk_run {
     INT id PK
-    INT simu_id FK
-    FLOAT t_min
-    FLOAT t_max
-    FLOAT q_i_avg
-    FLOAT q_e_avg
-    FLOAT pflux_i_avg
-    FLOAT pflux_e_avg
-    FLOAT phi2_avg
-    STRING remote_host
-    STRING remote_path
+    INT remote_id
+    INT gk_input_id FK
+    INT gk_batch_id FK
+    STRING input_folder
+    STRING job_folder
+    STRING archive_folder
+    STRING input_name
+    INT nb_nodes
+    STRING job_id
     STRING status
+    STRING input_content
+    STRING remote_host
+    STRING remote_folder
+    STRING creation_date
+    FLOAT t_max
+    FLOAT ky_abs_mean
+    FLOAT gamma_max
+    FLOAT diffusion
+    INT nb_restart
+  }
+
+  gk_study {
+    INT id PK
+    INT data_equil_id FK
+    INT gk_code_id FK
+    STRING comment
+    STRING creation_date
+  }
+
+  transp_timeseries {
+    INT id PK
+    INT data_origin_id FK
+    STRING shot_number
+    STRING shot_variant
+    STRING time_array
     STRING creation_date
   }
 
   data_origin ||--o{ data_equil : "has many"
-  data_equil  ||--o{ gk_study   : "used by"
-  gk_code     ||--o{ gk_study   : "runs with"
+  data_origin ||--o{ flux_action_log : "logs"
+  data_origin ||--o{ transp_timeseries : "has many"
+  data_equil  ||--o{ gk_study : "used by"
+  gk_code     ||--o{ gk_study : "runs with"
+  gk_code     ||--o{ gk_model : "templates"
 
-  gk_study    ||--o{ gk_input        : "has"
-  gk_study    ||--o{ gk_linear_run   : "has"
-  gk_study    ||--o{ gk_nonlinear_run: "has"
+  gk_study    ||--o{ gk_input : "has"
+  gk_model    ||--o{ gk_input : "configured by"
+  gk_batch    ||--o{ gk_run : "runs"
+  gk_input    ||--o{ gk_run : "runs"
+  gk_run      ||--o{ gk_convergence_timeseries : "convergence"
+  gk_input    ||--o{ gk_convergence_timeseries : "convergence"

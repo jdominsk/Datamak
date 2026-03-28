@@ -37,3 +37,8 @@ presentation
 tests/reports
 db_surrogate/models
 db_surrogate/models_OLD
+ai_feedback.json
+docs
+Tasks
+*.md
+.playwright-cli

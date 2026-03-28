@@ -17,6 +17,9 @@
   {% if monitor_note %}
     <div class="panel-note" style="margin-bottom:12px;">{{ monitor_note }}</div>
   {% endif %}
+  {% if monitor_input_status_text and monitor_input_status_text|trim %}
+    <div class="panel-note" style="margin-bottom:12px;">{{ monitor_input_status_text|trim }}</div>
+  {% endif %}
   {% if action_status and action_status.message %}
     <div class="notice">{{ action_status.message }}</div>
   {% endif %}

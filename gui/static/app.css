@@ -225,18 +225,46 @@ input[type="button"]:disabled {
 }
 
 .origin-picker,
-.choice-picker {
+.choice-picker,
+.select-picker {
   position: relative;
+}
+
+.origin-picker,
+.choice-picker {
   min-width: 320px;
 }
 
+.select-picker {
+  min-width: 0;
+  width: auto;
+  max-width: 100%;
+}
+
+.select-picker-source {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+}
+
 .origin-picker[open],
-.choice-picker[open] {
+.choice-picker[open],
+.select-picker[open] {
   z-index: 20;
 }
 
 .origin-picker summary,
-.choice-picker summary {
+.choice-picker summary,
+.select-picker summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -255,12 +283,14 @@ input[type="button"]:disabled {
 }
 
 .origin-picker summary::-webkit-details-marker,
-.choice-picker summary::-webkit-details-marker {
+.choice-picker summary::-webkit-details-marker,
+.select-picker summary::-webkit-details-marker {
   display: none;
 }
 
 .origin-picker summary::after,
-.choice-picker summary::after {
+.choice-picker summary::after,
+.select-picker summary::after {
   content: "▾";
   margin-left: auto;
   color: var(--gui-text-muted);
@@ -268,7 +298,8 @@ input[type="button"]:disabled {
 }
 
 .origin-picker[open] summary,
-.choice-picker[open] summary {
+.choice-picker[open] summary,
+.select-picker[open] summary {
   opacity: 0;
   pointer-events: none;
 }
@@ -279,17 +310,30 @@ input[type="button"]:disabled {
   top: 0;
   left: 0;
   z-index: 20;
-  min-width: 100%;
   max-width: 520px;
   padding: 4px;
   border: 1px solid var(--gui-border-strong);
   border-radius: 8px;
   background: var(--gui-surface);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  max-height: min(320px, calc(100vh - 48px));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.origin-picker-panel {
+  min-width: 100%;
+}
+
+.choice-picker-panel {
+  width: max-content;
+  min-width: 0;
+  max-width: min(520px, calc(100vw - 48px));
 }
 
 .origin-picker-option,
-.choice-picker-option {
+.choice-picker-option,
+.select-picker-option {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -306,18 +350,21 @@ input[type="button"]:disabled {
 }
 
 .origin-picker-option:hover,
-.choice-picker-option:hover {
+.choice-picker-option:hover,
+.select-picker-option:hover {
   background: var(--gui-surface-hover);
 }
 
 .origin-picker-option.active,
-.choice-picker-option.active {
+.choice-picker-option.active,
+.select-picker-option.active {
   background: #eef6ff;
   box-shadow: inset 3px 0 0 var(--gui-accent);
 }
 
 .origin-picker-option-label,
-.choice-picker-option-label {
+.choice-picker-option-label,
+.select-picker-option-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

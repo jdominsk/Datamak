@@ -4268,6 +4268,84 @@
         restoreTablesScroll();
       });
     }
+    const closeAllCustomPickers = (except = null) => {
+      document.querySelectorAll("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1']").forEach((picker) => {
+        if (picker !== except) {
+          picker.open = false;
+        }
+      });
+    };
+      const enhanceSelectPicker = (selectEl) => {
+        if (!(selectEl instanceof HTMLSelectElement)) {
+          return;
+        }
+      if (
+        selectEl.multiple ||
+        selectEl.disabled ||
+        selectEl.dataset.selectPickerEnhanced === "1" ||
+        selectEl.dataset.nativeSelect === "1" ||
+        selectEl.closest("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1'], noscript")
+      ) {
+        return;
+      }
+        const options = Array.from(selectEl.options).filter((option) => !option.hidden);
+        if (options.length === 0) {
+          return;
+        }
+        const wrapper = document.createElement("details");
+        wrapper.className = "select-picker";
+      wrapper.dataset.selectPicker = "1";
+        const summary = document.createElement("summary");
+        const summaryLabel = document.createElement("span");
+        summaryLabel.className = "select-picker-option-label";
+      summaryLabel.dataset.selectSummaryLabel = "1";
+      summary.appendChild(summaryLabel);
+        const panel = document.createElement("div");
+        panel.className = "choice-picker-panel";
+        options.forEach((option) => {
+          const button = document.createElement("button");
+          button.className = "select-picker-option";
+          button.type = "button";
+          button.dataset.selectSubmit = "1";
+          button.dataset.selectLabel = option.textContent.trim();
+          button.dataset.selectIndex = String(option.index);
+          const label = document.createElement("span");
+          label.className = "select-picker-option-label";
+          label.textContent = option.textContent.trim();
+          button.appendChild(label);
+        button.addEventListener("click", () => {
+          const selectedIndex = Number(button.dataset.selectIndex);
+          if (!Number.isNaN(selectedIndex)) {
+            selectEl.selectedIndex = selectedIndex;
+          }
+          syncGeneratedSelectPicker();
+          wrapper.open = false;
+          selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        panel.appendChild(button);
+      });
+      wrapper.appendChild(summary);
+      wrapper.appendChild(panel);
+      const syncGeneratedSelectPicker = () => {
+        const selectedOption = selectEl.options[selectEl.selectedIndex] || options[0];
+        const selectedIndex = String(selectedOption ? selectedOption.index : 0);
+        summaryLabel.textContent = selectedOption ? selectedOption.textContent.trim() : "";
+        panel.querySelectorAll("[data-select-submit='1']").forEach((button) => {
+          button.classList.toggle("active", button.dataset.selectIndex === selectedIndex);
+        });
+      };
+      wrapper.addEventListener("toggle", () => {
+        if (!wrapper.open) {
+          return;
+        }
+        closeAllCustomPickers(wrapper);
+      });
+      selectEl.dataset.selectPickerEnhanced = "1";
+      selectEl.classList.add("select-picker-source");
+      selectEl.insertAdjacentElement("afterend", wrapper);
+      selectEl.addEventListener("change", syncGeneratedSelectPicker);
+      syncGeneratedSelectPicker();
+    };
     const originSelects = document.querySelectorAll("[data-origin-select='1']");
     const originSubmitButtons = document.querySelectorAll("[data-origin-submit='1']");
     const originPickers = document.querySelectorAll("[data-origin-picker='1']");
@@ -4356,16 +4434,15 @@
         });
       });
     }
+    document.querySelectorAll(".panel select, .assistant-panel select").forEach((selectEl) => {
+      enhanceSelectPicker(selectEl);
+    });
     originPickers.forEach((picker) => {
       picker.addEventListener("toggle", () => {
         if (!picker.open) {
           return;
         }
-        originPickers.forEach((other) => {
-          if (other !== picker) {
-            other.open = false;
-          }
-        });
+        closeAllCustomPickers(picker);
       });
     });
     choicePickers.forEach((picker) => {
@@ -4373,20 +4450,11 @@
         if (!picker.open) {
           return;
         }
-        choicePickers.forEach((other) => {
-          if (other !== picker) {
-            other.open = false;
-          }
-        });
+        closeAllCustomPickers(picker);
       });
     });
     document.addEventListener("click", (event) => {
-      originPickers.forEach((picker) => {
-        if (picker.open && !picker.contains(event.target)) {
-          picker.open = false;
-        }
-      });
-      choicePickers.forEach((picker) => {
+      document.querySelectorAll("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1']").forEach((picker) => {
         if (picker.open && !picker.contains(event.target)) {
           picker.open = false;
         }
@@ -4396,10 +4464,7 @@
       if (event.key !== "Escape") {
         return;
       }
-      originPickers.forEach((picker) => {
-        picker.open = false;
-      });
-      choicePickers.forEach((picker) => {
+      document.querySelectorAll("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1']").forEach((picker) => {
         picker.open = false;
       });
     });

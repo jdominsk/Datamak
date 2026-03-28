@@ -1,0 +1,221 @@
+:root {
+  --gui-text-strong: #243b53;
+  --gui-text-primary: #1f2933;
+  --gui-text-muted: #52606d;
+  --gui-border: #d9e2ec;
+  --gui-border-strong: #cbd5e0;
+  --gui-border-active: #a7c4ff;
+  --gui-surface: #ffffff;
+  --gui-surface-active: #e6f0ff;
+  --gui-surface-hover: #f8fbff;
+  --gui-accent: #0b3d91;
+  --gui-danger: #a61b1b;
+  --gui-danger-border: #f5c6c6;
+}
+
+.tab-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  margin-bottom: -1px;
+}
+
+.tab {
+  border: 1px solid var(--gui-border);
+  background: var(--gui-surface);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  position: relative;
+  top: 0;
+}
+
+.tab.active {
+  background: var(--gui-surface-active);
+  border-color: var(--gui-border-active);
+  font-weight: 600;
+  box-shadow: 0 -1px 0 var(--gui-surface), 0 -2px 0 var(--gui-surface-active);
+}
+
+.subtab-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 6px;
+}
+
+.subtab {
+  border: 1px solid var(--gui-border-strong);
+  background: var(--gui-surface);
+  color: #334e68;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.subtab.active {
+  background: var(--gui-accent);
+  border-color: var(--gui-accent);
+  color: var(--gui-surface);
+}
+
+.panel-tab {
+  border: 1px solid var(--gui-border);
+  background: var(--gui-surface);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.panel-tab.active {
+  background: var(--gui-surface-active);
+  border-color: var(--gui-border-active);
+  font-weight: 600;
+}
+
+.chart-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.equilibria-heading {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.recovery-box {
+  border-color: var(--gui-danger-border);
+}
+
+.recovery-heading {
+  color: var(--gui-danger);
+}
+
+.action-link-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--gui-border-strong);
+  border-radius: 6px;
+  background: var(--gui-surface-hover);
+  color: var(--gui-text-primary);
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.action-link-button:hover {
+  background: #eef5ff;
+}
+
+.monitor-actions button,
+.ai-advisor-refresh button,
+.equilibria-action-strip button {
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.equilibria-action-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.equilibria-action-strip form,
+.ai-advisor-refresh form {
+  margin: 0;
+}
+
+.origin-picker {
+  position: relative;
+  min-width: 320px;
+}
+
+.origin-picker[open] {
+  z-index: 20;
+}
+
+.origin-picker summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 12px;
+  border: 1px solid var(--gui-border-strong);
+  border-radius: 8px;
+  background: var(--gui-surface);
+  color: var(--gui-text-strong);
+  cursor: pointer;
+  list-style: none;
+  line-height: 1.15;
+}
+
+.origin-picker summary::-webkit-details-marker {
+  display: none;
+}
+
+.origin-picker summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--gui-text-muted);
+  font-size: 12px;
+}
+
+.origin-picker[open] summary {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.origin-picker-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+  min-width: 100%;
+  max-width: 520px;
+  padding: 6px;
+  border: 1px solid var(--gui-border-strong);
+  border-radius: 8px;
+  background: var(--gui-surface);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.origin-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--gui-surface);
+  color: var(--gui-text-strong);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.origin-picker-option:hover {
+  background: var(--gui-surface-hover);
+}
+
+.origin-picker-option.active {
+  background: #eef6ff;
+  box-shadow: inset 3px 0 0 var(--gui-accent);
+}
+
+.origin-picker-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

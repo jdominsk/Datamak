@@ -18,6 +18,9 @@ from db_update.populate_data_equil_from_Mate_KinEFIT import (
     get_or_create_origin_id as get_or_create_mate_origin_id,
 )
 from db_update.populate_data_equil_from_Mate_KinEFIT import insert_pairs
+from db_update.Transp_full_auto.build_flux_equil_inputs import (
+    populate_equil_and_timeseries,
+)
 
 
 def _create_min_equil_schema(conn: sqlite3.Connection) -> None:
@@ -54,6 +57,155 @@ def _create_min_equil_schema(conn: sqlite3.Connection) -> None:
 
 
 class EquilibriumPopulationWorkflowTests(unittest.TestCase):
+    def test_flux_populate_skips_unreadable_cdf_and_continues(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(
+                """
+                CREATE TABLE data_origin (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    origin TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE data_equil (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data_origin_id INTEGER NOT NULL,
+                    folder_path TEXT,
+                    pfile TEXT,
+                    pfile_content TEXT,
+                    gfile TEXT,
+                    gfile_content TEXT,
+                    transpfile TEXT,
+                    shot_time REAL,
+                    shot_number TEXT,
+                    shot_variant TEXT,
+                    active INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO data_origin (name, origin)
+                VALUES ('Transp 10 (full-auto)', '/remote/transp')
+                """
+            )
+            conn.commit()
+
+            with mock.patch(
+                "db_update.Transp_full_auto.build_flux_equil_inputs.list_cdf_files",
+                return_value=["139048Z04.CDF", "139048Z05.CDF"],
+            ), mock.patch(
+                "db_update.Transp_full_auto.build_flux_equil_inputs.read_time_array",
+                side_effect=[
+                    PermissionError("[Errno 13] Permission denied"),
+                    [1.1, 1.2],
+                ],
+            ), mock.patch(
+                "db_update.Transp_full_auto.build_flux_equil_inputs.random.choice",
+                return_value=1.1,
+            ):
+                inserted_equil, inserted_ts, skipped_files = populate_equil_and_timeseries(
+                    conn,
+                    None,
+                    "Transp 10 (full-auto)",
+                    "/remote/transp",
+                    False,
+                )
+            conn.commit()
+
+            self.assertEqual(inserted_equil, 1)
+            self.assertEqual(inserted_ts, 1)
+            self.assertEqual(skipped_files, 1)
+
+            rows = conn.execute(
+                """
+                SELECT transpfile, shot_number, shot_variant, shot_time, active
+                FROM data_equil
+                ORDER BY id
+                """
+            ).fetchall()
+            self.assertEqual(
+                [(str(r[0]), str(r[1]), str(r[2]), float(r[3]), int(r[4])) for r in rows],
+                [("139048Z05.CDF", "139048", "Z05", 1.1, 1)],
+            )
+        finally:
+            conn.close()
+
+    def test_flux_populate_prefers_origin_id_over_stale_name(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(
+                """
+                CREATE TABLE data_origin (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    origin TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE data_equil (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data_origin_id INTEGER NOT NULL,
+                    folder_path TEXT,
+                    pfile TEXT,
+                    pfile_content TEXT,
+                    gfile TEXT,
+                    gfile_content TEXT,
+                    transpfile TEXT,
+                    shot_time REAL,
+                    shot_number TEXT,
+                    shot_variant TEXT,
+                    active INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO data_origin (id, name, origin)
+                VALUES (4, 'Alexei Transp 10 (full-auto)', '/remote/transp')
+                """
+            )
+            conn.commit()
+
+            with mock.patch(
+                "db_update.Transp_full_auto.build_flux_equil_inputs.list_cdf_files",
+                return_value=["139048Z05.CDF"],
+            ), mock.patch(
+                "db_update.Transp_full_auto.build_flux_equil_inputs.read_time_array",
+                return_value=[1.1, 1.2],
+            ), mock.patch(
+                "db_update.Transp_full_auto.build_flux_equil_inputs.random.choice",
+                return_value=1.2,
+            ):
+                inserted_equil, inserted_ts, skipped_files = populate_equil_and_timeseries(
+                    conn,
+                    4,
+                    "Transp 10 (full-auto)",
+                    "/remote/transp",
+                    False,
+                )
+            conn.commit()
+
+            self.assertEqual((inserted_equil, inserted_ts, skipped_files), (1, 1, 0))
+            row = conn.execute(
+                """
+                SELECT data_origin_id, transpfile, shot_time, active
+                FROM data_equil
+                """
+            ).fetchone()
+            self.assertEqual(
+                (int(row[0]), str(row[1]), float(row[2]), int(row[3])),
+                (4, "139048Z05.CDF", 1.2, 1),
+            )
+        finally:
+            conn.close()
+
     def test_mate_build_and_insert_pairs_with_dedup(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             folder = Path(tmpdir) / "shot_a"

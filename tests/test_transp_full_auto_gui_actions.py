@@ -162,6 +162,7 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
                 remote_host="alice@flux.example.org",
                 remote_dir="/u/alice/DTwin/transp_full_auto",
                 remote_db_path="/u/alice/DTwin/transp_full_auto/flux_equil_inputs_existing.db",
+                origin_id=3,
                 origin_name="Alexei Transp 09 (full-auto) NEW",
                 remote_path="/p/transparch/result/NSTX/09",
                 partition="all",
@@ -278,6 +279,7 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
                 remote_host="alice@flux-login2",
                 remote_dir="/u/alice/DTwin/transp_full_auto",
                 remote_db_path="/u/alice/DTwin/transp_full_auto/flux_equil_inputs_existing.db",
+                origin_id=3,
                 origin_name="Alexei Transp 09 (full-auto) NEW",
                 remote_path="/p/transparch/result/NSTX/09",
                 partition="all",
@@ -352,7 +354,7 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
                 "python_bin": "/u/alice/pyrokinetics/.venv/bin/python",
             }
 
-            def fake_stage(origin_name: str) -> None:
+            def fake_stage(origin_id: int, origin_name: str) -> None:
                 with sqlite3.connect(db_path) as conn:
                     conn.execute(
                         """
@@ -362,7 +364,7 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            4,
+                            origin_id,
                             origin_name,
                             "flux_equil_inputs_new.db",
                             "alice@flux.example.org",
@@ -387,12 +389,13 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
                     memory="8G",
                 )
 
-            stage_mock.assert_called_once_with("Alexei Transp 10 (full-auto)")
+            stage_mock.assert_called_once_with(4, "Alexei Transp 10 (full-auto)")
             sync_mock.assert_not_called()
             submit_mock.assert_called_once_with(
                 remote_host="alice@flux.example.org",
                 remote_dir="/u/alice/DTwin/transp_full_auto",
                 remote_db_path="/u/alice/DTwin/transp_full_auto/flux_equil_inputs_new.db",
+                origin_id=4,
                 origin_name="Alexei Transp 10 (full-auto)",
                 remote_path="/p/transparch/result/NSTX/10",
                 partition="all",
@@ -899,6 +902,7 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
                 remote_host="alice@flux-login2",
                 remote_dir="/u/alice/DTwin/transp_full_auto",
                 remote_db_path="/u/alice/DTwin/transp_full_auto/flux_equil_inputs.db",
+                origin_id=4,
                 origin_name="Alexei Transp 10 (full-auto)",
                 remote_path="/p/transparch/result/NSTX/10",
                 partition="all",
@@ -923,6 +927,7 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
         self.assertIn("source /etc/profile", remote_script)
         self.assertIn("module load slurm", remote_script)
         self.assertIn("command -v sbatch", remote_script)
+        self.assertIn("export ORIGIN_ID=4", remote_script)
         self.assertIn("sbatch --parsable --export=ALL --partition all --time 04:00:00 --mem 8G flux/run_mainsteps2_slurm.sh /u/alice/DTwin/transp_full_auto/flux_equil_inputs.db", remote_script)
 
 

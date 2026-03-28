@@ -2,6 +2,7 @@
 set -euo pipefail
 
 FLUX_DB="${1:?Usage: MainSteps_2_launch_on_flux.sh /path/to/flux_equil_inputs_TIMESTAMP.db}"
+ORIGIN_ID="${ORIGIN_ID:-}"
 ORIGIN_NAME="${ORIGIN_NAME:-Transp 09 (full-auto)}"
 REMOTE_PATH="${REMOTE_PATH:-/p/transparch/result/NSTX/09}"
 PSIN_START="${PSIN_START:-0.1}"
@@ -27,17 +28,24 @@ log() {
 
 log "Starting flux step 2"
 log "DB: ${FLUX_DB}"
+log "Origin id: ${ORIGIN_ID:-<unset>}"
 log "Origin: ${ORIGIN_NAME}"
 log "Remote path: ${REMOTE_PATH}"
 log "Psin range: ${PSIN_START}..${PSIN_END} step ${PSIN_STEP}"
 log "Batch size: ${BATCH_SIZE}"
 log "Max mem (GB): ${MAX_MEM_GB}"
 
+origin_args=()
+if [[ -n "${ORIGIN_ID}" ]]; then
+  origin_args+=(--origin-id "${ORIGIN_ID}")
+fi
+
 "${FLUX_PYTHON}" \
   "${SCRIPT_DIR}/build_flux_equil_inputs.py" \
   --flux-db "${FLUX_DB}" \
   --populate-equil \
   --create-studies \
+  "${origin_args[@]}" \
   --origin-name "${ORIGIN_NAME}" \
   --remote-path "${REMOTE_PATH}"
 log "Finished populate data_equil + transp_timeseries"
@@ -46,6 +54,7 @@ log "Finished populate data_equil + transp_timeseries"
   "${SCRIPT_DIR}/build_flux_equil_inputs.py" \
   --flux-db "${FLUX_DB}" \
   --create-gk-inputs \
+  "${origin_args[@]}" \
   --origin-name "${ORIGIN_NAME}" \
   --psin-start "${PSIN_START}" \
   --psin-end "${PSIN_END}" \

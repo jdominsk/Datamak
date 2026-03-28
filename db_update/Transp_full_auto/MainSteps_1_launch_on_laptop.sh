@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DTWIN_ROOT="${DTWIN_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 LOCAL_DIR="${DTWIN_ROOT}/transp_full_auto"
 MAIN_DB="${DTWIN_ROOT}/gyrokinetic_simulations.db"
+ORIGIN_ID="${ORIGIN_ID:-}"
 ORIGIN_NAME="${ORIGIN_NAME:-Transp 09 (full-auto)}"
 eval "$(python3 "${DTWIN_ROOT}/tools/resolve_dtwin_env.py" --profile flux --format shell)"
 
@@ -48,6 +49,7 @@ FLUX_DB_LOCAL="$(ls -t "${LOCAL_DIR}/flux_equil_inputs_"*.db | head -n 1)"
 FLUX_DB_NAME="$(basename "${FLUX_DB_LOCAL}")"
 
 MAIN_DB_PATH="${MAIN_DB}" \
+ORIGIN_ID="${ORIGIN_ID}" \
 ORIGIN_NAME="${ORIGIN_NAME}" \
 FLUX_DB_NAME="${FLUX_DB_NAME}" \
 REMOTE_HOST="${REMOTE_HOST}" \
@@ -57,6 +59,7 @@ import os
 import sqlite3
 
 main_db = os.environ["MAIN_DB_PATH"]
+origin_id_raw = os.environ.get("ORIGIN_ID", "").strip()
 origin_name = os.environ.get("ORIGIN_NAME", "")
 flux_db_name = os.environ["FLUX_DB_NAME"]
 remote_host = os.environ["REMOTE_HOST"]
@@ -64,11 +67,21 @@ remote_dir = os.environ["REMOTE_DIR"]
 
 conn = sqlite3.connect(main_db)
 try:
-    row = conn.execute(
-        "SELECT id FROM data_origin WHERE name = ?",
-        (origin_name,),
-    ).fetchone()
-    data_origin_id = int(row[0]) if row else None
+    data_origin_id = None
+    if origin_id_raw.isdigit():
+        row = conn.execute(
+            "SELECT id, name FROM data_origin WHERE id = ?",
+            (int(origin_id_raw),),
+        ).fetchone()
+        if row:
+            data_origin_id = int(row[0])
+            origin_name = str(row[1] or origin_name)
+    elif origin_name:
+        row = conn.execute(
+            "SELECT id FROM data_origin WHERE name = ?",
+            (origin_name,),
+        ).fetchone()
+        data_origin_id = int(row[0]) if row else None
     conn.execute(
         """
         INSERT INTO flux_action_log (

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -28,10 +29,20 @@ if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 
 from dtwin_config import load_gui_workflow_config, resolve_perlmutter_profile, save_gui_workflow_config  # noqa: E402
+from gui.actions import (  # noqa: E402
+    ACTIONS,
+    ActionValidationError,
+    ActionSpec,
+    ResolvedAction,
+    resolve_action_request,
+    with_redirect_params,
+)
+from gui.panels.workflow import build_workflow_panel_context  # noqa: E402
 
 DEFAULT_DB = os.path.join(PROJECT_DIR, "gyrokinetic_simulations.db")
 DB_UPDATE_DIR = os.path.join(PROJECT_DIR, "db_update")
 DOCS_DIR = os.path.join(PROJECT_DIR, "docs")
+GUI_STATIC_DIR = os.path.join(APP_DIR, "static")
 BATCH_BASE_DIR = os.path.join(PROJECT_DIR, "batch")
 BATCH_NEW_DIR = os.path.join(BATCH_BASE_DIR, "new")
 BATCH_SENT_DIR = os.path.join(BATCH_BASE_DIR, "sent")
@@ -44,162 +55,11 @@ MONITOR_REPORT_PATH = os.path.join(ANALYSIS_DIR, "remote_monitor_report.json")
 HPC_TEST_PATH = os.path.join(ANALYSIS_DIR, "hpc_test_result.json")
 USAGE_LOG_PATH = os.path.join(ANALYSIS_DIR, "monitor_feedback.json")
 USAGE_LOG_LOCK = threading.Lock()
-
-ACTIONS = {
-    "populate_mate": {
-        "label": "Populate",
-        "script": os.path.join(DB_UPDATE_DIR, "populate_data_equil_from_Mate_KinEFIT.py"),
-    },
-    "populate_alexei": {
-        "label": "Populate",
-        "script": os.path.join(DB_UPDATE_DIR, "populate_data_equil_from_Alexei_Transp_09.py"),
-    },
-    "populate_alexei_fullauto": {
-        "label": "Populate",
-        "script": os.path.join(
-            DB_UPDATE_DIR, "populate_data_equil_from_Alexei_Transp_09_fullauto.py"
-        ),
-    },
-    "populate_alexei_fullauto_10": {
-        "label": "Populate",
-        "script": os.path.join(
-            DB_UPDATE_DIR, "populate_data_equil_from_Alexei_Transp_10_fullauto.py"
-        ),
-    },
-    "create_inputs_mate": {
-        "label": "Create GK Inputs",
-        "script": os.path.join(
-            DB_UPDATE_DIR, "create_gk_input_from_pyrokinetic_with_pfile_and_gfile.py"
-        ),
-    },
-    "create_inputs_transp": {
-        "label": "Create GK Inputs",
-        "script": os.path.join(
-            DB_UPDATE_DIR, "create_gk_input_from_pyrokinetic_with_transpfile.py"
-        ),
-    },
-    "create_inputs_transp_fullauto": {
-        "label": "Create GK Inputs",
-        "script": os.path.join(
-            DB_UPDATE_DIR, "create_gk_input_from_pyrokinetic_with_transpfile_fullauto.py"
-        ),
-        "use_db": True,
-        "db_arg": "--db",
-    },
-    "run_on_flux": {
-        "label": "Run On Flux",
-        "script": os.path.join(DB_UPDATE_DIR, "Transp_full_auto", "run_on_flux.py"),
-        "use_db": True,
-        "db_arg": "--db",
-    },
-    "sync_back_from_flux": {
-        "label": "Sync Back From Flux",
-        "script": os.path.join(DB_UPDATE_DIR, "Transp_full_auto", "sync_back_from_flux.py"),
-        "use_db": True,
-        "db_arg": "--db",
-    },
-    "check_flux_status": {
-        "label": "Check Flux Status",
-        "script": os.path.join(DB_UPDATE_DIR, "Transp_full_auto", "check_flux_job_status.py"),
-        "use_db": True,
-        "db_arg": "--db",
-    },
-    "create_batch_db": {
-        "label": "Create Batch DB",
-        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "create_batch_database.py"),
-        "args": ["--copy-torun"],
-        "use_db": True,
-        "db_arg": "--source-db",
-    },
-    "deploy_batch_db": {
-        "label": "Deploy Batch DB",
-        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "deploy_batch.py"),
-    },
-    "deploy_batch_db_large": {
-        "label": "Deploy Batch DB (Large)",
-        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "deploy_batch_large.py"),
-    },
-    "check_launched_batches": {
-        "label": "Check Launched Batches",
-        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "check_launched_batches.py"),
-        "args": ["--remote-check"],
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-    "train_gamma_surrogate": {
-        "label": "Train Gamma Surrogate",
-        "script": os.path.join(PROJECT_DIR, "db_surrogate", "train_gamma_surrogate.py"),
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-    "run_surrogate_estimate": {
-        "label": "Run Surrogate",
-        "script": os.path.join(PROJECT_DIR, "db_surrogate", "estimate_gamma_surrogate.py"),
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-    "monitor_remote_runs": {
-        "label": "Check Simulations",
-        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "monitor_remote_runs.py"),
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-    "open_ssh_pipe": {
-        "label": "Open SSH Pipe",
-        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "open_ssh_control_master.py"),
-        "capture_output": True,
-    },
-    "test_hpc_connection": {
-        "label": "Test SSH (ls -lrt ~)",
-        "script": os.path.join(os.path.dirname(APP_DIR), "batch", "test_hpc_connection.py"),
-        "capture_output": True,
-    },
-    "mark_remote_running_interrupted": {
-        "label": "Mark RUNNING as INTERRUPTED",
-        "script": os.path.join(
-            os.path.dirname(APP_DIR), "batch", "mark_remote_running_interrupted.py"
-        ),
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-    "mark_remote_run_restart": {
-        "label": "Mark run as RESTART",
-        "script": os.path.join(
-            os.path.dirname(APP_DIR), "batch", "mark_remote_run_restart.py"
-        ),
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-    "launch_remote_slurm_job": {
-        "label": "Launch SLURM job",
-        "script": os.path.join(
-            os.path.dirname(APP_DIR), "batch", "launch_remote_slurm_job.py"
-        ),
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-    "mark_empty_gk_input_error": {
-        "label": "Mark empty gk_input as ERROR",
-        "script": os.path.join(DB_UPDATE_DIR, "mark_empty_gk_input_error.py"),
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-    "delete_surrogate_model": {
-        "label": "Delete surrogate model",
-        "script": os.path.join(PROJECT_DIR, "db_surrogate", "delete_surrogate_model.py"),
-        "use_db": True,
-        "db_arg": "--db",
-        "capture_output": True,
-    },
-}
+DEMO_DATABASE_URL = (
+    "https://drive.google.com/file/d/1XS1jpbqQICJNDR6AU_wXeYG7BM_nt4yM/view"
+    "?usp=share_link"
+)
+DEMO_DATABASE_GLOB = "gyrokinetic_simulations*.db"
 
 ACTION_LOCK = threading.Lock()
 ACTION_STATE: Dict[str, object] = {
@@ -217,6 +77,11 @@ app = Flask(__name__, static_folder="logo")
 @app.route("/docs/<path:filename>")
 def docs_file(filename: str):
     return send_from_directory(DOCS_DIR, filename)
+
+
+@app.route("/gui-static/<path:filename>")
+def gui_static_file(filename: str):
+    return send_from_directory(GUI_STATIC_DIR, filename)
 
 
 @app.route("/plots/<path:filename>")
@@ -264,25 +129,111 @@ def list_tables(conn: sqlite3.Connection) -> List[str]:
     return [row["name"] for row in rows]
 
 
-def build_schema_overview(
-    conn: sqlite3.Connection, tables: List[str]
-) -> List[Dict[str, object]]:
-    overview: List[Dict[str, object]] = []
-    for table in tables:
-        columns = conn.execute(f"PRAGMA table_info({table})").fetchall()
-        column_defs: List[Dict[str, object]] = []
-        for column in columns:
-            column_defs.append(
-                {
-                    "name": column["name"],
-                    "type": column["type"],
-                    "notnull": bool(column["notnull"]),
-                    "default": column["dflt_value"],
-                    "pk": bool(column["pk"]),
-                }
+def get_table_schema_rows(
+    conn: sqlite3.Connection, table: str
+) -> List[Dict[str, str]]:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    schema_rows: List[Dict[str, str]] = []
+    for row in rows:
+        schema_rows.append(
+            {
+                "name": str(row["name"] or ""),
+                "type": str(row["type"] or ""),
+                "pk": "Yes" if bool(row["pk"]) else "",
+                "notnull": "Yes" if bool(row["notnull"]) else "",
+                "default": str(row["dflt_value"] or ""),
+            }
+        )
+    return schema_rows
+
+
+def get_demo_database_search_dirs() -> List[Path]:
+    roots = [
+        Path.home() / "Downloads",
+        Path.home() / "Desktop",
+        Path(PROJECT_DIR),
+        Path(PROJECT_DIR) / "demo",
+    ]
+    deduped: List[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(root)
+    return deduped
+
+
+def find_demo_database_candidates() -> List[Dict[str, str]]:
+    matches: List[tuple[float, Dict[str, str]]] = []
+    seen: set[str] = set()
+    for root in get_demo_database_search_dirs():
+        if not root.is_dir():
+            continue
+        for path in root.glob(DEMO_DATABASE_GLOB):
+            if not path.is_file():
+                continue
+            try:
+                resolved = path.resolve()
+                stat = path.stat()
+            except OSError:
+                continue
+            key = str(resolved)
+            if key in seen:
+                continue
+            seen.add(key)
+            matches.append(
+                (
+                    stat.st_mtime,
+                    {
+                        "path": key,
+                        "name": path.name,
+                        "directory": str(path.parent),
+                        "modified": datetime.fromtimestamp(stat.st_mtime).strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        ),
+                    },
+                )
             )
-        overview.append({"name": table, "columns": column_defs})
-    return overview
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return [item[1] for item in matches]
+
+
+def resolve_demo_database_candidate(source_path: str) -> Optional[Path]:
+    if not source_path:
+        return None
+    try:
+        requested = Path(source_path).expanduser().resolve()
+    except OSError:
+        return None
+    for candidate in find_demo_database_candidates():
+        try:
+            candidate_path = Path(candidate["path"]).resolve()
+        except OSError:
+            continue
+        if str(candidate_path) == str(requested):
+            return candidate_path
+    return None
+
+
+def get_demo_copy_target_path(source_path: Path) -> Path:
+    preferred = Path(PROJECT_DIR) / source_path.name
+    try:
+        if source_path.resolve() == preferred.resolve():
+            return preferred
+    except OSError:
+        pass
+    if not preferred.exists():
+        return preferred
+    stem = source_path.stem
+    suffix = source_path.suffix
+    index = 1
+    while True:
+        candidate = Path(PROJECT_DIR) / f"{stem}_{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+        index += 1
 
 
 def list_batch_databases(batch_dir: str) -> List[str]:
@@ -1261,64 +1212,6 @@ def _gk_model_label(row: sqlite3.Row) -> str:
     if template_name:
         label = f"{label} ({template_name})"
     return label
-
-
-def _gk_model_description(row: sqlite3.Row) -> str:
-    code = str(row["gk_code_name"] or "GK").strip().upper()
-    linearity = "linear" if int(row["is_linear"] or 0) == 1 else "nonlinear"
-    adiabatic_value = int(row["is_adiabatic"] or 0)
-    if adiabatic_value == 1:
-        species = "adiabatic"
-    elif adiabatic_value == 0:
-        species = "kinetic"
-    else:
-        species = "mixed"
-    field_type = (
-        "electrostatic" if int(row["is_electrostatic"] or 0) == 1 else "electromagnetic"
-    )
-    return f"{code} {linearity} {species} {field_type}"
-
-
-def get_gk_model_registry(
-    conn: sqlite3.Connection, tables: List[str]
-) -> List[Dict[str, object]]:
-    if "gk_model" not in tables:
-        return []
-    gk_model_columns = get_table_columns(conn, "gk_model")
-    join_gk_code = "gk_code" in tables and "gk_code_id" in gk_model_columns
-    select_parts = [
-        "gm.id",
-        "gc.name AS gk_code_name" if join_gk_code else "'' AS gk_code_name",
-        "gm.is_linear" if "is_linear" in gk_model_columns else "0 AS is_linear",
-        "gm.is_adiabatic" if "is_adiabatic" in gk_model_columns else "0 AS is_adiabatic",
-        "gm.is_electrostatic"
-        if "is_electrostatic" in gk_model_columns
-        else "0 AS is_electrostatic",
-        "gm.input_template" if "input_template" in gk_model_columns else "'' AS input_template",
-        "gm.active" if "active" in gk_model_columns else "0 AS active",
-    ]
-    join_clause = "LEFT JOIN gk_code AS gc ON gc.id = gm.gk_code_id" if join_gk_code else ""
-    rows = conn.execute(
-        f"""
-        SELECT {', '.join(select_parts)}
-        FROM gk_model AS gm
-        {join_clause}
-        ORDER BY
-          CASE WHEN COALESCE(gm.active, 0) = 1 THEN 0 ELSE 1 END,
-          gm.id
-        """
-    ).fetchall()
-    registry: List[Dict[str, object]] = []
-    for row in rows:
-        registry.append(
-            {
-                "id": int(row["id"]),
-                "description": _gk_model_description(row),
-                "template_name": os.path.basename(str(row["input_template"] or "").strip()) or "—",
-                "active": int(row["active"] or 0) == 1,
-            }
-        )
-    return registry
 
 
 def get_equilibria_origin_workflow_status(
@@ -3692,25 +3585,19 @@ def get_gamma_max_status_report(
 
 
 def _run_action(
-    action_key: str,
-    action_label: str,
-    script_path: str,
+    spec: ActionSpec,
     db_path: Optional[str],
     extra_args: Optional[List[str]] = None,
     env_overrides: Optional[Dict[str, str]] = None,
 ) -> None:
     try:
-        script_args: List[str] = []
-        use_db = False
-        db_arg = None
-        capture_output = False
-        for action in ACTIONS.values():
-            if action.get("script") == script_path:
-                script_args = action.get("args", [])
-                use_db = action.get("use_db", False)
-                db_arg = action.get("db_arg")
-                capture_output = action.get("capture_output", False)
-                break
+        action_key = spec.key
+        action_label = spec.label
+        script_path = spec.script
+        script_args: List[str] = list(spec.args)
+        use_db = spec.use_db
+        db_arg = spec.db_arg
+        capture_output = spec.capture_output
         if extra_args:
             script_args = [*script_args, *extra_args]
         if use_db and db_path:
@@ -3907,19 +3794,61 @@ def _redirect_to_index(**kwargs):
     return redirect(url_for("index", **kwargs))
 
 
-def _start_action(
-    action_name: str,
+@app.route("/copy_demo_database", methods=["POST"])
+def copy_demo_database():
+    original_db = request.form.get("db", DEFAULT_DB)
+    source_path = request.form.get("source_path", "")
+    source = resolve_demo_database_candidate(source_path)
+    if source is None:
+        return _redirect_to_index(
+            db=original_db,
+            panel="tables",
+            db_recovery_error=(
+                "Detected demo database not found anymore. Re-scan and try again."
+            ),
+        )
+    try:
+        target = get_demo_copy_target_path(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source != target:
+            shutil.copy2(source, target)
+    except OSError as exc:
+        return _redirect_to_index(
+            db=original_db,
+            panel="tables",
+            db_recovery_error=f"Could not copy demo database: {exc}",
+        )
+    return _redirect_to_index(
+        db=str(target),
+        panel="tables",
+        db_recovery_message=f"Using copied demo database: {target}",
+    )
+
+
+def _redirect_after_validation_error(
     db_path: str,
-    extra_args: Optional[List[str]] = None,
-    panel: str = "action",
-    redirect_params: Optional[Dict[str, object]] = None,
-    env_overrides: Optional[Dict[str, str]] = None,
+    default_panel: str,
+    redirect_params: Optional[Dict[str, object]],
+    exc: ActionValidationError,
 ):
-    action = ACTIONS.get(action_name)
-    if action is None:
-        with ACTION_LOCK:
-            ACTION_STATE["message"] = f"Unknown action '{action_name}'."
-        return _redirect_to_index(panel=panel, db=db_path)
+    with ACTION_LOCK:
+        ACTION_STATE["message"] = exc.message
+    merged_redirect_params = dict(redirect_params or {})
+    if exc.redirect_params:
+        merged_redirect_params.update(exc.redirect_params)
+    return _redirect_to_index(
+        panel=exc.panel or default_panel,
+        db=db_path,
+        **merged_redirect_params,
+    )
+
+
+def _start_action(
+    resolved: ResolvedAction,
+):
+    spec = resolved.spec
+    db_path = resolved.db_path
+    panel = resolved.panel
     with ACTION_LOCK:
         if ACTION_STATE["running"]:
             current = ACTION_STATE["name"] or "another action"
@@ -3927,26 +3856,24 @@ def _start_action(
             return _redirect_to_index(panel=panel, db=db_path)
         ACTION_STATE["token"] = int(ACTION_STATE.get("token") or 0) + 1
         ACTION_STATE["running"] = True
-        ACTION_STATE["name"] = action["label"]
-        ACTION_STATE["message"] = f"Action '{action['label']}' is running."
-        ACTION_STATE["key"] = action_name
+        ACTION_STATE["name"] = spec.label
+        ACTION_STATE["message"] = f"Action '{spec.label}' is running."
+        ACTION_STATE["key"] = spec.key
         ACTION_STATE["completed_at"] = None
     thread = threading.Thread(
         target=_run_action,
         args=(
-            action_name,
-            action["label"],
-            action["script"],
+            spec,
             db_path,
-            extra_args,
-            env_overrides,
+            resolved.extra_args or None,
+            resolved.env_overrides,
         ),
         daemon=True,
     )
     thread.start()
     redirect_kwargs: Dict[str, object] = {"panel": panel, "db": db_path}
-    if redirect_params:
-        redirect_kwargs.update(redirect_params)
+    if resolved.redirect_params:
+        redirect_kwargs.update(resolved.redirect_params)
     return _redirect_to_index(**redirect_kwargs)
 
 
@@ -3957,180 +3884,17 @@ def run_action(action_name: str):
     if panel == "hpc":
         panel = "action"
     log_usage("action_click", {"action": action_name, "panel": panel, "db": db_path})
-    extra_args: List[str] = []
-    env_overrides: Optional[Dict[str, str]] = None
-    redirect_params: Dict[str, object] = {}
-    if (request.form.get("hpc_open") or "").strip():
-        redirect_params["hpc"] = "1"
-    origin_id = (request.form.get("origin_id") or "").strip()
-    if origin_id.isdigit():
-        redirect_params["origin_id"] = origin_id
-    origin_name = (request.form.get("origin_name") or "").strip()
-    if (request.form.get("equilibria_valid_only") or "").strip() in {"1", "true", "on", "yes"}:
-        redirect_params["equilibria_valid_only"] = "1"
-    hpc_config = load_hpc_config()
-    perlmutter_profile = resolve_perlmutter_profile()
-    hpc_user = (hpc_config.get("ssh_user") or "").strip() or str(perlmutter_profile.get("user") or "").strip()
-    if action_name in {
-        "monitor_remote_runs",
-        "mark_remote_running_interrupted",
-        "mark_remote_run_restart",
-        "launch_remote_slurm_job",
-        "open_ssh_pipe",
-        "test_hpc_connection",
-    }:
-        env_overrides = {}
-        identity = (hpc_config.get("ssh_identity") or "").strip()
-        control_path = (hpc_config.get("ssh_control_path") or "").strip()
-        control_persist = (hpc_config.get("ssh_control_persist") or "").strip()
-        connect_timeout = (hpc_config.get("ssh_connect_timeout") or "").strip()
-        if identity:
-            env_overrides["DTWIN_SSH_IDENTITY"] = identity
-        if control_path:
-            env_overrides["DTWIN_SSH_CONTROL_PATH"] = control_path
-        if control_persist:
-            env_overrides["DTWIN_SSH_CONTROL_PERSIST"] = control_persist
-        if connect_timeout:
-            env_overrides["DTWIN_SSH_CONNECT_TIMEOUT"] = connect_timeout
-    if action_name == "check_launched_batches":
-        plots_limit = (request.form.get("plots_limit") or "").strip()
-        if plots_limit.isdigit():
-            extra_args.extend(["--plots-limit", plots_limit])
-            if int(plots_limit) > 0:
-                extra_args.append("--sync-plots")
-                plots_dir = os.path.join(BATCH_BASE_DIR, "plots")
-                extra_args.extend(["--plots-dir", plots_dir])
-        batch_name = (request.form.get("batch_name") or "").strip()
-        if batch_name:
-            extra_args.extend(["--batch", batch_name])
-    if action_name == "monitor_remote_runs":
-        extra_args.extend(["--user", hpc_user])
-        if (request.form.get("run_analyze") or "").strip():
-            extra_args.append("--run-analyze")
-        monitor_timeout = (hpc_config.get("monitor_timeout") or "").strip()
-        if monitor_timeout:
-            extra_args.extend(["--timeout", monitor_timeout])
-    if action_name == "mark_remote_running_interrupted":
-        batch_name = (request.form.get("batch_name") or "").strip()
-        if batch_name:
-            extra_args.extend(["--batch", batch_name])
-        extra_args.extend(["--follow-monitor", "--monitor-user", hpc_user])
-        monitor_timeout = (hpc_config.get("monitor_timeout") or "").strip()
-        if monitor_timeout:
-            extra_args.extend(["--monitor-timeout", monitor_timeout])
-    if action_name == "mark_remote_run_restart":
-        batch_name = (request.form.get("batch_name") or "").strip()
-        run_ids = request.form.getlist("run_id")
-        if batch_name:
-            extra_args.extend(["--batch", batch_name])
-        for run_id in run_ids:
-            if run_id.isdigit():
-                extra_args.extend(["--run-id", run_id])
-        extra_args.extend(["--follow-monitor", "--monitor-user", hpc_user])
-        monitor_timeout = (hpc_config.get("monitor_timeout") or "").strip()
-        if monitor_timeout:
-            extra_args.extend(["--monitor-timeout", monitor_timeout])
-    if action_name == "launch_remote_slurm_job":
-        batch_name = (request.form.get("batch_name") or "").strip()
-        if batch_name:
-            extra_args.extend(["--batch", batch_name])
-        extra_args.extend(["--user", hpc_user])
-        extra_args.extend(["--follow-monitor", "--monitor-user", hpc_user])
-        monitor_timeout = (hpc_config.get("monitor_timeout") or "").strip()
-        if monitor_timeout:
-            extra_args.extend(["--monitor-timeout", monitor_timeout])
-    if action_name == "open_ssh_pipe":
-        host = (hpc_config.get("ssh_host") or "").strip() or str(perlmutter_profile.get("host") or "").strip()
-        extra_args.extend(["--host", host])
-        if hpc_user:
-            extra_args.extend(["--user", hpc_user])
-    if action_name == "test_hpc_connection":
-        host = (hpc_config.get("ssh_host") or "").strip() or str(perlmutter_profile.get("host") or "").strip()
-        extra_args.extend(["--host", host])
-        if hpc_user:
-            extra_args.extend(["--user", hpc_user])
-    if action_name == "train_gamma_surrogate":
-        model_name = (request.form.get("surrogate_name") or "").strip()
-        if not model_name:
-            with ACTION_LOCK:
-                ACTION_STATE["message"] = "Surrogate name is required."
-            return _redirect_to_index(panel="surrogate", db=db_path)
-        extra_args.extend(["--name", model_name])
-        mapsto = (request.form.get("surrogate_mapsto") or "").strip()
-        if mapsto and mapsto.upper() == "ALL":
-            extra_args.append("--mapsto-all")
-        elif mapsto:
-            extra_args.extend(["--mapsto", mapsto])
-        statuses = (request.form.get("surrogate_statuses") or "").strip()
-        if statuses:
-            extra_args.extend(["--statuses", statuses])
-        origin_id = (request.form.get("surrogate_origin_id") or "").strip()
-        if origin_id.isdigit():
-            extra_args.extend(["--origin-id", origin_id])
-        origin_name = (request.form.get("surrogate_origin") or "").strip()
-        if origin_name:
-            extra_args.extend(["--origin", origin_name])
-        test_size = (request.form.get("surrogate_test_size") or "").strip()
-        if test_size:
-            extra_args.extend(["--test-size", test_size])
-        n_estimators = (request.form.get("surrogate_n_estimators") or "").strip()
-        if n_estimators:
-            extra_args.extend(["--n-estimators", n_estimators])
-        max_depth = (request.form.get("surrogate_max_depth") or "").strip()
-        if max_depth:
-            extra_args.extend(["--max-depth", max_depth])
-        min_samples_leaf = (request.form.get("surrogate_min_samples_leaf") or "").strip()
-        if min_samples_leaf:
-            extra_args.extend(["--min-samples-leaf", min_samples_leaf])
-        if (request.form.get("surrogate_log1p") or "").strip():
-            extra_args.append("--log1p-target")
-    if action_name == "run_surrogate_estimate":
-        surrogate_id = (request.form.get("surrogate_id") or "").strip()
-        if not surrogate_id.isdigit():
-            with ACTION_LOCK:
-                ACTION_STATE["message"] = "Surrogate id is required."
-            return _redirect_to_index(panel="surrogate", db=db_path)
-        extra_args.extend(["--surrogate-id", surrogate_id])
-        return _start_action(
+    try:
+        resolved = resolve_action_request(
             action_name,
-            db_path,
-            extra_args or None,
-            panel=panel,
-            redirect_params={**redirect_params, "surrogate_id": surrogate_id},
-            env_overrides=env_overrides,
+            request.form,
+            default_db=DEFAULT_DB,
+            load_hpc_config_fn=load_hpc_config,
+            resolve_perlmutter_profile_fn=resolve_perlmutter_profile,
         )
-    if action_name == "delete_surrogate_model":
-        surrogate_id = (request.form.get("surrogate_id") or "").strip()
-        if not surrogate_id.isdigit():
-            with ACTION_LOCK:
-                ACTION_STATE["message"] = "Surrogate id is required."
-            return _redirect_to_index(panel="surrogate", db=db_path)
-        extra_args.extend(["--surrogate-id", surrogate_id])
-        return _start_action(
-            action_name,
-            db_path,
-            extra_args or None,
-            panel=panel,
-            redirect_params={**redirect_params, "surrogate_id": surrogate_id},
-            env_overrides=env_overrides,
-        )
-    if action_name in {"run_on_flux", "sync_back_from_flux", "check_flux_status"}:
-        if origin_id.isdigit():
-            extra_args.extend(["--origin-id", origin_id])
-        elif origin_name:
-            extra_args.extend(["--origin-name", origin_name])
-        else:
-            with ACTION_LOCK:
-                ACTION_STATE["message"] = "A selected data origin is required for this Flux action."
-            return _redirect_to_index(panel=panel, db=db_path, **redirect_params)
-    return _start_action(
-        action_name,
-        db_path,
-        extra_args or None,
-        panel=panel,
-        redirect_params=redirect_params or None,
-        env_overrides=env_overrides,
-    )
+    except ActionValidationError as exc:
+        return _redirect_after_validation_error(db_path, panel, None, exc)
+    return _start_action(resolved)
 
 
 @app.route("/save_hpc_config", methods=["POST"])
@@ -4139,6 +3903,7 @@ def save_hpc_config_route():
     panel = (request.form.get("panel") or "action").strip() or "action"
     if panel == "hpc":
         panel = "action"
+    hpc_tab = (request.form.get("hpc_tab") or "").strip().lower()
     payload = {
         "ssh_user": (request.form.get("ssh_user") or "").strip(),
         "ssh_host": (request.form.get("ssh_host") or "").strip(),
@@ -4157,7 +3922,10 @@ def save_hpc_config_route():
         "flux_duo_option": (request.form.get("flux_duo_option") or "").strip(),
     }
     save_hpc_config(payload)
-    return _redirect_to_index(panel=panel, db=db_path, hpc="1")
+    redirect_params = {"panel": panel, "db": db_path, "hpc": "1"}
+    if hpc_tab in {"perlmutter", "flux"}:
+        redirect_params["hpc_tab"] = hpc_tab
+    return _redirect_to_index(**redirect_params)
 
 
 @app.route("/suggestion_action", methods=["POST"])
@@ -4177,12 +3945,19 @@ def suggestion_action():
             "suggestion_click",
             {"action": action_name, "panel": panel, "suggestion_id": suggestion_id},
         )
-    return _start_action(
-        action_name,
-        db_path,
-        panel=panel,
-        redirect_params=redirect_params or None,
-    )
+    try:
+        resolved = resolve_action_request(
+            action_name,
+            request.form,
+            default_db=DEFAULT_DB,
+            load_hpc_config_fn=load_hpc_config,
+            resolve_perlmutter_profile_fn=resolve_perlmutter_profile,
+            base_redirect_params=redirect_params or None,
+            panel_override=panel,
+        )
+    except ActionValidationError as exc:
+        return _redirect_after_validation_error(db_path, panel, redirect_params, exc)
+    return _start_action(with_redirect_params(resolved, redirect_params or None))
 
 
 @app.route("/update_status", methods=["GET", "POST"])
@@ -4352,6 +4127,8 @@ def index():
     db_path = request.args.get("db", DEFAULT_DB)
     selected_table = request.args.get("table")
     panel_param = request.args.get("panel", "results")
+    db_recovery_message = request.args.get("db_recovery_message")
+    db_recovery_error = request.args.get("db_recovery_error")
     selected_panel = panel_param
     if selected_panel in {"hpc", "overview"}:
         selected_panel = "results"
@@ -4413,6 +4190,8 @@ def index():
         selected_panel = "equilibria"
     elif panel_param == "action":
         selected_panel = "equilibria"
+    elif panel_param == "schema":
+        selected_panel = "tables"
     elif panel_param == "plasma-sampling":
         sampling_tab = "plasma"
         selected_panel = "sampling"
@@ -4562,6 +4341,7 @@ def index():
     if y4_col not in ALLOWED_STATS_COLUMNS:
         y4_col = "ion_vnewk"
     results_columns: List[Dict[str, str]] = []
+    tables: List[str] = []
     columns: List[str] = []
     rows: List[sqlite3.Row] = []
     batch_columns: List[str] = []
@@ -4628,7 +4408,6 @@ def index():
     surrogate_id_raw = (request.args.get("surrogate_id") or "").strip()
     surrogate_id = int(surrogate_id_raw) if surrogate_id_raw.isdigit() else None
     surrogate_estimate_summary: Optional[Dict[str, object]] = None
-    selected_origin_name: Optional[str] = None
     origin_details: List[Dict[str, object]] = []
     selected_origin_details: Optional[Dict[str, object]] = None
     equilibria_summary = {
@@ -4644,177 +4423,213 @@ def index():
     equilibria_action_notes: List[str] = []
     flux_action_state: Optional[Dict[str, str]] = None
     equilibria_workflow_status: Dict[str, object] = {"stages": [], "notes": []}
-    equilibria_model_registry: List[Dict[str, object]] = []
+    equilibria_ai_advisor: Dict[str, object] = {"available": False}
     equilibria_monitor_report: Optional[Dict[str, object]] = monitor_report
+    results_columns = build_results_columns(surrogate_models=surrogate_models)
+    table_total_count = 0
+    table_filtered_count = 0
+    table_schema_rows: List[Dict[str, str]] = []
+    ai_suggestions: List[Dict[str, object]] = []
+    demo_database_candidates: List[Dict[str, str]] = []
+    data_origin_colors: Dict[str, str] = {}
 
-    if not os.path.exists(db_path):
+    def build_index_context(**overrides: object) -> Dict[str, object]:
+        context: Dict[str, object] = {
+            "db_path": db_path,
+            "demo_database_url": DEMO_DATABASE_URL,
+            "db_recovery_message": db_recovery_message,
+            "db_recovery_error": db_recovery_error,
+            "demo_database_candidates": demo_database_candidates,
+            "tables": tables,
+            "selected_table": selected_table,
+            "columns": columns,
+            "rows": rows,
+            "batch_dbs": batch_dbs,
+            "selected_batch_db": selected_batch_db,
+            "batch_view": batch_view,
+            "batch_columns": batch_columns,
+            "batch_rows": batch_rows,
+            "batch_error": batch_error,
+            "gk_model_columns": gk_model_columns,
+            "gk_model_rows": gk_model_rows,
+            "edit_gk_input_id": edit_gk_input_id,
+            "edit_gk_input_content": edit_gk_input_content,
+            "edit_status": edit_status,
+            "edit_message": edit_message,
+            "edit_error": edit_error,
+            "edit_warning": edit_warning,
+            "selected_panel": selected_panel,
+            "only_active": only_active,
+            "table_limit": table_limit,
+            "table_total_count": table_total_count,
+            "table_filtered_count": table_filtered_count,
+            "table_schema_rows": table_schema_rows,
+            "table_origin_id": table_origin_id,
+            "table_transpfile_regex": table_transpfile_regex,
+            "stats_points": stats_points,
+            "stats_columns": ALLOWED_STATS_COLUMNS,
+            "stats_x_col": x_col,
+            "stats_y_col": y_col,
+            "stats_points_2": stats_points_2,
+            "stats_x2_col": x2_col,
+            "stats_y2_col": y2_col,
+            "stats_points_3": stats_points_3,
+            "stats_x3_col": x3_col,
+            "stats_y3_col": y3_col,
+            "stats_points_4": stats_points_4,
+            "stats_x4_col": x4_col,
+            "stats_y4_col": y4_col,
+            "results_points": results_points,
+            "results_points_2": results_points_2,
+            "results_points_3": results_points_3,
+            "results_points_4": results_points_4,
+            "results_warn": results_warn,
+            "results_warn_2": results_warn_2,
+            "results_warn_3": results_warn_3,
+            "results_warn_4": results_warn_4,
+            "results_filter": results_filter,
+            "results_y_col": results_y_col,
+            "results_y2_col": results_y2_col,
+            "results_y3_col": results_y3_col,
+            "results_y4_col": results_y4_col,
+            "results_x_col": results_x_col,
+            "results_x2_col": results_x2_col,
+            "results_x3_col": results_x3_col,
+            "results_x4_col": results_x4_col,
+            "results_plot_options": results_plot_options,
+            "results_plot_selected": results_plot_selected,
+            "results_highlight": results_highlight,
+            "results_highlight_2": results_highlight_2,
+            "results_highlight_3": results_highlight_3,
+            "results_highlight_4": results_highlight_4,
+            "results_x_min": results_x_min,
+            "results_x_max": results_x_max,
+            "results_y_min": results_y_min,
+            "results_y_max": results_y_max,
+            "results_x_scale": results_x_scale,
+            "results_y_scale": results_y_scale,
+            "results_x2_min": results_x2_min,
+            "results_x2_max": results_x2_max,
+            "results_y2_min": results_y2_min,
+            "results_y2_max": results_y2_max,
+            "results_x2_scale": results_x2_scale,
+            "results_y2_scale": results_y2_scale,
+            "results_x3_min": results_x3_min,
+            "results_x3_max": results_x3_max,
+            "results_y3_min": results_y3_min,
+            "results_y3_max": results_y3_max,
+            "results_x3_scale": results_x3_scale,
+            "results_y3_scale": results_y3_scale,
+            "results_x4_min": results_x4_min,
+            "results_x4_max": results_x4_max,
+            "results_y4_min": results_y4_min,
+            "results_y4_max": results_y4_max,
+            "results_x4_scale": results_x4_scale,
+            "results_y4_scale": results_y4_scale,
+            "results_columns": results_columns,
+            "results_report": results_report,
+            "data_origins": data_origins,
+            "data_origin_colors": data_origin_colors,
+            "selected_origin_id": origin_id,
+            "sampling_origin_id": sampling_origin_id,
+            "sampling_tab": sampling_tab,
+            "sampling_report": sampling_report,
+            "sampling_coverage": sampling_coverage,
+            "sampling_regimes": sampling_regimes,
+            "sampling_cluster": sampling_cluster,
+            "sampling_pca": sampling_pca,
+            "sampling_selection": sampling_selection,
+            "sampling_bin_labels": sampling_bin_labels,
+            "sampling_columns": MHD_COLUMNS,
+            "sampling_k": sampling_k,
+            "sampling_target": sampling_target,
+            "sampling_max": sampling_max,
+            "sampling_reports": sampling_reports,
+            "sampling_report_file": sampling_report_file,
+            "sampling_batch_origin_id": sampling_batch_origin_id,
+            "sampling_batch_report": sampling_batch_report,
+            "sampling_batch_results": sampling_batch_results,
+            "sampling_batch_detail": sampling_batch_detail,
+            "sampling_batch_detail_error": sampling_batch_detail_error,
+            "sampling_batch_columns": sampling_batch_columns,
+            "sampling_batch_error": sampling_batch_error,
+            "monitor_report": monitor_report,
+            "equilibria_monitor_report": equilibria_monitor_report,
+            "hpc_config": hpc_config,
+            "hpc_test_result": hpc_test_result,
+            "surrogate_models": surrogate_models,
+            "surrogate_model_selected": surrogate_model_selected,
+            "plasma_origin_id": plasma_origin_id,
+            "plasma_report": plasma_report,
+            "plasma_coverage": plasma_coverage,
+            "plasma_regimes": plasma_regimes,
+            "plasma_cluster": plasma_cluster,
+            "plasma_pca": plasma_pca,
+            "plasma_selection": plasma_selection,
+            "plasma_bin_labels": plasma_bin_labels,
+            "plasma_columns": plasma_columns,
+            "plasma_missing_columns": plasma_missing_columns,
+            "plasma_k": plasma_k,
+            "plasma_target": plasma_target,
+            "plasma_max": plasma_max,
+            "eqp_method": eqp_method,
+            "eqp_target": eqp_target,
+            "eqp_max": eqp_max,
+            "eqp_coverage_enabled": eqp_coverage_enabled,
+            "eqp_ion_tprim_min": eqp_ion_tprim_min,
+            "eqp_columns": EQUIL_PLASMA_COLUMNS,
+            "eqp_report": eqp_report,
+            "eqp_coverage": eqp_coverage,
+            "eqp_selection": eqp_selection,
+            "eqp_status_counts": eqp_status_counts,
+            "actions": ACTIONS,
+            "action_status": action_state,
+            "ai_suggestions": ai_suggestions,
+            "have_numpy": HAVE_NUMPY,
+            "error": None,
+            "surrogate_id": surrogate_id,
+            "surrogate_estimate_summary": surrogate_estimate_summary,
+            "origin_details": origin_details,
+            "selected_origin_details": selected_origin_details,
+            "equilibria_summary": equilibria_summary,
+            "equilibria_preview_columns": equilibria_preview_columns,
+            "equilibria_preview_rows": equilibria_preview_rows,
+            "equilibria_preview_total": equilibria_preview_total,
+            "equilibria_valid_only": equilibria_valid_only,
+            "equilibria_actions": equilibria_actions,
+            "equilibria_action_notes": equilibria_action_notes,
+            "flux_action_state": flux_action_state,
+            "equilibria_workflow_status": equilibria_workflow_status,
+            "equilibria_ai_advisor": equilibria_ai_advisor,
+        }
+        context.update(overrides)
+        return context
+
+    def render_missing_database(error_message: str):
+        missing_db_candidates = find_demo_database_candidates()
         return render_template(
             "index.html",
-            db_path=db_path,
-            tables=[],
-            selected_table=None,
-            columns=[],
-            rows=[],
-            selected_panel=selected_panel,
-            only_active=only_active,
-            table_limit=table_limit,
-            table_origin_id=table_origin_id,
-            table_transpfile_regex=table_transpfile_regex,
-            stats_points=[],
-            stats_columns=ALLOWED_STATS_COLUMNS,
-            stats_x_col=x_col,
-            stats_y_col=y_col,
-            stats_points_2=[],
-            stats_x2_col=x2_col,
-            stats_y2_col=y2_col,
-            stats_points_3=[],
-            stats_x3_col=x3_col,
-            stats_y3_col=y3_col,
-            stats_points_4=[],
-            stats_x4_col=x4_col,
-            stats_y4_col=y4_col,
-            results_points=[],
-            results_points_2=[],
-            results_points_3=[],
-            results_points_4=[],
-            results_warn=False,
-            results_warn_2=False,
-            results_warn_3=False,
-            results_warn_4=False,
-            results_filter=results_filter,
-            results_y_col=results_y_col,
-            results_y2_col=results_y2_col,
-            results_y3_col=results_y3_col,
-            results_y4_col=results_y4_col,
-            results_x_col=results_x_col,
-            results_x2_col=results_x2_col,
-            results_x3_col=results_x3_col,
-            results_x4_col=results_x4_col,
-            results_x_min=results_x_min,
-            results_x_max=results_x_max,
-            results_y_min=results_y_min,
-            results_y_max=results_y_max,
-            results_x_scale=results_x_scale,
-            results_y_scale=results_y_scale,
-            results_x2_min=results_x2_min,
-            results_x2_max=results_x2_max,
-            results_y2_min=results_y2_min,
-            results_y2_max=results_y2_max,
-            results_x2_scale=results_x2_scale,
-            results_y2_scale=results_y2_scale,
-            results_x3_min=results_x3_min,
-            results_x3_max=results_x3_max,
-            results_y3_min=results_y3_min,
-            results_y3_max=results_y3_max,
-            results_x3_scale=results_x3_scale,
-            results_y3_scale=results_y3_scale,
-            results_x4_min=results_x4_min,
-            results_x4_max=results_x4_max,
-            results_y4_min=results_y4_min,
-            results_y4_max=results_y4_max,
-            results_x4_scale=results_x4_scale,
-            results_y4_scale=results_y4_scale,
-            results_columns=build_results_columns(surrogate_models=surrogate_models),
-            results_report=None,
-            results_plot_options=[],
-            results_plot_selected=None,
-            results_highlight=None,
-            results_highlight_2=None,
-            results_highlight_3=None,
-            results_highlight_4=None,
-            data_origins=[],
-            data_origin_colors={},
-            selected_origin_id=origin_id,
-            sampling_origin_id=sampling_origin_id,
-            sampling_tab=sampling_tab,
-            sampling_report=None,
-            sampling_coverage=None,
-            sampling_regimes=None,
-            sampling_cluster=None,
-            sampling_pca=None,
-            sampling_selection=None,
-            sampling_bin_labels=sampling_bin_labels,
-            sampling_columns=MHD_COLUMNS,
-            sampling_k=sampling_k,
-            sampling_target=sampling_target,
-            sampling_max=sampling_max,
-            sampling_reports=sampling_reports,
-            sampling_report_file=sampling_report_file,
-            sampling_batch_origin_id=sampling_batch_origin_id,
-            sampling_batch_report=None,
-            sampling_batch_results=[],
-            sampling_batch_detail=None,
-            sampling_batch_detail_error=None,
-            sampling_batch_columns=MHD_COLUMNS,
-            sampling_batch_error="Database not found.",
-            monitor_report=monitor_report,
-            equilibria_monitor_report=equilibria_monitor_report,
-            surrogate_models=surrogate_models,
-            surrogate_model_selected=surrogate_model_selected,
-            schema_overview=[],
-            plasma_origin_id=plasma_origin_id,
-            plasma_report=None,
-            plasma_coverage=None,
-            plasma_regimes=None,
-            plasma_cluster=None,
-            plasma_pca=None,
-            plasma_selection=None,
-            plasma_bin_labels=plasma_bin_labels,
-            plasma_columns=PLASMA_COLUMNS,
-            plasma_missing_columns=PLASMA_COLUMNS,
-            plasma_k=plasma_k,
-            plasma_target=plasma_target,
-            plasma_max=plasma_max,
-            eqp_method=eqp_method,
-            eqp_target=eqp_target,
-            eqp_max=eqp_max,
-            eqp_coverage_enabled=eqp_coverage_enabled,
-            eqp_ion_tprim_min=eqp_ion_tprim_min,
-            eqp_columns=EQUIL_PLASMA_COLUMNS,
-            eqp_report=None,
-            eqp_coverage=None,
-            eqp_selection=None,
-            eqp_status_counts=None,
-            batch_dbs=batch_dbs,
-            selected_batch_db=selected_batch_db,
-            batch_view=batch_view,
-            batch_columns=batch_columns,
-            batch_rows=batch_rows,
-            batch_error=None,
-            gk_model_columns=gk_model_columns,
-            gk_model_rows=gk_model_rows,
-            edit_gk_input_id=edit_gk_input_id,
-            edit_gk_input_content=edit_gk_input_content,
-            edit_status=edit_status,
-            edit_message=edit_message,
-            edit_error=edit_error,
-            edit_warning=edit_warning,
-            table_total_count=0,
-            table_filtered_count=0,
-            ai_suggestions=[],
-            actions=ACTIONS,
-            action_status=action_state,
-            have_numpy=HAVE_NUMPY,
-            error=f"Database not found: {db_path}",
-            surrogate_id=surrogate_id,
-            surrogate_estimate_summary=surrogate_estimate_summary,
-            hpc_config=hpc_config,
-            hpc_test_result=hpc_test_result,
-            origin_details=origin_details,
-            selected_origin_details=selected_origin_details,
-            equilibria_summary=equilibria_summary,
-            equilibria_preview_columns=equilibria_preview_columns,
-            equilibria_preview_rows=equilibria_preview_rows,
-            equilibria_preview_total=equilibria_preview_total,
-            equilibria_valid_only=equilibria_valid_only,
-            equilibria_actions=equilibria_actions,
-            equilibria_action_notes=equilibria_action_notes,
-            flux_action_state=flux_action_state,
-            equilibria_workflow_status=equilibria_workflow_status,
-            equilibria_model_registry=equilibria_model_registry,
+            **build_index_context(
+                selected_panel="tables",
+                demo_database_candidates=missing_db_candidates,
+                tables=[],
+                selected_table=None,
+                columns=[],
+                rows=[],
+                sampling_batch_error="Database not found.",
+                plasma_columns=PLASMA_COLUMNS,
+                plasma_missing_columns=PLASMA_COLUMNS,
+                error=error_message,
+            ),
         )
 
-    conn = get_connection(db_path)
+    if not os.path.isfile(db_path):
+        return render_missing_database(f"Database not found: {db_path}")
+
+    try:
+        conn = get_connection(db_path)
+    except sqlite3.OperationalError:
+        return render_missing_database(f"Database not found or unreadable: {db_path}")
     try:
         tables = list_tables(conn)
         try:
@@ -4822,7 +4637,6 @@ def index():
             tables = list_tables(conn)
         except sqlite3.Error:
             pass
-        schema_overview = build_schema_overview(conn, tables)
         ai_feedback = load_ai_feedback()
         ai_suggestions = get_ai_suggestions(conn, ai_feedback)
         table_total_count = 0
@@ -4851,6 +4665,7 @@ def index():
         if selected_table not in tables:
             selected_table = tables[0] if tables else None
         if selected_table:
+            table_schema_rows = get_table_schema_rows(conn, selected_table)
             if table_transpfile_regex:
                 def _regexp(expr, item):
                     try:
@@ -4867,55 +4682,6 @@ def index():
                 table_origin_id,
                 table_transpfile_regex if table_transpfile_regex else None,
             )
-        if "data_origin" in tables:
-            data_origins = get_data_origins(conn)
-            origin_details = get_data_origin_details(conn)
-            data_origin_colors = {
-                origin_name: data_origin_color(origin_name, origin_color)
-                for _, origin_name, origin_color in data_origins
-            }
-            if origin_id is None and data_origins:
-                origin_id = data_origins[0][0]
-            if origin_id is not None:
-                for origin_detail in origin_details:
-                    data_origin_id = int(origin_detail.get("id") or 0)
-                    if data_origin_id == origin_id:
-                        selected_origin_details = origin_detail
-                        selected_origin_name = str(origin_detail.get("name") or "")
-                        break
-            if selected_origin_details is not None and origin_id is not None:
-                equilibria_summary = get_equilibria_origin_summary(conn, origin_id, tables)
-                (
-                    equilibria_preview_columns,
-                    equilibria_preview_rows,
-                    equilibria_preview_total,
-                ) = get_equilibria_preview(conn, origin_id, equilibria_valid_only)
-                flux_action_state = get_latest_flux_action_state(
-                    conn,
-                    origin_id,
-                    str(selected_origin_details.get("name") or ""),
-                )
-                equilibria_workflow_status = get_equilibria_origin_workflow_status(
-                    conn,
-                    origin_id,
-                    str(selected_origin_details.get("name") or ""),
-                    str(selected_origin_details.get("file_type") or ""),
-                    tables,
-                    flux_action_state,
-                )
-                equilibria_actions, equilibria_action_notes = get_equilibria_origin_actions(
-                    str(selected_origin_details.get("name") or ""),
-                    str(selected_origin_details.get("file_type") or ""),
-                    flux_action_state,
-                )
-                equilibria_monitor_report = filter_monitor_report_for_origin(
-                    monitor_report,
-                    selected_origin_name,
-                )
-            if sampling_origin_id is None:
-                sampling_origin_id = origin_id
-            if plasma_origin_id is None:
-                plasma_origin_id = origin_id
         if "gk_input" in tables:
             gk_input_columns = get_table_columns(conn, "gk_input")
             stats_points = get_gk_input_points(conn, x_col, y_col, origin_id)
@@ -4971,54 +4737,59 @@ def index():
                         plasma_max,
                         id_column=MHD_ID_COLUMN,
                     )
-            if selected_panel in {"equil-plasma-sampling", "equilibria"} and {
-                "gk_study",
-                "data_equil",
-            }.issubset(tables):
-                dataset, total_rows = get_equil_plasma_dataset(
-                    conn, origin_id, ion_tprim_min=eqp_ion_tprim_min
-                )
-                wait_dataset, wait_total_rows = get_equil_plasma_dataset(
-                    conn,
-                    origin_id,
-                    status_filter="WAIT",
-                    ion_tprim_min=eqp_ion_tprim_min,
-                )
-                eqp_status_counts = get_equil_plasma_status_counts(
-                    conn, origin_id, ion_tprim_min=eqp_ion_tprim_min
-                )
-                eqp_max_effective = eqp_max if eqp_coverage_enabled else wait_total_rows
-                start = time.perf_counter()
-                eqp_report = build_sampling_report(
-                    dataset, total_rows, EQUIL_PLASMA_COLUMNS
-                )
-                eqp_report["duration_sec"] = time.perf_counter() - start
-                if eqp_coverage_enabled:
-                    start = time.perf_counter()
-                    eqp_coverage = build_sampling_coverage(
-                        wait_dataset, EQUIL_PLASMA_COLUMNS, eqp_max_effective
-                    )
-                    eqp_coverage["duration_sec"] = time.perf_counter() - start
-                if eqp_method == "kmeans":
-                    start = time.perf_counter()
-                    eqp_selection = build_kmeans_selection(
-                        wait_dataset,
-                        EQUIL_PLASMA_COLUMNS,
-                        eqp_target,
-                        eqp_max_effective,
-                        id_column=MHD_ID_COLUMN,
-                    )
-                    eqp_selection["duration_sec"] = time.perf_counter() - start
-                else:
-                    start = time.perf_counter()
-                    eqp_selection = build_sampling_selection(
-                        wait_dataset,
-                        EQUIL_PLASMA_COLUMNS,
-                        eqp_target,
-                        eqp_max_effective,
-                        id_column=MHD_ID_COLUMN,
-                    )
-                    eqp_selection["duration_sec"] = time.perf_counter() - start
+        workflow_panel_context = build_workflow_panel_context(
+            conn=conn,
+            tables=tables,
+            selected_panel=selected_panel,
+            origin_id=origin_id,
+            sampling_origin_id=sampling_origin_id,
+            plasma_origin_id=plasma_origin_id,
+            equilibria_valid_only=equilibria_valid_only,
+            monitor_report=monitor_report,
+            eqp_ion_tprim_min=eqp_ion_tprim_min,
+            eqp_max=eqp_max,
+            eqp_coverage_enabled=eqp_coverage_enabled,
+            eqp_target=eqp_target,
+            eqp_method=eqp_method,
+            data_origin_color_fn=data_origin_color,
+            get_data_origins_fn=get_data_origins,
+            get_data_origin_details_fn=get_data_origin_details,
+            get_equilibria_origin_summary_fn=get_equilibria_origin_summary,
+            get_equilibria_preview_fn=get_equilibria_preview,
+            get_latest_flux_action_state_fn=get_latest_flux_action_state,
+            get_equilibria_origin_workflow_status_fn=get_equilibria_origin_workflow_status,
+            get_equilibria_origin_actions_fn=get_equilibria_origin_actions,
+            filter_monitor_report_for_origin_fn=filter_monitor_report_for_origin,
+            get_equil_plasma_dataset_fn=get_equil_plasma_dataset,
+            get_equil_plasma_status_counts_fn=get_equil_plasma_status_counts,
+            build_sampling_report_fn=build_sampling_report,
+            build_sampling_coverage_fn=build_sampling_coverage,
+            build_sampling_selection_fn=build_sampling_selection,
+            build_kmeans_selection_fn=build_kmeans_selection,
+            equil_plasma_columns=EQUIL_PLASMA_COLUMNS,
+            mhd_id_column=MHD_ID_COLUMN,
+        )
+        origin_id = workflow_panel_context["origin_id"]
+        sampling_origin_id = workflow_panel_context["sampling_origin_id"]
+        plasma_origin_id = workflow_panel_context["plasma_origin_id"]
+        data_origins = workflow_panel_context["data_origins"]
+        origin_details = workflow_panel_context["origin_details"]
+        selected_origin_details = workflow_panel_context["selected_origin_details"]
+        equilibria_summary = workflow_panel_context["equilibria_summary"]
+        equilibria_preview_columns = workflow_panel_context["equilibria_preview_columns"]
+        equilibria_preview_rows = workflow_panel_context["equilibria_preview_rows"]
+        equilibria_preview_total = workflow_panel_context["equilibria_preview_total"]
+        equilibria_actions = workflow_panel_context["equilibria_actions"]
+        equilibria_action_notes = workflow_panel_context["equilibria_action_notes"]
+        flux_action_state = workflow_panel_context["flux_action_state"]
+        equilibria_workflow_status = workflow_panel_context["equilibria_workflow_status"]
+        equilibria_ai_advisor = workflow_panel_context["equilibria_ai_advisor"]
+        equilibria_monitor_report = workflow_panel_context["equilibria_monitor_report"]
+        data_origin_colors = workflow_panel_context["data_origin_colors"]
+        eqp_report = workflow_panel_context["eqp_report"]
+        eqp_coverage = workflow_panel_context["eqp_coverage"]
+        eqp_selection = workflow_panel_context["eqp_selection"]
+        eqp_status_counts = workflow_panel_context["eqp_status_counts"]
         if selected_panel == "sampling" and sampling_tab == "batch":
             if sampling_reports:
                 if sampling_report_file not in sampling_reports:
@@ -5247,7 +5018,6 @@ def index():
             gk_model_columns, gk_model_rows, _, _ = get_table_rows(
                 conn, "gk_model", False
             )
-            equilibria_model_registry = get_gk_model_registry(conn, tables)
     finally:
         conn.close()
 
@@ -5270,171 +5040,7 @@ def index():
             finally:
                 batch_conn.close()
 
-    return render_template(
-        "index.html",
-        db_path=db_path,
-        tables=tables,
-        selected_table=selected_table,
-        columns=columns,
-        rows=rows,
-        batch_dbs=batch_dbs,
-        selected_batch_db=selected_batch_db,
-        batch_view=batch_view,
-        batch_columns=batch_columns,
-        batch_rows=batch_rows,
-        batch_error=batch_error,
-        gk_model_columns=gk_model_columns,
-        gk_model_rows=gk_model_rows,
-        edit_gk_input_id=edit_gk_input_id,
-        edit_gk_input_content=edit_gk_input_content,
-        edit_status=edit_status,
-        edit_message=edit_message,
-        edit_error=edit_error,
-        edit_warning=edit_warning,
-        selected_panel=selected_panel,
-        only_active=only_active,
-        table_limit=table_limit,
-        table_total_count=table_total_count,
-        table_filtered_count=table_filtered_count,
-        table_origin_id=table_origin_id,
-        table_transpfile_regex=table_transpfile_regex,
-        stats_points=stats_points,
-        stats_columns=ALLOWED_STATS_COLUMNS,
-        stats_x_col=x_col,
-        stats_y_col=y_col,
-        stats_points_2=stats_points_2,
-        stats_x2_col=x2_col,
-        stats_y2_col=y2_col,
-        stats_points_3=stats_points_3,
-        stats_x3_col=x3_col,
-        stats_y3_col=y3_col,
-        stats_points_4=stats_points_4,
-        stats_x4_col=x4_col,
-        stats_y4_col=y4_col,
-        results_points=results_points,
-        results_points_2=results_points_2,
-        results_points_3=results_points_3,
-        results_points_4=results_points_4,
-        results_warn=results_warn,
-        results_warn_2=results_warn_2,
-        results_warn_3=results_warn_3,
-        results_warn_4=results_warn_4,
-        results_filter=results_filter,
-        results_y_col=results_y_col,
-        results_y2_col=results_y2_col,
-        results_y3_col=results_y3_col,
-        results_y4_col=results_y4_col,
-        results_x_col=results_x_col,
-        results_x2_col=results_x2_col,
-        results_x3_col=results_x3_col,
-        results_x4_col=results_x4_col,
-        results_plot_options=results_plot_options,
-        results_plot_selected=results_plot_selected,
-        results_highlight=results_highlight,
-        results_highlight_2=results_highlight_2,
-        results_highlight_3=results_highlight_3,
-        results_highlight_4=results_highlight_4,
-        results_x_min=results_x_min,
-        results_x_max=results_x_max,
-        results_y_min=results_y_min,
-        results_y_max=results_y_max,
-        results_x_scale=results_x_scale,
-        results_y_scale=results_y_scale,
-        results_x2_min=results_x2_min,
-        results_x2_max=results_x2_max,
-        results_y2_min=results_y2_min,
-        results_y2_max=results_y2_max,
-        results_x2_scale=results_x2_scale,
-        results_y2_scale=results_y2_scale,
-        results_x3_min=results_x3_min,
-        results_x3_max=results_x3_max,
-        results_y3_min=results_y3_min,
-        results_y3_max=results_y3_max,
-        results_x3_scale=results_x3_scale,
-        results_y3_scale=results_y3_scale,
-        results_x4_min=results_x4_min,
-        results_x4_max=results_x4_max,
-        results_y4_min=results_y4_min,
-        results_y4_max=results_y4_max,
-        results_x4_scale=results_x4_scale,
-        results_y4_scale=results_y4_scale,
-        results_columns=results_columns,
-        results_report=results_report,
-        data_origins=data_origins,
-        data_origin_colors=data_origin_colors,
-        selected_origin_id=origin_id,
-        sampling_origin_id=sampling_origin_id,
-        sampling_tab=sampling_tab,
-        sampling_report=sampling_report,
-        sampling_coverage=sampling_coverage,
-        sampling_regimes=sampling_regimes,
-        sampling_cluster=sampling_cluster,
-        sampling_pca=sampling_pca,
-        sampling_selection=sampling_selection,
-        sampling_bin_labels=sampling_bin_labels,
-        sampling_columns=MHD_COLUMNS,
-        sampling_k=sampling_k,
-        sampling_target=sampling_target,
-        sampling_max=sampling_max,
-        sampling_reports=sampling_reports,
-        sampling_report_file=sampling_report_file,
-        sampling_batch_origin_id=sampling_batch_origin_id,
-        sampling_batch_report=sampling_batch_report,
-        sampling_batch_results=sampling_batch_results,
-        sampling_batch_detail=sampling_batch_detail,
-        sampling_batch_detail_error=sampling_batch_detail_error,
-        sampling_batch_columns=sampling_batch_columns,
-        sampling_batch_error=sampling_batch_error,
-        monitor_report=monitor_report,
-        equilibria_monitor_report=equilibria_monitor_report,
-        hpc_config=hpc_config,
-        hpc_test_result=hpc_test_result,
-        surrogate_models=surrogate_models,
-        surrogate_model_selected=surrogate_model_selected,
-        schema_overview=schema_overview,
-        plasma_origin_id=plasma_origin_id,
-        plasma_report=plasma_report,
-        plasma_coverage=plasma_coverage,
-        plasma_regimes=plasma_regimes,
-        plasma_cluster=plasma_cluster,
-        plasma_pca=plasma_pca,
-        plasma_selection=plasma_selection,
-        plasma_bin_labels=plasma_bin_labels,
-        plasma_columns=plasma_columns,
-        plasma_missing_columns=plasma_missing_columns,
-        plasma_k=plasma_k,
-        plasma_target=plasma_target,
-        plasma_max=plasma_max,
-        eqp_method=eqp_method,
-        eqp_target=eqp_target,
-        eqp_max=eqp_max,
-        eqp_coverage_enabled=eqp_coverage_enabled,
-        eqp_ion_tprim_min=eqp_ion_tprim_min,
-        eqp_columns=EQUIL_PLASMA_COLUMNS,
-        eqp_report=eqp_report,
-        eqp_coverage=eqp_coverage,
-        eqp_selection=eqp_selection,
-        eqp_status_counts=eqp_status_counts,
-        actions=ACTIONS,
-        action_status=action_state,
-        ai_suggestions=ai_suggestions,
-        have_numpy=HAVE_NUMPY,
-        error=None,
-        surrogate_id=surrogate_id,
-        surrogate_estimate_summary=surrogate_estimate_summary,
-        origin_details=origin_details,
-        selected_origin_details=selected_origin_details,
-        equilibria_summary=equilibria_summary,
-        equilibria_preview_columns=equilibria_preview_columns,
-        equilibria_preview_rows=equilibria_preview_rows,
-        equilibria_preview_total=equilibria_preview_total,
-        equilibria_valid_only=equilibria_valid_only,
-        equilibria_actions=equilibria_actions,
-        equilibria_action_notes=equilibria_action_notes,
-        flux_action_state=flux_action_state,
-        equilibria_workflow_status=equilibria_workflow_status,
-        equilibria_model_registry=equilibria_model_registry,
-    )
+    return render_template("index.html", **build_index_context())
 
 
 if __name__ == "__main__":

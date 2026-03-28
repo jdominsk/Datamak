@@ -166,12 +166,109 @@ class GuiWorkflowTests(unittest.TestCase):
             f"/?db={self.db_path}&panel=overview",
         )
 
+    def test_gui_stylesheet_route_serves_extracted_control_css(self) -> None:
+        response = self.client.get("/gui-static/app.css")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn(".origin-picker", body)
+        self.assertIn(".tab", body)
+        response.close()
+
+    def test_database_panel_renders_table_schema_summary(self) -> None:
+        response = self.client.get(f"/?db={self.db_path}&panel=tables&table=gk_input")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn(">Column<", body)
+        self.assertIn(">Type<", body)
+        self.assertIn(">PK<", body)
+        self.assertIn(">Not null<", body)
+        self.assertIn(">Default<", body)
+        self.assertIn(">id<", body)
+        self.assertIn(">status<", body)
+        self.assertIn(">content<", body)
+
     def test_equilibria_tab_renders_on_sparse_db(self) -> None:
         response = self.client.get(f"/?db={self.db_path}&panel=equilibria")
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
         self.assertIn("Equilibria", body)
         self.assertIn("No `data_origin` rows are available yet.", body)
+
+    def test_missing_db_renders_error_without_crashing(self) -> None:
+        missing_db = Path(self.tmpdir.name) / "missing.db"
+        response = self.client.get(f"/?db={missing_db}&panel=equilibria")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Database not found", body)
+        self.assertIn('class="tab active" type="button" data-tab="tables"', body)
+        self.assertIn("Database recovery", body)
+        self.assertIn("Open Demo Database In Browser", body)
+        self.assertIn("1XS1jpbqQICJNDR6AU_wXeYG7BM_nt4yM", body)
+
+    def test_directory_db_path_renders_error_without_crashing(self) -> None:
+        response = self.client.get(f"/?db={self.tmpdir.name}&panel=equilibria")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Database not found", body)
+        self.assertIn('class="tab active" type="button" data-tab="tables"', body)
+        self.assertIn("Database recovery", body)
+
+    def test_missing_db_shows_detected_demo_database_actions(self) -> None:
+        missing_db = Path(self.tmpdir.name) / "missing.db"
+        detected_db = Path(self.tmpdir.name) / "gyrokinetic_simulations_demo_light.db"
+        with mock.patch(
+            "gui.app.find_demo_database_candidates",
+            return_value=[
+                {
+                    "path": str(detected_db),
+                    "name": detected_db.name,
+                    "directory": str(detected_db.parent),
+                    "modified": "2026-03-28 10:00:00",
+                }
+            ],
+        ):
+            response = self.client.get(f"/?db={missing_db}&panel=tables")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("Use Detected Demo DB", body)
+        self.assertIn("Copy Into Datamak Root And Use It", body)
+        self.assertIn(str(detected_db), body)
+
+    def test_copy_demo_database_copies_detected_file_and_redirects(self) -> None:
+        source_db = Path(self.tmpdir.name) / "gyrokinetic_simulations_demo_light.db"
+        source_db.write_text("demo db", encoding="utf-8")
+        copied_db = Path(self.tmpdir.name) / "copied_demo_light.db"
+        with mock.patch(
+            "gui.app.find_demo_database_candidates",
+            return_value=[
+                {
+                    "path": str(source_db),
+                    "name": source_db.name,
+                    "directory": str(source_db.parent),
+                    "modified": "2026-03-28 10:00:00",
+                }
+            ],
+        ), mock.patch(
+            "gui.app.get_demo_copy_target_path", return_value=copied_db
+        ):
+            response = self.client.post(
+                "/copy_demo_database",
+                data={"db": str(self.db_path), "source_path": str(source_db)},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(copied_db.exists())
+        self.assertEqual(copied_db.read_text(encoding="utf-8"), "demo db")
+        self.assertIn("panel=tables", response.headers["Location"])
+        self.assertIn(copied_db.name, response.headers["Location"])
+
+    def test_hpc_drawer_renders_perlmutter_and_flux_tabs(self) -> None:
+        response = self.client.get(f"/?db={self.db_path}&panel=equilibria&hpc=1")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn(">Perlmutter<", body)
+        self.assertIn(">Flux<", body)
+        self.assertIn("Auto Duo option", body)
+        self.assertIn("GX path", body)
 
     def test_legacy_workflow_panel_aliases_to_equilibria(self) -> None:
         response = self.client.get(f"/?db={self.db_path}&panel=action")
@@ -185,6 +282,14 @@ class GuiWorkflowTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("Workflow", body)
         self.assertNotIn("Batch Monitor", body)
+
+    def test_legacy_schema_panel_aliases_to_database(self) -> None:
+        response = self.client.get(f"/?db={self.db_path}&panel=schema")
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn('class="tab active" type="button" data-tab="tables"', body)
+        self.assertNotIn('data-tab="schema"', body)
+        self.assertNotIn('data-panel="schema"', body)
 
     def test_equilibria_tab_shows_workflow_status_for_selected_origin(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
@@ -325,6 +430,10 @@ class GuiWorkflowTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         body = response.get_data(as_text=True)
+        self.assertIn("AI advisor:", body)
+        self.assertIn("Rule-based v1", body)
+        self.assertIn("Recommended next step", body)
+        self.assertIn("Direct actions currently allowed:", body)
         self.assertIn("Workflow Status", body)
         self.assertIn("Launch Batch of Simulations:", body)
         self.assertIn("Batch monitoring:", body)

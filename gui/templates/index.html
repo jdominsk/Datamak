@@ -12,6 +12,7 @@
       };
     </script>
     <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link rel="stylesheet" href="{{ url_for('gui_static_file', filename='app.css') }}" />
     <style>
       body {
         font-family: "Helvetica Neue", Arial, sans-serif;
@@ -165,52 +166,6 @@
       .panel[data-panel="results"] button {
         font-size: 12px;
       }
-      .tab-bar {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 4px;
-        margin-top: 8px;
-        margin-bottom: -1px;
-      }
-      .tab {
-        border: 1px solid #d9e2ec;
-        background: #ffffff;
-        border-bottom: none;
-        border-radius: 8px 8px 0 0;
-        padding: 8px 16px;
-        font-size: 13px;
-        cursor: pointer;
-        position: relative;
-        top: 0;
-      }
-      .tab.active {
-        background: #e6f0ff;
-        border-color: #a7c4ff;
-        font-weight: 600;
-        box-shadow: 0 -1px 0 #ffffff, 0 -2px 0 #e6f0ff;
-      }
-      .subtab-bar {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 12px;
-        border-bottom: 1px solid #e2e8f0;
-        padding-bottom: 6px;
-      }
-      .subtab {
-        border: 1px solid #cbd5e1;
-        background: #ffffff;
-        color: #334e68;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      .subtab.active {
-        background: #0b3d91;
-        border-color: #0b3d91;
-        color: #ffffff;
-      }
       .sampling-subpanel {
         display: none;
       }
@@ -336,10 +291,6 @@
         background: #e6e9ef;
         margin: 12px 0;
       }
-      .monitor-actions button {
-        padding: 6px 10px;
-        font-size: 12px;
-      }
       .batch-db-last-modified .relative {
         color: #0b3d91;
         font-weight: 600;
@@ -350,41 +301,9 @@
         color: #52606d;
         margin: 8px 0;
       }
-      .chart-title {
-        margin: 0 0 8px;
-        font-size: 14px;
-      }
-      .equilibria-heading {
-        font-size: 16px;
-        font-weight: 700;
-      }
       .chart-empty {
         color: #52606d;
         font-size: 13px;
-      }
-      .schema-image {
-        display: block;
-        max-width: 100%;
-        height: auto;
-        margin: 0 auto;
-      }
-      .schema-overview {
-        margin-top: 16px;
-      }
-      .schema-overview details {
-        border: 1px solid #e5eaf0;
-        border-radius: 8px;
-        padding: 8px 12px;
-        margin-bottom: 10px;
-        background: #fbfdff;
-      }
-      .schema-overview summary {
-        cursor: pointer;
-        font-weight: 600;
-        color: #1f2933;
-      }
-      .schema-overview .table-wrapper {
-        margin-top: 8px;
       }
       .stats-grid {
         display: grid;
@@ -400,20 +319,6 @@
         gap: 4px;
         margin-bottom: 0;
       }
-      .panel-tab {
-        border: 1px solid #d9e2ec;
-        background: #ffffff;
-        border-bottom: none;
-        border-radius: 8px 8px 0 0;
-        padding: 8px 16px;
-        font-size: 13px;
-        cursor: pointer;
-      }
-      .panel-tab.active {
-        background: #e6f0ff;
-        border-color: #a7c4ff;
-        font-weight: 600;
-      }
       .workflow-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -426,9 +331,74 @@
         gap: 16px;
         align-items: start;
       }
+      .workflow-origin-advisor-grid {
+        display: grid;
+        grid-template-columns: minmax(320px, 0.82fr) minmax(420px, 1.18fr);
+        gap: 16px;
+        align-items: start;
+      }
       .equilibria-side-panel {
         display: grid;
         gap: 10px;
+      }
+      .ai-advisor-panel {
+        display: grid;
+        gap: 10px;
+      }
+      .ai-advisor-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .ai-advisor-title {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .ai-advisor-title .chart-title {
+        color: #1f2933;
+      }
+      .ai-advisor-refresh {
+        flex: 0 0 auto;
+      }
+      .ai-advisor-body {
+        display: grid;
+        gap: 10px;
+      }
+      .ai-advisor-kv {
+        display: grid;
+        gap: 4px;
+      }
+      .ai-advisor-label {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: #7b8794;
+      }
+      .ai-advisor-text {
+        color: #334e68;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+      .ai-advisor-footer {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .ai-advisor-footer form {
+        margin: 0;
+      }
+      .ai-advisor-available {
+        color: #52606d;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+      .ai-advisor-available strong {
+        color: #243b53;
       }
       .equilibria-side-panel-header {
         display: flex;
@@ -496,7 +466,8 @@
       }
       .equilibria-status-chip.equilibria-state-ready,
       .equilibria-status-chip.equilibria-state-done,
-      .equilibria-status-chip.equilibria-state-synced {
+      .equilibria-status-chip.equilibria-state-synced,
+      .equilibria-status-chip.equilibria-state-high {
         border-color: #b7e4c7;
         background: #eefcf3;
         color: #17603a;
@@ -505,13 +476,15 @@
       .equilibria-status-chip.equilibria-state-staged,
       .equilibria-status-chip.equilibria-state-submitted,
       .equilibria-status-chip.equilibria-state-none,
-      .equilibria-status-chip.equilibria-state-empty {
+      .equilibria-status-chip.equilibria-state-empty,
+      .equilibria-status-chip.equilibria-state-medium {
         border-color: #d9e2ec;
         background: #f8fafc;
         color: #52606d;
       }
       .equilibria-status-chip.equilibria-state-failed,
-      .equilibria-status-chip.equilibria-state-mixed {
+      .equilibria-status-chip.equilibria-state-mixed,
+      .equilibria-status-chip.equilibria-state-low {
         border-color: #f7b7a3;
         background: #fff4ef;
         color: #9a3412;
@@ -534,19 +507,6 @@
         font-size: 12px;
         color: #8d3b12;
         line-height: 1.35;
-      }
-      .equilibria-action-strip {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        justify-content: flex-end;
-      }
-      .equilibria-action-strip form {
-        margin: 0;
-      }
-      .equilibria-action-strip button {
-        padding: 5px 9px;
-        font-size: 12px;
       }
       .equilibria-section-label {
         margin: 0;
@@ -571,8 +531,8 @@
         border-top: 1px solid #eef2f6;
       }
       .equilibria-origin-table td:first-child {
-        width: 200px;
-        min-width: 200px;
+        width: 170px;
+        min-width: 170px;
         font-weight: 600;
         color: #243b53;
       }
@@ -754,6 +714,33 @@
         flex-wrap: wrap;
         gap: 8px;
       }
+      .drawer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .drawer-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .drawer-close {
+        border: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #52606d;
+        border-radius: 999px;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .drawer-close:hover {
+        background: #f0f4f8;
+      }
       .suggestions-fab {
         display: block;
         position: fixed;
@@ -812,11 +799,35 @@
         position: fixed;
         right: 16px;
         top: 96px;
-        max-width: 420px;
+        width: min(760px, calc(100vw - 40px));
+        max-width: none;
         max-height: 70vh;
         overflow: auto;
         box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
         z-index: 21;
+      }
+      .hpc-subpanel {
+        display: none;
+      }
+      .hpc-subpanel.active {
+        display: block;
+      }
+      .hpc-subtab-bar {
+        margin-bottom: 12px;
+      }
+      .hpc-section-title {
+        margin-bottom: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #52606d;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .hpc-button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
       }
       @media (max-width: 980px) {
         .eqp-controls-row {
@@ -848,6 +859,12 @@
           white-space: normal;
         }
         .equilibria-side-panel-header {
+          flex-direction: column;
+        }
+        .workflow-origin-advisor-grid {
+          grid-template-columns: 1fr;
+        }
+        .ai-advisor-header {
           flex-direction: column;
         }
         .equilibria-side-panel-actions,
@@ -886,9 +903,6 @@
         <button class="tab{% if selected_panel == 'tables' %} active{% endif %}" type="button" data-tab="tables">
           Database
         </button>
-        <button class="tab{% if selected_panel == 'schema' %} active{% endif %}" type="button" data-tab="schema">
-          Schema
-        </button>
         <div class="tab-logo">
           <img src="{{ url_for('static', filename='datamak_logo_line.png') }}" alt="Datamak logo" />
         </div>
@@ -896,7 +910,10 @@
     </div>
     {% if ai_suggestions and ai_suggestions|length > 0 %}
       <div class="assistant-panel suggestions-panel">
-        <div class="assistant-title">Workflow Suggestions:</div>
+        <div class="drawer-header">
+          <div class="drawer-title">Workflow Suggestions</div>
+          <button class="drawer-close suggestions-close" type="button" aria-label="Close Workflow Suggestions">×</button>
+        </div>
         <ul class="assistant-list">
           {% for suggestion in ai_suggestions %}
             <li class="assistant-item">
@@ -957,6 +974,71 @@
             <input id="db" name="db" type="text" size="60" value="{{ db_path }}" />
           </div>
         </form>
+        {% if db_recovery_message %}
+          <div class="panel-note" style="margin-bottom:12px;">{{ db_recovery_message }}</div>
+        {% endif %}
+        {% if db_recovery_error %}
+          <div class="error" style="margin-bottom:12px;">{{ db_recovery_error }}</div>
+        {% endif %}
+        {% if error and "Database not found" in error %}
+          <div class="chart-wrap recovery-box" style="margin-bottom:12px;">
+            <div class="equilibria-heading recovery-heading" style="margin-bottom:8px;">Database recovery</div>
+            <div class="panel-note" style="margin-bottom:12px;">
+              Datamak could not open the selected SQLite database. If a downloaded demo copy is
+              already on this machine, use it first. Otherwise, download the PPPL demo database
+              below and then re-scan.
+            </div>
+            {% if demo_database_candidates %}
+              <div class="panel-note" style="margin:12px 0 8px;">
+                Detected demo databases you can use now:
+              </div>
+              {% for candidate in demo_database_candidates %}
+                <div class="chart-wrap borderless" style="margin:0 0 10px; padding:10px 12px;">
+                  <div style="font-weight:600; margin-bottom:4px;">{{ candidate.name }}</div>
+                  <div class="panel-note">{{ candidate.path }}</div>
+                  <div class="panel-note" style="margin-top:4px;">
+                    Folder: {{ candidate.directory }} | Modified: {{ candidate.modified }}
+                  </div>
+                  <div class="row" style="gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+                    <form method="get" style="margin:0;">
+                      <input type="hidden" name="db" value="{{ candidate.path }}" />
+                      <input type="hidden" name="panel" value="tables" />
+                      <button type="submit">Use Detected Demo DB</button>
+                    </form>
+                    <form method="post" action="/copy_demo_database" style="margin:0;">
+                      <input type="hidden" name="db" value="{{ db_path }}" />
+                      <input type="hidden" name="source_path" value="{{ candidate.path }}" />
+                      <button type="submit">Copy Into Datamak Root And Use It</button>
+                    </form>
+                  </div>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="panel-note" style="margin-top:12px;">
+                No downloaded `gyrokinetic_simulations*.db` file is currently detected.
+              </div>
+            {% endif %}
+            <div class="panel-note" style="margin:12px 0 8px;">
+              Need a demo copy? Download it in your browser, then re-scan:
+            </div>
+            <div class="row" style="gap:10px; align-items:center; flex-wrap:wrap;">
+              <a
+                class="action-link-button"
+                href="{{ demo_database_url }}"
+                target="_blank"
+                rel="noopener noreferrer"
+              >Open Demo Database In Browser</a>
+              <a
+                class="action-link-button"
+                href="{{ url_for('index', db=db_path, panel='tables') }}"
+              >Re-scan For Downloaded Demo DB</a>
+              <span class="panel-note">
+                This Google Drive file is restricted to PPPL employees and may require browser login.
+                Datamak checks `~/Downloads`, `~/Desktop`, the Datamak root, and `demo/`.
+              </span>
+            </div>
+          </div>
+        {% endif %}
         {% if selected_table %}
           <form method="get">
             <input type="hidden" name="db" value="{{ db_path }}" />
@@ -1016,6 +1098,32 @@
             Rows shown: {{ rows|length }} of {{ "{:,}".format(table_filtered_count) }}
             filtered ({{ "{:,}".format(table_total_count) }} total).
           </div>
+          {% if table_schema_rows %}
+            <div class="table-wrapper" style="margin-bottom:12px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Column</th>
+                    <th>Type</th>
+                    <th>PK</th>
+                    <th>Not null</th>
+                    <th>Default</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for schema_row in table_schema_rows %}
+                    <tr>
+                      <td>{{ schema_row.name }}</td>
+                      <td>{{ schema_row.type }}</td>
+                      <td>{{ schema_row.pk }}</td>
+                      <td>{{ schema_row.notnull }}</td>
+                      <td class="cell-truncate" title="{{ schema_row.default }}">{{ schema_row.default }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
           <div class="table-wrapper">
             <table>
             <thead>
@@ -1126,14 +1234,44 @@
             <input type="hidden" name="sampling_tab" value="equil" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <div class="row">
-              <label for="origin_id_sampling">Data origin</label>
-              <select id="origin_id_sampling" name="origin_id" data-origin-select="1" onchange="this.form.submit()">
-                {% for origin_id, origin_name, _ in data_origins %}
-                  <option value="{{ origin_id }}" {% if sampling_origin_id == origin_id %}selected{% endif %}>
-                    {{ origin_id }} - {{ origin_name }}
-                  </option>
-                {% endfor %}
-              </select>
+              <label>Data origin</label>
+              {% set sampling_ns = namespace(selected_id=sampling_origin_id, selected_name='', selected_color='#1f77b4') %}
+              {% if sampling_ns.selected_id is none and data_origins %}
+                {% set sampling_ns.selected_id = data_origins[0][0] %}
+              {% endif %}
+              {% for origin_id, origin_name, _ in data_origins %}
+                {% if sampling_ns.selected_id == origin_id %}
+                  {% set sampling_ns.selected_name = origin_name %}
+                  {% set sampling_ns.selected_color = data_origin_colors.get(origin_name, '#1f77b4') %}
+                {% endif %}
+              {% endfor %}
+              {% if data_origins %}
+                <input type="hidden" name="origin_id" value="{{ sampling_ns.selected_id }}" data-origin-hidden="1" />
+                <details class="origin-picker" data-origin-picker="1">
+                  <summary id="origin_id_sampling" data-origin-summary="1">
+                    <span class="color-swatch" data-origin-summary-swatch="1" data-color="{{ sampling_ns.selected_color }}"></span>
+                    <span class="origin-picker-option-label" data-origin-summary-label="1">{{ sampling_ns.selected_id }} - {{ sampling_ns.selected_name }}</span>
+                  </summary>
+                  <div class="origin-picker-panel">
+                    {% for origin_id, origin_name, _ in data_origins %}
+                      {% set origin_color = data_origin_colors.get(origin_name, '#1f77b4') %}
+                      <button
+                        class="origin-picker-option{% if sampling_ns.selected_id == origin_id %} active{% endif %}"
+                        type="button"
+                        data-origin-submit="1"
+                        data-origin-value="{{ origin_id }}"
+                        data-origin-label="{{ origin_id }} - {{ origin_name }}"
+                        data-origin-color="{{ origin_color }}"
+                      >
+                        <span class="color-swatch" data-color="{{ origin_color }}"></span>
+                        <span class="origin-picker-option-label">{{ origin_id }} - {{ origin_name }}</span>
+                      </button>
+                    {% endfor %}
+                  </div>
+                </details>
+              {% else %}
+                <div class="panel-note">No data origins available.</div>
+              {% endif %}
               <label for="sampling_k">Clusters (k)</label>
               <input
                 id="sampling_k"
@@ -1461,14 +1599,44 @@
             <input type="hidden" name="sampling_tab" value="plasma" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
             <div class="row">
-              <label for="origin_id_plasma">Data origin</label>
-              <select id="origin_id_plasma" name="origin_id" data-origin-select="1" onchange="this.form.submit()">
-                {% for origin_id, origin_name, _ in data_origins %}
-                  <option value="{{ origin_id }}" {% if plasma_origin_id == origin_id %}selected{% endif %}>
-                    {{ origin_id }} - {{ origin_name }}
-                  </option>
-                {% endfor %}
-              </select>
+              <label>Data origin</label>
+              {% set plasma_ns = namespace(selected_id=plasma_origin_id, selected_name='', selected_color='#1f77b4') %}
+              {% if plasma_ns.selected_id is none and data_origins %}
+                {% set plasma_ns.selected_id = data_origins[0][0] %}
+              {% endif %}
+              {% for origin_id, origin_name, _ in data_origins %}
+                {% if plasma_ns.selected_id == origin_id %}
+                  {% set plasma_ns.selected_name = origin_name %}
+                  {% set plasma_ns.selected_color = data_origin_colors.get(origin_name, '#1f77b4') %}
+                {% endif %}
+              {% endfor %}
+              {% if data_origins %}
+                <input type="hidden" name="origin_id" value="{{ plasma_ns.selected_id }}" data-origin-hidden="1" />
+                <details class="origin-picker" data-origin-picker="1">
+                  <summary id="origin_id_plasma" data-origin-summary="1">
+                    <span class="color-swatch" data-origin-summary-swatch="1" data-color="{{ plasma_ns.selected_color }}"></span>
+                    <span class="origin-picker-option-label" data-origin-summary-label="1">{{ plasma_ns.selected_id }} - {{ plasma_ns.selected_name }}</span>
+                  </summary>
+                  <div class="origin-picker-panel">
+                    {% for origin_id, origin_name, _ in data_origins %}
+                      {% set origin_color = data_origin_colors.get(origin_name, '#1f77b4') %}
+                      <button
+                        class="origin-picker-option{% if plasma_ns.selected_id == origin_id %} active{% endif %}"
+                        type="button"
+                        data-origin-submit="1"
+                        data-origin-value="{{ origin_id }}"
+                        data-origin-label="{{ origin_id }} - {{ origin_name }}"
+                        data-origin-color="{{ origin_color }}"
+                      >
+                        <span class="color-swatch" data-color="{{ origin_color }}"></span>
+                        <span class="origin-picker-option-label">{{ origin_id }} - {{ origin_name }}</span>
+                      </button>
+                    {% endfor %}
+                  </div>
+                </details>
+              {% else %}
+                <div class="panel-note">No data origins available.</div>
+              {% endif %}
               <label for="plasma_k">Clusters (k)</label>
               <input
                 id="plasma_k"
@@ -3035,208 +3203,121 @@
         {% endif %}
       </section>
       <section class="panel panel-tabbed{% if selected_panel != 'equilibria' %} panel-hidden{% endif %}" data-panel="equilibria">
-        {% if action_status and action_status.message %}
-          <div class="notice">{{ action_status.message }}</div>
-        {% endif %}
-        {% if origin_details and origin_details|length > 0 %}
-          <div class="equilibria-layout">
-            <div class="chart-wrap">
-              <div class="chart-title equilibria-heading">Origin Registry</div>
-              <div class="panel-note" style="margin-bottom:8px;">
-                Select a data origin here to inspect its preparation state, Flux workflow, and the batch-launch tools below.
-              </div>
-              {% if selected_origin_details and eqp_report %}
-                <div class="panel-note" style="margin-bottom:8px;">
-                  Input status for this origin:
-                  total rows {{ "{:,}".format(eqp_report.total_rows) }}
-                  {% if eqp_status_counts %}
-                    | WAIT {{ "{:,}".format(eqp_status_counts["WAIT"]) }}
-                    | TORUN {{ "{:,}".format(eqp_status_counts["TORUN"]) }}
-                    | BATCH {{ "{:,}".format(eqp_status_counts["BATCH"]) }}
-                    | SUCCESS {{ "{:,}".format(eqp_status_counts["SUCCESS"]) }}
-                  {% endif %}
-                </div>
-              {% endif %}
-              <form id="equilibria-origin-row-form" method="get" style="display:none;">
-                <input type="hidden" name="db" value="{{ db_path }}" />
-                <input type="hidden" name="panel" value="equilibria" />
-                <input id="equilibria-origin-row-input" type="hidden" name="origin_id" value="{{ selected_origin_details['id'] if selected_origin_details else '' }}" />
-                {% if equilibria_valid_only %}
-                  <input type="hidden" name="equilibria_valid_only" value="1" />
-                {% endif %}
-              </form>
-              <div class="table-wrapper" style="margin-top:12px;">
-                <table class="equilibria-origin-table" aria-label="Origin registry">
-                  <tbody>
-                    {% for origin in origin_details %}
-                      <tr
-                        class="equilibria-origin-row{% if selected_origin_details and origin['id'] == selected_origin_details['id'] %} selected{% endif %}"
-                        data-equilibria-origin-id="{{ origin['id'] }}"
-                        tabindex="0"
-                      >
-                        <td>
-                          <span class="color-swatch" data-color="{{ origin['color'] if origin['color'] else data_origin_colors.get(origin['name'], '#1f77b4') }}"></span>
-                          {{ origin['name'] }}
-                        </td>
-                        <td class="cell-truncate" title="{{ origin['origin'] or '' }}">{{ origin['origin'] or "" }}</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div class="chart-wrap equilibria-side-panel">
-              {% if selected_origin_details %}
-                <div class="equilibria-side-panel-header">
-                  <div class="equilibria-side-panel-title">
-                    <div class="chart-title equilibria-heading">
-                      <span>Scan Equilibria &amp; Generate Inputs:</span>
-                      <span class="equilibria-side-panel-title-meta">
-                        <span
-                          class="color-swatch"
-                          data-color="{{ selected_origin_details['color'] if selected_origin_details['color'] else data_origin_colors.get(selected_origin_details['name'], '#1f77b4') }}"
-                        ></span>
-                        {{ selected_origin_details['name'] }}
-                        {% if selected_origin_details['file_type'] %} | {{ selected_origin_details['file_type'] }}{% endif %}
-                        {% if selected_origin_details['tokamak'] %} | {{ selected_origin_details['tokamak'] }}{% endif %}
-                      </span>
-                    </div>
-                    <div class="panel-note" style="margin-bottom:0;">
-                      Use this section to see what has already been built for the selected origin: equilibria, studies, inputs, batch state, and Flux progress.
-                    </div>
-                  </div>
-                  {% if equilibria_actions %}
-                    <div class="equilibria-side-panel-actions">
-                      <div class="equilibria-action-strip">
-                        {% for item in equilibria_actions %}
-                          {% if actions.get(item.key) %}
-                            <form
-                              method="post"
-                              action="/action/{{ item.key }}"
-                              {% if item.key in ['run_on_flux', 'sync_back_from_flux', 'check_flux_status'] %}
-                                class="flux-remote-action-form"
-                                data-flux-action="{{ item.key }}"
-                                data-origin-name="{{ selected_origin_details['name'] }}"
-                                data-flux-status="{{ flux_action_state['status'] if flux_action_state else '' }}"
-                                data-flux-job-id="{{ flux_action_state['slurm_job_id'] if flux_action_state else '' }}"
-                              {% endif %}
-                            >
-                              <input type="hidden" name="db" value="{{ db_path }}" />
-                              <input type="hidden" name="panel" value="equilibria" />
-                              <input type="hidden" name="origin_id" value="{{ selected_origin_details['id'] }}" />
-                              <input type="hidden" name="origin_name" value="{{ selected_origin_details['name'] }}" />
-                              {% if equilibria_valid_only %}
-                                <input type="hidden" name="equilibria_valid_only" value="1" />
-                              {% endif %}
-                              <button type="submit">{{ item.title }}</button>
-                            </form>
-                          {% endif %}
-                        {% endfor %}
-                      </div>
-                    </div>
-                  {% endif %}
-                </div>
-                {% if equilibria_workflow_status.stages %}
-                  <div class="equilibria-section-label">Workflow Status</div>
-                  <div class="equilibria-status-list">
-                    {% for item in equilibria_workflow_status.stages %}
-                      <div class="equilibria-status-row">
-                        <div class="equilibria-status-name">{{ item.label }}</div>
-                        <div>
-                          <span class="equilibria-status-chip equilibria-state-{{ item.state_class }}">{{ item.state }}</span>
-                        </div>
-                        <div class="equilibria-status-detail">{{ item.detail }}</div>
-                      </div>
-                    {% endfor %}
-                  </div>
-                {% endif %}
-                {% if equilibria_workflow_status.notes %}
-                  <div class="equilibria-status-notes">
-                    {% for note in equilibria_workflow_status.notes %}
-                      <div class="equilibria-status-note">{{ note }}</div>
-                    </div>
-                    {% endfor %}
-                  </div>
-                {% endif %}
-                {% if not equilibria_actions %}
-                  <div class="panel-note">No direct GUI action is wired for this origin yet.</div>
-                {% endif %}
-              {% else %}
-                <div class="panel-note">Select a data origin to inspect its preparation workflow.</div>
-              {% endif %}
-            </div>
-          </div>
-          {% if selected_origin_details %}
-            <div class="chart-wrap" style="margin-top:16px;">
-              {% set eqp_form_panel = 'equilibria' %}
-              {% set eqp_show_origin_selector = False %}
-              {% set eqp_title = 'Launch Batch of Simulations:' %}
-              {% set eqp_dom_suffix = 'equilibria' %}
-              {% include "_equil_plasma_sampling.html" %}
-            </div>
-          {% endif %}
-          {% if selected_origin_details %}
-            <div class="chart-wrap" style="margin-top:16px;">
-              {% set monitor_title = 'Batch monitoring:' %}
-              {% set monitor_note = 'Use this section to inspect launched batch databases for the selected origin, spot failures or stalled runs, and sync finished results back into Datamak.' %}
-              {% set monitor_form_panel = 'equilibria' %}
-              {% set monitor_form_id = 'monitor-run-form-equilibria' %}
-              {% set monitor_dom_suffix = 'equilibria' %}
-              {% set monitor_origin_details = selected_origin_details %}
-              {% set monitor_payload = equilibria_monitor_report %}
-              {% include "_batch_monitor.html" %}
-            </div>
-          {% endif %}
-        {% else %}
-          <div class="panel-note">
-            No `data_origin` rows are available yet. This panel will become the new origin-centric preparation view once origins exist in the database.
-          </div>
-        {% endif %}
+        {% include "panels/workflow.html" %}
       </section>
-      <section class="panel hpc-panel">
+      <section class="panel hpc-panel" data-hpc-tab="{{ request.args.get('hpc_tab', 'perlmutter')|lower }}">
+        <div class="drawer-header">
+          <div class="drawer-title">HPC Login</div>
+          <button class="drawer-close hpc-close" type="button" aria-label="Close HPC Login">×</button>
+        </div>
         <div class="panel-note" style="margin-bottom:12px;">
           Configure SSH settings used by batch monitoring and remote workflow actions. Ensure
           <code>sshproxy</code> is active for non-interactive access.
         </div>
-        <form method="post" action="/save_hpc_config">
+        <form id="hpc-settings-form" method="post" action="/save_hpc_config">
           <input type="hidden" name="db" value="{{ db_path }}" />
-          <div class="row">
-            <label for="ssh_host">SSH host</label>
-            <input id="ssh_host" name="ssh_host" type="text" value="{{ hpc_config.ssh_host|default('', true) }}" />
-            <label for="ssh_user">SSH user</label>
-            <input id="ssh_user" name="ssh_user" type="text" value="{{ hpc_config.ssh_user|default('', true) }}" />
-            <label for="ssh_connect_timeout">Connect timeout (s)</label>
-            <input id="ssh_connect_timeout" name="ssh_connect_timeout" type="text" size="6" value="{{ hpc_config.ssh_connect_timeout|default('', true) }}" />
+          <input type="hidden" name="panel" value="{{ selected_panel }}" />
+          <input type="hidden" name="hpc_tab" id="hpc-tab-input" value="{{ request.args.get('hpc_tab', 'perlmutter')|lower }}" />
+          <div class="subtab-bar hpc-subtab-bar">
+            <button class="subtab" type="button" data-hpc-subtab="perlmutter">Perlmutter</button>
+            <button class="subtab" type="button" data-hpc-subtab="flux">Flux</button>
           </div>
-          <div class="row">
-            <label for="ssh_identity">SSH identity file</label>
-            <input id="ssh_identity" name="ssh_identity" type="text" size="50" value="{{ hpc_config.ssh_identity|default('', true) }}" />
+          <div class="hpc-subpanel" data-hpc-subpanel="perlmutter">
+            <div class="hpc-section-title">Perlmutter SSH Settings</div>
+            <div class="row">
+              <label for="ssh_host">SSH host</label>
+              <input id="ssh_host" name="ssh_host" type="text" value="{{ hpc_config.ssh_host|default('', true) }}" />
+              <label for="ssh_user">SSH user</label>
+              <input id="ssh_user" name="ssh_user" type="text" value="{{ hpc_config.ssh_user|default('', true) }}" />
+              <label for="ssh_connect_timeout">Connect timeout (s)</label>
+              <input id="ssh_connect_timeout" name="ssh_connect_timeout" type="text" size="6" value="{{ hpc_config.ssh_connect_timeout|default('', true) }}" />
+            </div>
+            <div class="row">
+              <label for="ssh_identity">SSH identity file</label>
+              <input id="ssh_identity" name="ssh_identity" type="text" size="50" value="{{ hpc_config.ssh_identity|default('', true) }}" />
+            </div>
+            <div class="row">
+              <label for="ssh_control_path">Control socket path</label>
+              <input id="ssh_control_path" name="ssh_control_path" type="text" size="50" value="{{ hpc_config.ssh_control_path|default('', true) }}" />
+              <label for="ssh_control_persist">Persist</label>
+              <input id="ssh_control_persist" name="ssh_control_persist" type="text" size="8" value="{{ hpc_config.ssh_control_persist|default('', true) }}" />
+            </div>
+            <div class="row">
+              <label for="monitor_timeout">Monitor timeout (s)</label>
+              <input id="monitor_timeout" name="monitor_timeout" type="text" size="6" value="{{ hpc_config.monitor_timeout|default('', true) }}" />
+            </div>
+            <div class="row">
+              <label for="perlmutter_base_dir">Base dir</label>
+              <input id="perlmutter_base_dir" name="perlmutter_base_dir" type="text" size="40" value="{{ hpc_config.perlmutter_base_dir|default('', true) }}" />
+            </div>
+            <div class="row">
+              <label for="perlmutter_batch_dir">Batch dir</label>
+              <input id="perlmutter_batch_dir" name="perlmutter_batch_dir" type="text" size="40" value="{{ hpc_config.perlmutter_batch_dir|default('', true) }}" />
+            </div>
+            <div class="row">
+              <label for="gx_path">GX path</label>
+              <input id="gx_path" name="gx_path" type="text" size="40" value="{{ hpc_config.gx_path|default('', true) }}" />
+            </div>
+            <div class="panel-note" style="margin-bottom:12px;">
+              Control path supports tokens like <code>%r</code> (user), <code>%h</code> (host), <code>%p</code> (port).
+              Leave empty to disable connection reuse.
+            </div>
+            <div class="hpc-button-row">
+              <button type="submit">Save HPC Settings</button>
+            </div>
           </div>
-          <div class="row">
-            <label for="ssh_control_path">Control socket path</label>
-            <input id="ssh_control_path" name="ssh_control_path" type="text" size="50" value="{{ hpc_config.ssh_control_path|default('', true) }}" />
-            <label for="ssh_control_persist">Persist</label>
-            <input id="ssh_control_persist" name="ssh_control_persist" type="text" size="8" value="{{ hpc_config.ssh_control_persist|default('', true) }}" />
+          <div class="hpc-subpanel" data-hpc-subpanel="flux">
+            <div class="hpc-section-title">Flux Workflow Settings</div>
+            <div class="row">
+              <label for="flux_host">Flux host</label>
+              <input id="flux_host" name="flux_host" type="text" value="{{ hpc_config.flux_host|default('', true) }}" />
+              <label for="flux_user">Flux user</label>
+              <input id="flux_user" name="flux_user" type="text" value="{{ hpc_config.flux_user|default('', true) }}" />
+              <label for="flux_duo_option">Auto Duo option</label>
+              <input
+                id="flux_duo_option"
+                name="flux_duo_option"
+                type="text"
+                size="4"
+                maxlength="1"
+                value="{{ hpc_config.flux_duo_option|default('', true) }}"
+                title="Set to 1, 2, or 3 to auto-send that Duo choice when Flux prompts."
+              />
+            </div>
+            <div class="row">
+              <label for="flux_base_dir">Flux base dir</label>
+              <input id="flux_base_dir" name="flux_base_dir" type="text" size="40" value="{{ hpc_config.flux_base_dir|default('', true) }}" />
+            </div>
+            <div class="row">
+              <label for="flux_python_bin">Flux python</label>
+              <input id="flux_python_bin" name="flux_python_bin" type="text" size="40" value="{{ hpc_config.flux_python_bin|default('', true) }}" />
+            </div>
+            <div class="panel-note" style="margin-bottom:12px;">
+              Auto Duo option only sends the saved menu choice, usually <code>1</code> for Duo Push. You still approve the push on your device.
+            </div>
+            <div class="hpc-button-row">
+              <button type="submit">Save HPC Settings</button>
+            </div>
           </div>
-          <div class="row">
-            <label for="monitor_timeout">Monitor timeout (s)</label>
-            <input id="monitor_timeout" name="monitor_timeout" type="text" size="6" value="{{ hpc_config.monitor_timeout|default('', true) }}" />
-          </div>
-          <div class="panel-note" style="margin-bottom:12px;">
-            Control path supports tokens like <code>%r</code> (user), <code>%h</code> (host), <code>%p</code> (port).
-            Leave empty to disable connection reuse.
-          </div>
-          <button type="submit">Save HPC Settings</button>
         </form>
-        <form method="post" action="/action/open_ssh_pipe" style="margin-top:10px;">
-          <input type="hidden" name="db" value="{{ db_path }}" />
-          <button type="submit">Open SSH Pipe</button>
-        </form>
-        <form method="post" action="/action/test_hpc_connection" style="margin-top:10px;">
-          <input type="hidden" name="db" value="{{ db_path }}" />
-          <button type="submit">Test SSH (ls -lrt ~)</button>
-        </form>
+        <div class="hpc-subpanel" data-hpc-subpanel="perlmutter">
+          <div class="hpc-button-row">
+            <form method="post" action="/action/open_ssh_pipe">
+              <input type="hidden" name="db" value="{{ db_path }}" />
+              <input type="hidden" name="panel" value="{{ selected_panel }}" />
+              <input type="hidden" name="hpc_open" value="1" />
+              <input type="hidden" name="hpc_tab" value="perlmutter" />
+              <button type="submit">Open SSH Pipe</button>
+            </form>
+            <form method="post" action="/action/test_hpc_connection">
+              <input type="hidden" name="db" value="{{ db_path }}" />
+              <input type="hidden" name="panel" value="{{ selected_panel }}" />
+              <input type="hidden" name="hpc_open" value="1" />
+              <input type="hidden" name="hpc_tab" value="perlmutter" />
+              <button type="submit">Test SSH (ls -lrt ~)</button>
+            </form>
+          </div>
+        </div>
         {% if hpc_test_result %}
           <div class="panel-note" style="margin-top:12px;">
             Last SSH test:
@@ -3253,48 +3334,6 @@
           {% endif %}
         {% endif %}
       </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'schema' %} panel-hidden{% endif %}" data-panel="schema">
-        <div class="chart-wrap borderless">
-          <div class="chart-title">Schema</div>
-          <img class="schema-image" src="{{ url_for('docs_file', filename='schema_light.png') }}" alt="Database schema" />
-          <div class="schema-overview">
-            {% if schema_overview and schema_overview|length > 0 %}
-              <div class="panel-note">Live schema from {{ db_path }} ({{ schema_overview|length }} tables).</div>
-              {% for table in schema_overview %}
-                <details>
-                  <summary>{{ table.name }} ({{ table.columns|length }} columns)</summary>
-                  <div class="table-wrapper" style="max-height:240px;">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Column</th>
-                          <th>Type</th>
-                          <th>PK</th>
-                          <th>Not null</th>
-                          <th>Default</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {% for col in table.columns %}
-                          <tr>
-                            <td>{{ col.name }}</td>
-                            <td>{{ col.type }}</td>
-                            <td>{{ "Yes" if col.pk else "" }}</td>
-                            <td>{{ "Yes" if col.notnull else "" }}</td>
-                            <td>{{ col.default if col.default is not none else "" }}</td>
-                          </tr>
-                        {% endfor %}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-              {% endfor %}
-            {% else %}
-              <div class="panel-note">No live schema available for this database.</div>
-            {% endif %}
-          </div>
-        </div>
-      </section>
     </div>
   </body>
   <script type="application/json" id="action-state-data">{{ action_status|tojson }}</script>
@@ -3303,6 +3342,11 @@
     "mark_remote_running_interrupted",
     "mark_remote_run_restart",
     "launch_remote_slurm_job",
+  ]|tojson }}</script>
+  <script type="application/json" id="manual-flux-actions-data">{{ [
+    "run_on_flux",
+    "sync_back_from_flux",
+    "check_flux_status",
   ]|tojson }}</script>
   <script type="application/json" id="stats-points-data">{{ stats_points|tojson }}</script>
   <script type="application/json" id="stats-points2-data">{{ stats_points_2|tojson }}</script>
@@ -3360,10 +3404,14 @@
     const selectedPanel = "{{ selected_panel }}";
     const actionStateEl = document.getElementById("action-state-data");
     const monitorActionsEl = document.getElementById("monitor-actions-data");
+    const manualFluxActionsEl = document.getElementById("manual-flux-actions-data");
     const actionState = actionStateEl ? JSON.parse(actionStateEl.textContent || "null") : null;
     let lastActionState = actionState;
     const monitorAutoRefreshActions = monitorActionsEl
       ? JSON.parse(monitorActionsEl.textContent || "[]")
+      : [];
+    const manualFluxActions = manualFluxActionsEl
+      ? JSON.parse(manualFluxActionsEl.textContent || "[]")
       : [];
     const refreshMonitorOnce = () => {
       const url = new URL(window.location.href);
@@ -3412,6 +3460,9 @@
           }
           lastActionState = state;
           if (state.running) {
+            if (manualFluxActions.includes(state.key)) {
+              return;
+            }
             setTimeout(pollActionStatus, 2000);
           } else {
             setTimeout(pollActionStatus, 5000);
@@ -3422,7 +3473,11 @@
         });
     };
     if (selectedPanel === "equilibria") {
-      if (actionState && actionState.running) {
+      if (
+        actionState &&
+        actionState.running &&
+        !manualFluxActions.includes(actionState.key)
+      ) {
         pollActionStatus();
       } else if (actionState && actionState.message) {
         if (monitorAutoRefreshActions.includes(actionState.key)) {
@@ -3474,22 +3529,38 @@
       if (!toggle) {
         return;
       }
+      const closeButton = document.querySelector(".suggestions-close");
       toggle.addEventListener("click", () => {
         const expanded = document.body.classList.toggle("suggestions-expanded");
         toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
         toggle.textContent = expanded ? "Close" : "Workflow Suggestions";
       });
+      if (closeButton) {
+        closeButton.addEventListener("click", () => {
+          document.body.classList.remove("suggestions-expanded");
+          toggle.setAttribute("aria-expanded", "false");
+          toggle.textContent = "Workflow Suggestions";
+        });
+      }
     });
     window.addEventListener("load", () => {
       const toggle = document.querySelector(".hpc-fab");
       if (!toggle) {
         return;
       }
+      const closeButton = document.querySelector(".hpc-close");
       toggle.addEventListener("click", () => {
         const expanded = document.body.classList.toggle("hpc-expanded");
         toggle.textContent = expanded ? "Close" : "HPC Login";
         postUsage("hpc_panel_toggle", { expanded });
       });
+      if (closeButton) {
+        closeButton.addEventListener("click", () => {
+          document.body.classList.remove("hpc-expanded");
+          toggle.textContent = "HPC Login";
+          postUsage("hpc_panel_toggle", { expanded: false });
+        });
+      }
     });
     const formatRelativeAge = (secondsAgo) => {
       if (!isFinite(secondsAgo) || secondsAgo < 0) {
@@ -4060,6 +4131,37 @@
         });
       });
     }
+    const hpcPanel = document.querySelector(".hpc-panel");
+    const setHpcTab = (name, updateUrl = true) => {
+      if (!hpcPanel) {
+        return;
+      }
+      const normalized = name === "flux" ? "flux" : "perlmutter";
+      hpcPanel.querySelectorAll("[data-hpc-subtab]").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.hpcSubtab === normalized);
+      });
+      hpcPanel.querySelectorAll("[data-hpc-subpanel]").forEach((panel) => {
+        panel.classList.toggle("active", panel.dataset.hpcSubpanel === normalized);
+      });
+      const hiddenInput = document.getElementById("hpc-tab-input");
+      if (hiddenInput) {
+        hiddenInput.value = normalized;
+      }
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("hpc_tab", normalized);
+        window.history.replaceState({}, "", url.toString());
+      }
+    };
+    if (hpcPanel) {
+      const initialHpcTab = hpcPanel.dataset.hpcTab || "perlmutter";
+      setHpcTab(initialHpcTab, false);
+      hpcPanel.querySelectorAll("[data-hpc-subtab]").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          setHpcTab(tab.dataset.hpcSubtab);
+        });
+      });
+    }
     const tablesPanel = document.querySelector('[data-panel="tables"]');
     const tablesWrapper = tablesPanel
       ? tablesPanel.querySelector(".table-wrapper")
@@ -4089,6 +4191,8 @@
       });
     }
     const originSelects = document.querySelectorAll("[data-origin-select='1']");
+    const originSubmitButtons = document.querySelectorAll("[data-origin-submit='1']");
+    const originPickers = document.querySelectorAll("[data-origin-picker='1']");
     const urlParams = new URLSearchParams(window.location.search);
     const storedOrigin = localStorage.getItem("dtwin_origin_id");
     if (!urlParams.has("origin_id") && storedOrigin) {
@@ -4105,7 +4209,72 @@
           }
         });
       });
+      originSubmitButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const val = button.dataset.originValue;
+          const label = button.dataset.originLabel || "";
+          const color = button.dataset.originColor || "";
+          const form = button.closest("form");
+          const picker = button.closest("[data-origin-picker='1']");
+          const hiddenInput = form ? form.querySelector("[data-origin-hidden='1']") : null;
+          const summaryLabel = picker ? picker.querySelector("[data-origin-summary-label='1']") : null;
+          const summarySwatch = picker ? picker.querySelector("[data-origin-summary-swatch='1']") : null;
+          if (val) {
+            localStorage.setItem("dtwin_origin_id", val);
+          } else {
+            localStorage.removeItem("dtwin_origin_id");
+          }
+          if (hiddenInput) {
+            hiddenInput.value = val || "";
+          }
+          if (summaryLabel && label) {
+            summaryLabel.textContent = label;
+          }
+          if (summarySwatch && color) {
+            summarySwatch.dataset.color = color;
+            summarySwatch.style.background = color;
+          }
+          if (picker) {
+            picker.querySelectorAll("[data-origin-submit='1']").forEach((option) => {
+              option.classList.toggle("active", option === button);
+            });
+            picker.open = false;
+          }
+          if (form) {
+            window.setTimeout(() => {
+              form.submit();
+            }, 60);
+          }
+        });
+      });
     }
+    originPickers.forEach((picker) => {
+      picker.addEventListener("toggle", () => {
+        if (!picker.open) {
+          return;
+        }
+        originPickers.forEach((other) => {
+          if (other !== picker) {
+            other.open = false;
+          }
+        });
+      });
+    });
+    document.addEventListener("click", (event) => {
+      originPickers.forEach((picker) => {
+        if (picker.open && !picker.contains(event.target)) {
+          picker.open = false;
+        }
+      });
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      originPickers.forEach((picker) => {
+        picker.open = false;
+      });
+    });
     const equilibriaOriginForm = document.getElementById("equilibria-origin-row-form");
     const equilibriaOriginInput = document.getElementById("equilibria-origin-row-input");
     if (equilibriaOriginForm && equilibriaOriginInput) {

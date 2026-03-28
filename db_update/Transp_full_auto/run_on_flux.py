@@ -243,8 +243,9 @@ def sync_runtime_support(remote_host: str, remote_dir: str, flux_profile: Dict[s
     )
 
 
-def run_stage_step(origin_name: str) -> None:
+def run_stage_step(origin_id: int, origin_name: str) -> None:
     env = os.environ.copy()
+    env["ORIGIN_ID"] = str(origin_id)
     env["ORIGIN_NAME"] = origin_name
     subprocess.run(["bash", str(STEP1_SCRIPT)], check=True, env=env)
 
@@ -253,6 +254,7 @@ def submit_remote_slurm(
     remote_host: str,
     remote_dir: str,
     remote_db_path: str,
+    origin_id: int,
     origin_name: str,
     remote_path: str,
     partition: str,
@@ -276,6 +278,7 @@ def submit_remote_slurm(
         f"test -f {shlex.quote(remote_db_path)}",
         f"test -x {shlex.quote(REMOTE_STEP2_WRAPPER)}",
         "mkdir -p logs",
+        f"export ORIGIN_ID={shlex.quote(str(origin_id))}",
         f"export ORIGIN_NAME={shlex.quote(origin_name)}",
     ]
     if remote_path.strip():
@@ -374,7 +377,7 @@ def run_for_origin(
 
     if log_row is None or not log_row.get("flux_db_name"):
         print(f"No staged Flux DB recorded for {origin['name']}; running step 1.")
-        run_stage_step(origin["name"])
+        run_stage_step(origin_db_id, origin["name"])
         with sqlite3.connect(main_db) as conn:
             ensure_flux_action_log_schema(conn)
             log_row = latest_flux_action(conn, origin_db_id, origin["name"])
@@ -409,6 +412,7 @@ def run_for_origin(
         remote_host=remote_host,
         remote_dir=remote_dir,
         remote_db_path=remote_db_path,
+        origin_id=origin_db_id,
         origin_name=origin["name"],
         remote_path=origin["origin"],
         partition=partition,

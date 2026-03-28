@@ -1,0 +1,249 @@
+{% if action_status and action_status.message %}
+  <div class="notice">{{ action_status.message }}</div>
+{% endif %}
+{% if origin_details and origin_details|length > 0 %}
+  <div class="equilibria-layout">
+    <div class="workflow-origin-advisor-grid">
+      <div class="chart-wrap">
+        <div class="chart-title equilibria-heading">Origin Registry</div>
+        <div class="panel-note" style="margin-bottom:8px;">
+          Select a data origin here and monitor its data below.
+        </div>
+        <form id="equilibria-origin-row-form" method="get" style="display:none;">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <input type="hidden" name="panel" value="equilibria" />
+          <input id="equilibria-origin-row-input" type="hidden" name="origin_id" value="{{ selected_origin_details['id'] if selected_origin_details else '' }}" />
+          {% if equilibria_valid_only %}
+            <input type="hidden" name="equilibria_valid_only" value="1" />
+          {% endif %}
+        </form>
+        <div class="table-wrapper" style="margin-top:12px;">
+          <table class="equilibria-origin-table" aria-label="Origin registry">
+            <tbody>
+              {% for origin in origin_details %}
+                <tr
+                  class="equilibria-origin-row{% if selected_origin_details and origin['id'] == selected_origin_details['id'] %} selected{% endif %}"
+                  data-equilibria-origin-id="{{ origin['id'] }}"
+                  tabindex="0"
+                >
+                  <td>
+                    <span class="color-swatch" data-color="{{ origin['color'] if origin['color'] else data_origin_colors.get(origin['name'], '#1f77b4') }}"></span>
+                    {{ origin['name'] }}
+                  </td>
+                  <td class="cell-truncate" title="{{ origin['origin'] or '' }}">{{ origin['origin'] or "" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="chart-wrap ai-advisor-panel">
+        {% if selected_origin_details %}
+          <div class="ai-advisor-header">
+            <div class="ai-advisor-title">
+              <div class="chart-title equilibria-heading">
+                <span>AI advisor:</span>
+                <span class="equilibria-side-panel-title-meta">
+                  <span
+                    class="color-swatch"
+                    data-color="{{ selected_origin_details['color'] if selected_origin_details['color'] else data_origin_colors.get(selected_origin_details['name'], '#1f77b4') }}"
+                  ></span>
+                  {{ selected_origin_details['name'] }}
+                  {% if selected_origin_details['file_type'] %} | {{ selected_origin_details['file_type'] }}{% endif %}
+                  {% if selected_origin_details['tokamak'] %} | {{ selected_origin_details['tokamak'] }}{% endif %}
+                </span>
+              </div>
+              <div class="panel-note" style="margin-bottom:0;">
+                First pass: this advisor uses explicit workflow rules for the selected origin. It does not call an external model or run actions automatically.
+              </div>
+            </div>
+            <div class="ai-advisor-refresh">
+              <form method="get">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="equilibria" />
+                <input type="hidden" name="origin_id" value="{{ selected_origin_details['id'] }}" />
+                {% if equilibria_valid_only %}
+                  <input type="hidden" name="equilibria_valid_only" value="1" />
+                {% endif %}
+                <button type="submit">Refresh advice</button>
+              </form>
+            </div>
+          </div>
+          {% if equilibria_ai_advisor and equilibria_ai_advisor.available %}
+            <div class="ai-advisor-body">
+              <div class="ai-advisor-kv">
+                <div class="ai-advisor-label">Assessment</div>
+                <div>
+                  <span class="equilibria-status-chip equilibria-state-{{ equilibria_ai_advisor.assessment_state_class }}">{{ equilibria_ai_advisor.assessment }}</span>
+                </div>
+                <div class="panel-note">{{ equilibria_ai_advisor.mode_label }} | {{ equilibria_ai_advisor.summary_line }}</div>
+              </div>
+              <div class="ai-advisor-kv">
+                <div class="ai-advisor-label">Current state</div>
+                <div class="ai-advisor-text">{{ equilibria_ai_advisor.current_state }}</div>
+              </div>
+              <div class="ai-advisor-kv">
+                <div class="ai-advisor-label">Main blocker</div>
+                <div class="ai-advisor-text">{{ equilibria_ai_advisor.blocker }}</div>
+              </div>
+              <div class="ai-advisor-kv">
+                <div class="ai-advisor-label">Recommended next step</div>
+                <div class="ai-advisor-text">{{ equilibria_ai_advisor.recommendation }}</div>
+              </div>
+              <div class="ai-advisor-kv">
+                <div class="ai-advisor-label">Why</div>
+                <div class="ai-advisor-text">{{ equilibria_ai_advisor.why }}</div>
+              </div>
+              <div class="ai-advisor-footer">
+                <div class="ai-advisor-available">
+                  <strong>Confidence:</strong>
+                  <span class="equilibria-status-chip equilibria-state-{{ equilibria_ai_advisor.confidence_class }}">{{ equilibria_ai_advisor.confidence }}</span>
+                  {% if equilibria_ai_advisor.available_actions %}
+                    <span style="margin-left:8px;">
+                      <strong>Direct actions currently allowed:</strong>
+                      {{ equilibria_ai_advisor.available_actions | join(', ') }}
+                    </span>
+                  {% endif %}
+                </div>
+                {% if equilibria_ai_advisor.recommended_action and actions.get(equilibria_ai_advisor.recommended_action.key) %}
+                  <form method="post" action="/action/{{ equilibria_ai_advisor.recommended_action.key }}">
+                    <input type="hidden" name="db" value="{{ db_path }}" />
+                    <input type="hidden" name="panel" value="equilibria" />
+                    <input type="hidden" name="origin_id" value="{{ selected_origin_details['id'] }}" />
+                    <input type="hidden" name="origin_name" value="{{ selected_origin_details['name'] }}" />
+                    {% if equilibria_valid_only %}
+                      <input type="hidden" name="equilibria_valid_only" value="1" />
+                    {% endif %}
+                    <button type="submit">{{ equilibria_ai_advisor.recommended_action.title }}</button>
+                  </form>
+                {% endif %}
+              </div>
+            </div>
+          {% else %}
+            <div class="panel-note">Select a data origin to generate workflow advice.</div>
+          {% endif %}
+        {% else %}
+          <div class="panel-note">Select a data origin to generate workflow advice.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="chart-wrap equilibria-side-panel">
+      {% if selected_origin_details %}
+        <div class="equilibria-side-panel-header">
+          <div class="equilibria-side-panel-title">
+            <div class="chart-title equilibria-heading">
+              <span>Scan Equilibria &amp; Generate Inputs:</span>
+              <span class="equilibria-side-panel-title-meta">
+                <span
+                  class="color-swatch"
+                  data-color="{{ selected_origin_details['color'] if selected_origin_details['color'] else data_origin_colors.get(selected_origin_details['name'], '#1f77b4') }}"
+                ></span>
+                {{ selected_origin_details['name'] }}
+                {% if selected_origin_details['file_type'] %} | {{ selected_origin_details['file_type'] }}{% endif %}
+                {% if selected_origin_details['tokamak'] %} | {{ selected_origin_details['tokamak'] }}{% endif %}
+              </span>
+            </div>
+            <div class="panel-note" style="margin-bottom:0;">
+              Use this section to see what has already been built for the selected origin: equilibria, studies, inputs, batch state, and Flux progress.
+            </div>
+          </div>
+          {% if equilibria_actions %}
+            <div class="equilibria-side-panel-actions">
+              <div class="equilibria-action-strip">
+                {% for item in equilibria_actions %}
+                  {% if actions.get(item.key) %}
+                    <form
+                      method="post"
+                      action="/action/{{ item.key }}"
+                      {% if item.key in ['run_on_flux', 'sync_back_from_flux', 'check_flux_status'] %}
+                        class="flux-remote-action-form"
+                        data-flux-action="{{ item.key }}"
+                        data-origin-name="{{ selected_origin_details['name'] }}"
+                        data-flux-status="{{ flux_action_state['status'] if flux_action_state else '' }}"
+                        data-flux-job-id="{{ flux_action_state['slurm_job_id'] if flux_action_state else '' }}"
+                      {% endif %}
+                    >
+                      <input type="hidden" name="db" value="{{ db_path }}" />
+                      <input type="hidden" name="panel" value="equilibria" />
+                      <input type="hidden" name="origin_id" value="{{ selected_origin_details['id'] }}" />
+                      <input type="hidden" name="origin_name" value="{{ selected_origin_details['name'] }}" />
+                      {% if equilibria_valid_only %}
+                        <input type="hidden" name="equilibria_valid_only" value="1" />
+                      {% endif %}
+                      <button type="submit">{{ item.title }}</button>
+                    </form>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        </div>
+        {% if equilibria_workflow_status.stages %}
+          <div class="equilibria-section-label">Workflow Status</div>
+          <div class="equilibria-status-list">
+            {% for item in equilibria_workflow_status.stages %}
+              <div class="equilibria-status-row">
+                <div class="equilibria-status-name">{{ item.label }}</div>
+                <div>
+                  <span class="equilibria-status-chip equilibria-state-{{ item.state_class }}">{{ item.state }}</span>
+                </div>
+                <div class="equilibria-status-detail">{{ item.detail }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if equilibria_workflow_status.notes %}
+          <div class="equilibria-status-notes">
+            {% for note in equilibria_workflow_status.notes %}
+              <div class="equilibria-status-note">{{ note }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if not equilibria_actions %}
+          <div class="panel-note">No direct GUI action is wired for this origin yet.</div>
+        {% endif %}
+      {% else %}
+        <div class="panel-note">Select a data origin to inspect its preparation workflow.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% if selected_origin_details %}
+    <div class="chart-wrap" style="margin-top:16px;">
+      {% set eqp_form_panel = 'equilibria' %}
+      {% set eqp_show_origin_selector = False %}
+      {% set eqp_title = 'Launch Batch of Simulations:' %}
+      {% set eqp_dom_suffix = 'equilibria' %}
+      {% include "_equil_plasma_sampling.html" %}
+    </div>
+  {% endif %}
+  {% if selected_origin_details %}
+    <div class="chart-wrap" style="margin-top:16px;">
+      {% set monitor_title = 'Batch monitoring:' %}
+      {% set monitor_note = 'Use this section to inspect launched batch databases for the selected origin, spot failures or stalled runs, and sync finished results back into Datamak.' %}
+      {% set monitor_input_status_text %}
+        {% if eqp_report %}
+          Input status for this origin:
+          total rows {{ "{:,}".format(eqp_report.total_rows) }}
+          {% if eqp_status_counts %}
+            | WAIT {{ "{:,}".format(eqp_status_counts["WAIT"]) }}
+            | TORUN {{ "{:,}".format(eqp_status_counts["TORUN"]) }}
+            | BATCH {{ "{:,}".format(eqp_status_counts["BATCH"]) }}
+            | SUCCESS {{ "{:,}".format(eqp_status_counts["SUCCESS"]) }}
+          {% endif %}
+        {% endif %}
+      {% endset %}
+      {% set monitor_form_panel = 'equilibria' %}
+      {% set monitor_form_id = 'monitor-run-form-equilibria' %}
+      {% set monitor_dom_suffix = 'equilibria' %}
+      {% set monitor_origin_details = selected_origin_details %}
+      {% set monitor_payload = equilibria_monitor_report %}
+      {% include "_batch_monitor.html" %}
+    </div>
+  {% endif %}
+{% else %}
+  <div class="panel-note">
+    No `data_origin` rows are available yet. This panel will become the new origin-centric preparation view once origins exist in the database.
+  </div>
+{% endif %}

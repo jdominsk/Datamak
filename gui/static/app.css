@@ -13,6 +13,92 @@
   --gui-danger-border: #f5c6c6;
 }
 
+.panel select,
+.assistant-panel select {
+  height: 22px;
+  min-height: 22px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--gui-border-strong);
+  border-radius: 8px;
+  background-color: var(--gui-surface);
+  color: var(--gui-text-strong);
+  font-size: 13px;
+  line-height: 1;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%2352606d' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 10px 6px;
+}
+
+.panel select:hover,
+.assistant-panel select:hover {
+  background-color: var(--gui-surface-hover);
+}
+
+.panel input[type="text"],
+.panel input[type="number"],
+.assistant-panel input[type="text"],
+.assistant-panel input[type="number"] {
+  height: 22px;
+  min-height: 22px;
+  padding: 0 12px;
+  border: 1px solid var(--gui-border-strong);
+  border-radius: 8px;
+  background: var(--gui-surface);
+  color: var(--gui-text-strong);
+  font-size: 13px;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close),
+.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close),
+input[type="submit"],
+input[type="button"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0 12px;
+  border: 1px solid var(--gui-border-strong);
+  border-radius: 8px;
+  background: var(--gui-surface);
+  color: var(--gui-text-strong);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):hover,
+.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):hover,
+input[type="submit"]:hover,
+input[type="button"]:hover {
+  background: var(--gui-surface-hover);
+}
+
+.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):active,
+.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):active,
+input[type="submit"]:active,
+input[type="button"]:active {
+  background: var(--gui-surface-active);
+}
+
+.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):disabled,
+.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):disabled,
+input[type="submit"]:disabled,
+input[type="button"]:disabled {
+  background: #f8fafc;
+  color: var(--gui-text-muted);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
 .tab-bar {
   display: flex;
   align-items: center;
@@ -102,24 +188,27 @@
 .action-link-button {
   display: inline-flex;
   align-items: center;
-  padding: 6px 10px;
+  justify-content: center;
+  height: 22px;
+  min-height: 22px;
+  padding: 0 12px;
   border: 1px solid var(--gui-border-strong);
-  border-radius: 6px;
-  background: var(--gui-surface-hover);
-  color: var(--gui-text-primary);
+  border-radius: 8px;
+  background: var(--gui-surface);
+  color: var(--gui-text-strong);
   text-decoration: none;
   font-size: 13px;
-  line-height: 1.2;
+  line-height: 1;
+  box-sizing: border-box;
 }
 
 .action-link-button:hover {
-  background: #eef5ff;
+  background: var(--gui-surface-hover);
 }
 
 .monitor-actions button,
 .ai-advisor-refresh button,
 .equilibria-action-strip button {
-  padding: 5px 9px;
   font-size: 12px;
 }
 
@@ -135,85 +224,100 @@
   margin: 0;
 }
 
-.origin-picker {
+.origin-picker,
+.choice-picker {
   position: relative;
   min-width: 320px;
 }
 
-.origin-picker[open] {
+.origin-picker[open],
+.choice-picker[open] {
   z-index: 20;
 }
 
-.origin-picker summary {
+.origin-picker summary,
+.choice-picker summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 28px;
-  padding: 2px 12px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0 12px;
   border: 1px solid var(--gui-border-strong);
   border-radius: 8px;
   background: var(--gui-surface);
   color: var(--gui-text-strong);
   cursor: pointer;
   list-style: none;
-  line-height: 1.15;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
 }
 
-.origin-picker summary::-webkit-details-marker {
+.origin-picker summary::-webkit-details-marker,
+.choice-picker summary::-webkit-details-marker {
   display: none;
 }
 
-.origin-picker summary::after {
+.origin-picker summary::after,
+.choice-picker summary::after {
   content: "▾";
   margin-left: auto;
   color: var(--gui-text-muted);
   font-size: 12px;
 }
 
-.origin-picker[open] summary {
+.origin-picker[open] summary,
+.choice-picker[open] summary {
   opacity: 0;
   pointer-events: none;
 }
 
-.origin-picker-panel {
+.origin-picker-panel,
+.choice-picker-panel {
   position: absolute;
   top: 0;
   left: 0;
   z-index: 20;
   min-width: 100%;
   max-width: 520px;
-  padding: 6px;
+  padding: 4px;
   border: 1px solid var(--gui-border-strong);
   border-radius: 8px;
   background: var(--gui-surface);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
 }
 
-.origin-picker-option {
+.origin-picker-option,
+.choice-picker-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  padding: 8px 10px;
+  padding: 4px 10px;
   border: none;
   border-radius: 6px;
   background: var(--gui-surface);
   color: var(--gui-text-strong);
   font-size: 13px;
+  line-height: 1.05;
   text-align: left;
   cursor: pointer;
 }
 
-.origin-picker-option:hover {
+.origin-picker-option:hover,
+.choice-picker-option:hover {
   background: var(--gui-surface-hover);
 }
 
-.origin-picker-option.active {
+.origin-picker-option.active,
+.choice-picker-option.active {
   background: #eef6ff;
   box-shadow: inset 3px 0 0 var(--gui-accent);
 }
 
-.origin-picker-option-label {
+.origin-picker-option-label,
+.choice-picker-option-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

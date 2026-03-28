@@ -2718,29 +2718,107 @@
             <input type="hidden" name="results_x4_scale" value="{{ results_x4_scale }}" />
             <input type="hidden" name="results_y4_scale" value="{{ results_y4_scale }}" />
             <div class="row">
-              <label for="origin_id_results">Data origin</label>
-              <select id="origin_id_results" name="origin_id" data-origin-select="1" onchange="this.form.submit()">
-                <option value="" {% if selected_origin_id is none %}selected{% endif %}>
-                  All
-                </option>
-                {% for origin_id, origin_name, _ in data_origins %}
-                  <option value="{{ origin_id }}" {% if selected_origin_id == origin_id %}selected{% endif %}>
-                    {{ origin_id }} - {{ origin_name }}
-                  </option>
-                {% endfor %}
-              </select>
-              <label for="results_filter">Results filter</label>
-              <select id="results_filter" name="results_filter" onchange="this.form.submit()">
-                <option value="all" {% if results_filter == 'all' %}selected{% endif %}>
-                  All runs
-                </option>
-                <option value="finished" {% if results_filter == 'finished' %}selected{% endif %}>
-                  Finished only (SUCCESS/CONVERGED)
-                </option>
-                <option value="growth" {% if results_filter == 'growth' %}selected{% endif %}>
-                  Has growth rate (gamma_max)
-                </option>
-              </select>
+              <label>Data origin</label>
+              {% set results_ns = namespace(selected_id=selected_origin_id, selected_name='All', selected_color='#9aa5b1') %}
+              {% for origin_id, origin_name, _ in data_origins %}
+                {% if results_ns.selected_id == origin_id %}
+                  {% set results_ns.selected_name = origin_name %}
+                  {% set results_ns.selected_color = data_origin_colors.get(origin_name, '#1f77b4') %}
+                {% endif %}
+              {% endfor %}
+              <input
+                type="hidden"
+                name="origin_id"
+                value="{{ results_ns.selected_id if results_ns.selected_id is not none else '' }}"
+                data-origin-hidden="1"
+              />
+              <details class="origin-picker" data-origin-picker="1">
+                <summary id="origin_id_results" data-origin-summary="1">
+                  <span
+                    class="color-swatch"
+                    data-origin-summary-swatch="1"
+                    data-color="{{ results_ns.selected_color }}"
+                  ></span>
+                  <span class="origin-picker-option-label" data-origin-summary-label="1">
+                    {% if results_ns.selected_id is none %}
+                      All
+                    {% else %}
+                      {{ results_ns.selected_id }} - {{ results_ns.selected_name }}
+                    {% endif %}
+                  </span>
+                </summary>
+                <div class="origin-picker-panel">
+                  <button
+                    class="origin-picker-option{% if results_ns.selected_id is none %} active{% endif %}"
+                    type="button"
+                    data-origin-submit="1"
+                    data-origin-value=""
+                    data-origin-label="All"
+                    data-origin-color="#9aa5b1"
+                  >
+                    <span class="color-swatch" data-color="#9aa5b1"></span>
+                    <span class="origin-picker-option-label">All</span>
+                  </button>
+                  {% for origin_id, origin_name, _ in data_origins %}
+                    {% set origin_color = data_origin_colors.get(origin_name, '#1f77b4') %}
+                    <button
+                      class="origin-picker-option{% if results_ns.selected_id == origin_id %} active{% endif %}"
+                      type="button"
+                      data-origin-submit="1"
+                      data-origin-value="{{ origin_id }}"
+                      data-origin-label="{{ origin_id }} - {{ origin_name }}"
+                      data-origin-color="{{ origin_color }}"
+                    >
+                      <span class="color-swatch" data-color="{{ origin_color }}"></span>
+                      <span class="origin-picker-option-label">{{ origin_id }} - {{ origin_name }}</span>
+                    </button>
+                  {% endfor %}
+                </div>
+              </details>
+              <label>Results filter</label>
+              {% set results_filter_label = 'All runs' %}
+              {% if results_filter == 'finished' %}
+                {% set results_filter_label = 'Finished only (SUCCESS/CONVERGED)' %}
+              {% elif results_filter == 'growth' %}
+                {% set results_filter_label = 'Has growth rate (gamma_max)' %}
+              {% endif %}
+              <div class="choice-picker-wrap">
+                <input type="hidden" name="results_filter" value="{{ results_filter }}" data-choice-hidden="1" />
+                <details class="choice-picker" data-choice-picker="1">
+                  <summary id="results_filter" data-choice-summary="1">
+                    <span class="choice-picker-option-label" data-choice-summary-label="1">{{ results_filter_label }}</span>
+                  </summary>
+                  <div class="choice-picker-panel">
+                    <button
+                      class="choice-picker-option{% if results_filter == 'all' %} active{% endif %}"
+                      type="button"
+                      data-choice-submit="1"
+                      data-choice-value="all"
+                      data-choice-label="All runs"
+                    >
+                      <span class="choice-picker-option-label">All runs</span>
+                    </button>
+                    <button
+                      class="choice-picker-option{% if results_filter == 'finished' %} active{% endif %}"
+                      type="button"
+                      data-choice-submit="1"
+                      data-choice-value="finished"
+                      data-choice-label="Finished only (SUCCESS/CONVERGED)"
+                    >
+                      <span class="choice-picker-option-label">Finished only (SUCCESS/CONVERGED)</span>
+                    </button>
+                    <button
+                      class="choice-picker-option{% if results_filter == 'growth' %} active{% endif %}"
+                      type="button"
+                      data-choice-submit="1"
+                      data-choice-value="growth"
+                      data-choice-label="Has growth rate (gamma_max)"
+                    >
+                      <span class="choice-picker-option-label">Has growth rate (gamma_max)</span>
+                    </button>
+                  </div>
+                </details>
+              </div>
               <noscript><button type="submit">Filter</button></noscript>
             </div>
           </form>
@@ -4193,6 +4271,8 @@
     const originSelects = document.querySelectorAll("[data-origin-select='1']");
     const originSubmitButtons = document.querySelectorAll("[data-origin-submit='1']");
     const originPickers = document.querySelectorAll("[data-origin-picker='1']");
+    const choiceSubmitButtons = document.querySelectorAll("[data-choice-submit='1']");
+    const choicePickers = document.querySelectorAll("[data-choice-picker='1']");
     const urlParams = new URLSearchParams(window.location.search);
     const storedOrigin = localStorage.getItem("dtwin_origin_id");
     if (!urlParams.has("origin_id") && storedOrigin) {
@@ -4247,6 +4327,34 @@
           }
         });
       });
+      choiceSubmitButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const val = button.dataset.choiceValue || "";
+          const label = button.dataset.choiceLabel || "";
+          const form = button.closest("form");
+          const wrapper = button.closest(".choice-picker-wrap");
+          const picker = button.closest("[data-choice-picker='1']");
+          const hiddenInput = wrapper ? wrapper.querySelector("[data-choice-hidden='1']") : null;
+          const summaryLabel = wrapper ? wrapper.querySelector("[data-choice-summary-label='1']") : null;
+          if (hiddenInput) {
+            hiddenInput.value = val;
+          }
+          if (summaryLabel && label) {
+            summaryLabel.textContent = label;
+          }
+          if (picker) {
+            picker.querySelectorAll("[data-choice-submit='1']").forEach((option) => {
+              option.classList.toggle("active", option === button);
+            });
+            picker.open = false;
+          }
+          if (form) {
+            window.setTimeout(() => {
+              form.submit();
+            }, 60);
+          }
+        });
+      });
     }
     originPickers.forEach((picker) => {
       picker.addEventListener("toggle", () => {
@@ -4260,8 +4368,25 @@
         });
       });
     });
+    choicePickers.forEach((picker) => {
+      picker.addEventListener("toggle", () => {
+        if (!picker.open) {
+          return;
+        }
+        choicePickers.forEach((other) => {
+          if (other !== picker) {
+            other.open = false;
+          }
+        });
+      });
+    });
     document.addEventListener("click", (event) => {
       originPickers.forEach((picker) => {
+        if (picker.open && !picker.contains(event.target)) {
+          picker.open = false;
+        }
+      });
+      choicePickers.forEach((picker) => {
         if (picker.open && !picker.contains(event.target)) {
           picker.open = false;
         }
@@ -4272,6 +4397,9 @@
         return;
       }
       originPickers.forEach((picker) => {
+        picker.open = false;
+      });
+      choicePickers.forEach((picker) => {
         picker.open = false;
       });
     });

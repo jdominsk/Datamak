@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DTWIN_ROOT="${DTWIN_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 MAIN_DB="${DTWIN_ROOT}/gyrokinetic_simulations.db"
-LOCAL_DIR="${DTWIN_ROOT}/transp_full_auto"
+LOCAL_DIR="${DTWIN_ROOT}/tmp/transp_full_auto"
 eval "$(python3 "${DTWIN_ROOT}/tools/resolve_dtwin_env.py" --profile flux --format shell)"
 REMOTE_DIR="${DTWIN_FLUX_BASE_DIR:-}"
 REMOTE_HOST="${DTWIN_FLUX_REMOTE:-}"

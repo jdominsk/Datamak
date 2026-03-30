@@ -9,6 +9,7 @@ PSIN_START="${PSIN_START:-0.1}"
 PSIN_END="${PSIN_END:-0.9}"
 PSIN_STEP="${PSIN_STEP:-0.1}"
 BATCH_SIZE="${BATCH_SIZE:-200}"
+MAX_ROWS_PER_JOB="${MAX_ROWS_PER_JOB:-1000}"
 MAX_MEM_GB="${MAX_MEM_GB:-4}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [[ -f "${SCRIPT_DIR}/datamak_runtime.env" ]]; then
@@ -33,6 +34,7 @@ log "Origin: ${ORIGIN_NAME}"
 log "Remote path: ${REMOTE_PATH}"
 log "Psin range: ${PSIN_START}..${PSIN_END} step ${PSIN_STEP}"
 log "Batch size: ${BATCH_SIZE}"
+log "Max generated rows per job: ${MAX_ROWS_PER_JOB}"
 log "Max mem (GB): ${MAX_MEM_GB}"
 
 origin_args=()
@@ -66,5 +68,6 @@ log "Finished build_flux_equil_inputs.py"
   --db "${FLUX_DB}" \
   --batch-size "${BATCH_SIZE}" \
   --loop \
+  --max-rows "${MAX_ROWS_PER_JOB}" \
   --max-mem-gb "${MAX_MEM_GB}"
 log "Finished run_flux_gk_inputs.py"

@@ -172,7 +172,7 @@ class MultiUserShellWrapperTests(unittest.TestCase):
 
             subprocess.run(["bash", str(script_path)], check=True, env=env, cwd=root)
 
-            runtime_env = root / "transp_full_auto" / "datamak_runtime.env"
+            runtime_env = root / "tmp" / "transp_full_auto" / "datamak_runtime.env"
             self.assertTrue(runtime_env.exists())
             content = runtime_env.read_text(encoding="utf-8")
             self.assertIn("export DTWIN_FLUX_REMOTE=fluxuser@flux.example.org", content)
@@ -280,6 +280,13 @@ class MultiUserShellWrapperTests(unittest.TestCase):
             self.assertGreaterEqual(len(lines), 2)
             self.assertTrue(lines[0].startswith("#!/bin/bash"))
             self.assertTrue(lines[1].startswith("#SBATCH "))
+
+    def test_mainsteps_2_caps_generated_rows_per_job_by_default(self) -> None:
+        text = (
+            PROJECT_ROOT / "db_update" / "Transp_full_auto" / "MainSteps_2_launch_on_flux.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('MAX_ROWS_PER_JOB="${MAX_ROWS_PER_JOB:-1000}"', text)
+        self.assertIn('--max-rows "${MAX_ROWS_PER_JOB}"', text)
 
     @staticmethod
     def _write_file(path: Path, content: str, executable: bool = False) -> None:

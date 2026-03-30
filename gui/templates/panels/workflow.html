@@ -1,5 +1,36 @@
 {% if action_status and action_status.message %}
-  <div class="notice">{{ action_status.message }}</div>
+  <div class="notice notice-with-actions{% if action_status.is_error %} notice-error{% endif %}">
+    {% if action_status.support_bundle %}
+      <form method="post" action="/send_support_bundle" class="notice-action-form">
+        <input type="hidden" name="db" value="{{ db_path }}" />
+        <input type="hidden" name="panel" value="equilibria" />
+        {% if selected_origin_details %}
+          <input type="hidden" name="origin_id" value="{{ selected_origin_details['id'] }}" />
+        {% endif %}
+        {% if equilibria_valid_only %}
+          <input type="hidden" name="equilibria_valid_only" value="1" />
+        {% endif %}
+        <input type="hidden" name="bundle_path" value="{{ action_status.support_bundle }}" />
+        <button type="submit">Send support bundle</button>
+        <label class="notice-action-select-label">
+          <span>Email:</span>
+          <select name="compose_mode">
+            <option value="gmail" selected>Gmail</option>
+            <option value="mail">Mail</option>
+          </select>
+        </label>
+      </form>
+    {% endif %}
+    <div class="notice-text-stack">
+      <span>{{ action_status.message }}</span>
+      {% if action_status.technical_message %}
+        <details class="notice-technical">
+          <summary>Technical details</summary>
+          <pre>{{ action_status.technical_message }}</pre>
+        </details>
+      {% endif %}
+    </div>
+  </div>
 {% endif %}
 {% if origin_details and origin_details|length > 0 %}
   <div class="equilibria-layout">
@@ -9,7 +40,7 @@
         <div class="panel-note" style="margin-bottom:8px;">
           Select a data origin here and monitor its data below.
         </div>
-        <form id="equilibria-origin-row-form" method="get" style="display:none;">
+        <form id="equilibria-origin-row-form" method="get" data-panel-fetch="equilibria" style="display:none;">
           <input type="hidden" name="db" value="{{ db_path }}" />
           <input type="hidden" name="panel" value="equilibria" />
           <input id="equilibria-origin-row-input" type="hidden" name="origin_id" value="{{ selected_origin_details['id'] if selected_origin_details else '' }}" />
@@ -55,11 +86,11 @@
                 </span>
               </div>
               <div class="panel-note" style="margin-bottom:0;">
-                First pass: this advisor uses explicit workflow rules for the selected origin. It does not call an external model or run actions automatically.
+                Phase 2 scaffold: this advisor now reasons through typed Datamak read-only tools for the selected origin. It does not call an external model yet, and it does not run actions automatically.
               </div>
             </div>
             <div class="ai-advisor-refresh">
-              <form method="get">
+              <form method="get" data-panel-fetch="equilibria">
                 <input type="hidden" name="db" value="{{ db_path }}" />
                 <input type="hidden" name="panel" value="equilibria" />
                 <input type="hidden" name="origin_id" value="{{ selected_origin_details['id'] }}" />
@@ -72,28 +103,37 @@
           </div>
           {% if equilibria_ai_advisor and equilibria_ai_advisor.available %}
             <div class="ai-advisor-body">
-              <div class="ai-advisor-kv">
-                <div class="ai-advisor-label">Assessment</div>
-                <div>
+              <div class="ai-advisor-kv ai-advisor-text">
+                <strong>Assessment:</strong>
+                <span>
                   <span class="equilibria-status-chip equilibria-state-{{ equilibria_ai_advisor.assessment_state_class }}">{{ equilibria_ai_advisor.assessment }}</span>
+                </span>
+                <span class="panel-note">{{ equilibria_ai_advisor.mode_label }} | {{ equilibria_ai_advisor.summary_line }}</span>
+              </div>
+              {% if equilibria_ai_advisor.tool_trace_text %}
+                <div class="ai-advisor-kv ai-advisor-text">
+                  <strong>Supervisor tools used:</strong>
+                  <span>{{ equilibria_ai_advisor.tool_trace_text }}</span>
+                  {% if equilibria_ai_advisor.tool_policy %}
+                    <span class="panel-note">{{ equilibria_ai_advisor.tool_policy }}</span>
+                  {% endif %}
                 </div>
-                <div class="panel-note">{{ equilibria_ai_advisor.mode_label }} | {{ equilibria_ai_advisor.summary_line }}</div>
+              {% endif %}
+              <div class="ai-advisor-kv ai-advisor-text">
+                <strong>Current state:</strong>
+                <span>{{ equilibria_ai_advisor.current_state }}</span>
               </div>
-              <div class="ai-advisor-kv">
-                <div class="ai-advisor-label">Current state</div>
-                <div class="ai-advisor-text">{{ equilibria_ai_advisor.current_state }}</div>
+              <div class="ai-advisor-kv ai-advisor-text">
+                <strong>Main blocker:</strong>
+                <span>{{ equilibria_ai_advisor.blocker }}</span>
               </div>
-              <div class="ai-advisor-kv">
-                <div class="ai-advisor-label">Main blocker</div>
-                <div class="ai-advisor-text">{{ equilibria_ai_advisor.blocker }}</div>
+              <div class="ai-advisor-kv ai-advisor-text">
+                <strong>Recommended next step:</strong>
+                <span>{{ equilibria_ai_advisor.recommendation }}</span>
               </div>
-              <div class="ai-advisor-kv">
-                <div class="ai-advisor-label">Recommended next step</div>
-                <div class="ai-advisor-text">{{ equilibria_ai_advisor.recommendation }}</div>
-              </div>
-              <div class="ai-advisor-kv">
-                <div class="ai-advisor-label">Why</div>
-                <div class="ai-advisor-text">{{ equilibria_ai_advisor.why }}</div>
+              <div class="ai-advisor-kv ai-advisor-text">
+                <strong>Why:</strong>
+                <span>{{ equilibria_ai_advisor.why }}</span>
               </div>
               <div class="ai-advisor-footer">
                 <div class="ai-advisor-available">

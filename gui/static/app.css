@@ -54,8 +54,8 @@
   box-sizing: border-box;
 }
 
-.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close),
-.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close),
+.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.select-picker-option):not(.drawer-close),
+.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.select-picker-option):not(.drawer-close),
 input[type="submit"],
 input[type="button"] {
   display: inline-flex;
@@ -75,22 +75,22 @@ input[type="button"] {
   box-sizing: border-box;
 }
 
-.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):hover,
-.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):hover,
+.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.select-picker-option):not(.drawer-close):hover,
+.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.select-picker-option):not(.drawer-close):hover,
 input[type="submit"]:hover,
 input[type="button"]:hover {
   background: var(--gui-surface-hover);
 }
 
-.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):active,
-.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):active,
+.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.select-picker-option):not(.drawer-close):active,
+.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.select-picker-option):not(.drawer-close):active,
 input[type="submit"]:active,
 input[type="button"]:active {
   background: var(--gui-surface-active);
 }
 
-.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):disabled,
-.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.drawer-close):disabled,
+.panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.select-picker-option):not(.drawer-close):disabled,
+.assistant-panel button:not(.tab):not(.subtab):not(.origin-picker-option):not(.choice-picker-option):not(.select-picker-option):not(.drawer-close):disabled,
 input[type="submit"]:disabled,
 input[type="button"]:disabled {
   background: #f8fafc;
@@ -369,4 +369,25 @@ input[type="button"]:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.surrogate-model-row {
+  cursor: pointer;
+}
+
+.surrogate-model-row:hover td {
+  background: var(--gui-surface-hover);
+}
+
+.surrogate-model-row.active td {
+  background: #eef6ff;
+}
+
+.surrogate-model-row.active td:first-child {
+  box-shadow: inset 3px 0 0 var(--gui-accent);
+}
+
+.surrogate-model-row:focus-visible {
+  outline: 2px solid var(--gui-border-active);
+  outline-offset: -2px;
 }

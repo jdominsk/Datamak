@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import sqlite3
 import subprocess
 import tempfile
@@ -22,6 +23,65 @@ def load_module(module_name: str, path: Path):
 
 
 class TranspFullAutoGuiActionTests(unittest.TestCase):
+    def test_run_flux_gk_inputs_resolves_runtime_base_dir_without_dtwin_config(self) -> None:
+        script_path = (
+            PROJECT_ROOT / "db_update" / "Transp_full_auto" / "flux" / "run_flux_gk_inputs.py"
+        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DTWIN_FLUX_BASE_DIR": "/u/bob/DTwin/transp_full_auto",
+                "DTWIN_ROOT": "/u/bob/DTwin/transp_full_auto",
+            },
+            clear=False,
+        ):
+            module = load_module("run_flux_gk_inputs_module_env", script_path)
+            self.assertEqual(
+                module.resolve_runtime_flux_base_dir(),
+                "/u/bob/DTwin/transp_full_auto",
+            )
+
+        with mock.patch.dict(
+            os.environ,
+            {"DTWIN_ROOT": "/u/staged/transp_full_auto"},
+            clear=True,
+        ):
+            module = load_module("run_flux_gk_inputs_module_root", script_path)
+            self.assertEqual(
+                module.resolve_runtime_flux_base_dir(),
+                "/u/staged/transp_full_auto",
+            )
+
+    def test_run_flux_gk_inputs_can_release_claimed_rows_back_to_new(self) -> None:
+        module = load_module(
+            "run_flux_gk_inputs_module_release",
+            PROJECT_ROOT / "db_update" / "Transp_full_auto" / "flux" / "run_flux_gk_inputs.py",
+        )
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(
+                """
+                CREATE TABLE gk_input (
+                    id INTEGER PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    content TEXT
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO gk_input (id, status, content) VALUES (1, 'WAIT', '')"
+            )
+            conn.commit()
+
+            module.release_claimed_rows(conn, [{"id": 1}])
+
+            row = conn.execute(
+                "SELECT status, content FROM gk_input WHERE id = 1"
+            ).fetchone()
+            self.assertEqual((str(row[0]), str(row[1] or "")), ("NEW", ""))
+        finally:
+            conn.close()
+
     def test_fullauto_origin_actions_use_flux_run_and_sync(self) -> None:
         actions, notes = get_equilibria_origin_actions(
             "Alexei Transp 09 (full-auto) NEW",
@@ -496,6 +556,10 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
                     "base_dir": "/u/alice/DTwin/transp_full_auto",
                     "python_bin": "/u/alice/pyrokinetics/.venv/bin/python",
                 },
+            ), mock.patch.object(
+                module,
+                "refresh_active_flux_action",
+                side_effect=lambda main_db, origin_db_id, origin_name, log_row: log_row,
             ), mock.patch.object(module, "run_stage_step") as stage_mock, mock.patch.object(
                 module, "submit_remote_slurm"
             ) as submit_mock:
@@ -512,6 +576,124 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
             stage_mock.assert_not_called()
             submit_mock.assert_not_called()
             self.assertIn("already active", str(ctx.exception))
+
+    def test_run_on_flux_rechecks_stale_submitted_job_and_proceeds_after_failure(self) -> None:
+        module = load_module(
+            "run_on_flux_module_refresh_submitted",
+            PROJECT_ROOT / "db_update" / "Transp_full_auto" / "run_on_flux.py",
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "main.db"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE data_origin (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        origin TEXT,
+                        file_type TEXT
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE flux_action_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        data_origin_id INTEGER,
+                        data_origin_name TEXT,
+                        flux_db_name TEXT NOT NULL,
+                        remote_host TEXT NOT NULL,
+                        remote_dir TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'STAGED',
+                        slurm_job_id TEXT,
+                        status_detail TEXT,
+                        submitted_at TEXT,
+                        status_checked_at TEXT,
+                        synced_at TEXT,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO data_origin (id, name, origin, file_type)
+                    VALUES (4, 'Alexei Transp 10 (full-auto)', '/p/transparch/result/NSTX/10', 'TRANSP')
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO flux_action_log (
+                        data_origin_id, data_origin_name, flux_db_name, remote_host, remote_dir,
+                        status, slurm_job_id, submitted_at, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        4,
+                        "Alexei Transp 10 (full-auto)",
+                        "flux_equil_inputs_new.db",
+                        "alice@flux.example.org",
+                        "/u/alice/DTwin/transp_full_auto",
+                        "SUBMITTED",
+                        "2006026;flux",
+                        "2026-03-28 15:03:24",
+                        "2026-03-28 15:03:24",
+                    ),
+                )
+                conn.commit()
+
+            def fake_status_check(main_db: str, origin_id: int, origin_name: str):
+                with sqlite3.connect(main_db) as conn:
+                    conn.execute(
+                        """
+                        UPDATE flux_action_log
+                        SET status = 'FAILED',
+                            status_detail = 'FAILED|1:0|00:00:01',
+                            status_checked_at = datetime('now')
+                        WHERE data_origin_id = ?
+                        """,
+                        (origin_id,),
+                    )
+                    conn.commit()
+                return {
+                    "origin_name": origin_name,
+                    "status": "FAILED",
+                    "detail": "FAILED|1:0|00:00:01",
+                    "slurm_job_id": "2006026;flux",
+                }
+
+            flux_profile = {
+                "user": "alice",
+                "host": "flux.example.org",
+                "remote": "alice@flux.example.org",
+                "base_dir": "/u/alice/DTwin/transp_full_auto",
+                "python_bin": "/u/alice/pyrokinetics/.venv/bin/python",
+            }
+            with mock.patch.object(module, "resolve_flux_profile", return_value=flux_profile), mock.patch(
+                "db_update.Transp_full_auto.check_flux_job_status.run_status_check",
+                side_effect=fake_status_check,
+            ) as status_mock, mock.patch.object(module, "run_stage_step") as stage_mock, mock.patch.object(
+                module, "sync_runtime_support"
+            ) as sync_mock, mock.patch.object(module, "submit_remote_slurm") as submit_mock:
+                submit_mock.return_value = "2006030;flux"
+                result = module.run_for_origin(
+                    main_db=str(db_path),
+                    origin_id=4,
+                    origin_name="",
+                    partition="all",
+                    walltime="04:00:00",
+                    memory="8G",
+                )
+
+            status_mock.assert_called_once_with(str(db_path), 4, "Alexei Transp 10 (full-auto)")
+            stage_mock.assert_not_called()
+            sync_mock.assert_called_once_with(
+                "alice@flux.example.org",
+                "/u/alice/DTwin/transp_full_auto",
+                flux_profile,
+            )
+            submit_mock.assert_called_once()
+            self.assertEqual(result["slurm_job_id"], "2006030;flux")
 
     def test_sync_back_uses_origin_specific_flux_action_log_row(self) -> None:
         module = load_module(

@@ -19,17 +19,20 @@
 {% endif %}
 {% set eqp_dom_suffix = eqp_dom_suffix|default('main') %}
 <div class="chart-wrap borderless" style="margin-bottom:16px;">
-  <form method="get">
+  <form method="get" data-panel-fetch="{{ eqp_form_panel }}">
     <input type="hidden" name="db" value="{{ db_path }}" />
     <input type="hidden" name="panel" value="{{ eqp_form_panel }}" />
     <input type="hidden" name="table" value="{{ selected_table }}" />
+    {% if eqp_analyze %}
+      <input type="hidden" name="eqp_analyze" value="1" />
+    {% endif %}
     {% if not eqp_show_origin_selector and selected_origin_id %}
       <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
     {% endif %}
     <div class="row eqp-controls-row">
       {% if eqp_show_origin_selector %}
         <label for="origin_id_eqp_{{ eqp_dom_suffix }}">Data origin</label>
-        <select id="origin_id_eqp_{{ eqp_dom_suffix }}" name="origin_id" data-origin-select="1" onchange="this.form.submit()">
+        <select id="origin_id_eqp_{{ eqp_dom_suffix }}" name="origin_id" data-origin-select="1" onchange="this.form.requestSubmit()">
           {% for origin_id, origin_name, _ in data_origins %}
             <option value="{{ origin_id }}" {% if selected_origin_id == origin_id %}selected{% endif %}>
               {{ origin_id }} - {{ origin_name }}
@@ -38,7 +41,7 @@
         </select>
       {% endif %}
       <label for="eqp_method_{{ eqp_dom_suffix }}">Method</label>
-      <select id="eqp_method_{{ eqp_dom_suffix }}" name="eqp_method" onchange="this.form.submit()">
+      <select id="eqp_method_{{ eqp_dom_suffix }}" name="eqp_method" onchange="this.form.requestSubmit()">
         <option value="farthest" {% if eqp_method == 'farthest' %}selected{% endif %}>Farthest-point</option>
         <option value="kmeans" {% if eqp_method == 'kmeans' %}selected{% endif %}>K-means medoids</option>
       </select>
@@ -83,12 +86,21 @@
         style="width:120px;"
         title="Set to 0 to exclude ion_tprim &lt; 0 (adiabatic electrons)."
       />
-      <button class="eqp-update-button" type="submit">Update</button>
+      {% if eqp_analyze %}
+        <button class="eqp-update-button" type="submit">Update</button>
+      {% else %}
+        <button class="eqp-update-button" type="submit" name="eqp_analyze" value="1">Analyze inputs</button>
+      {% endif %}
       <noscript><button type="submit">Filter</button></noscript>
     </div>
   </form>
 </div>
-{% if eqp_method == 'kmeans' %}
+{% if not eqp_analyze %}
+  <div class="panel-note" style="margin-bottom:12px;">
+    This sampling analysis is now loaded on demand. Workflow stays focused on origin state by default; use <strong>Analyze inputs</strong> when you want to inspect the candidate input distribution and prepare a representative batch.
+  </div>
+{% endif %}
+{% if eqp_analyze and eqp_method == 'kmeans' %}
   <div class="panel-note" style="margin-bottom:12px;">
     K-means performance:
     {% if have_numpy %}
@@ -99,12 +111,11 @@
   </div>
 {% endif %}
 
-{% if eqp_report %}
-{% else %}
+{% if eqp_analyze and not eqp_report %}
   <div class="panel-note">No equil+plasma sampling data available.</div>
 {% endif %}
 
-{% if eqp_coverage %}
+{% if eqp_analyze and eqp_coverage %}
   <div class="panel-note" style="margin:16px 0 8px;">
     <strong>Coverage diagnostics (standardized space)</strong>
     {% if eqp_coverage.duration_sec is defined %}
@@ -149,7 +160,7 @@
   {% endif %}
 {% endif %}
 
-{% if eqp_selection %}
+{% if eqp_analyze and eqp_selection %}
   {% if eqp_selection.metrics %}
     <div class="eqp-inline-summary">
       <div class="eqp-inline-summary-main">
@@ -214,7 +225,7 @@
     <div class="panel-note">Not enough complete rows for selection.</div>
   {% endif %}
 {% endif %}
-{% if eqp_report %}
+{% if eqp_analyze and eqp_report %}
   <details class="eqp-collapsible">
     <summary>
       Statistical analysis of equilibrium and plasma parameters

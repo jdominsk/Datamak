@@ -10,6 +10,7 @@ from typing import List
 
 
 DUO_PROMPT_RE = re.compile(r"Passcode or option\s*\([^)]*\)\s*:\s*$", re.IGNORECASE)
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,6 +37,18 @@ def _clean_command(parts: List[str]) -> List[str]:
     if parts and parts[0] == "--":
         return parts[1:]
     return parts
+
+
+def _normalize_terminal_text(text: str) -> str:
+    cleaned = ANSI_ESCAPE_RE.sub("", text)
+    cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+    return cleaned
+
+
+def _is_duo_prompt_visible(rolling: str) -> bool:
+    normalized = _normalize_terminal_text(rolling)
+    last_line = normalized.split("\n")[-1]
+    return bool(DUO_PROMPT_RE.search(last_line))
 
 
 def main() -> int:
@@ -78,8 +91,8 @@ def main() -> int:
                     break
                 sys.stdout.buffer.write(data)
                 sys.stdout.buffer.flush()
-                rolling = (rolling + data.decode(errors="ignore"))[-4000:]
-                if duo_option and not auto_sent and DUO_PROMPT_RE.search(rolling):
+                rolling = (rolling + data.decode(errors="ignore"))[-8000:]
+                if duo_option and not auto_sent and _is_duo_prompt_visible(rolling):
                     os.write(master_fd, f"{duo_option}\n".encode("utf-8"))
                     auto_sent = True
 

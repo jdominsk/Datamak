@@ -210,6 +210,166 @@ def _recommend_equilibria_ai_action(
     }
 
 
+def _workflow_tool_get_origin_workflow_state(
+    *,
+    selected_origin_details: Optional[Dict[str, object]],
+    equilibria_summary: Dict[str, int],
+    equilibria_workflow_status: Dict[str, object],
+) -> Dict[str, Any]:
+    origin_id = int((selected_origin_details or {}).get("id") or 0)
+    origin_name = str((selected_origin_details or {}).get("name") or "").strip()
+    file_type = str((selected_origin_details or {}).get("file_type") or "").strip()
+    tokamak = str((selected_origin_details or {}).get("tokamak") or "").strip()
+    summary_bits = [f"{int(equilibria_summary.get('equilibria_total') or 0)} equilibria"]
+    transp_total = int(equilibria_summary.get("transp_timeseries_total") or 0)
+    if transp_total > 0:
+        summary_bits.append(f"{transp_total} transp series")
+    summary_bits.append(f"{int(equilibria_summary.get('gk_input_total') or 0)} GK inputs")
+    return {
+        "name": "get_origin_workflow_state",
+        "summary": " | ".join(summary_bits),
+        "payload": {
+            "origin_id": origin_id,
+            "origin_name": origin_name,
+            "file_type": file_type,
+            "tokamak": tokamak,
+            "summary": dict(equilibria_summary),
+            "stages": list(equilibria_workflow_status.get("stages") or []),
+            "notes": list(equilibria_workflow_status.get("notes") or []),
+        },
+    }
+
+
+def _workflow_tool_list_allowed_actions(
+    equilibria_actions: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    actions_payload = [
+        {"key": str(item.get("key") or ""), "title": str(item.get("title") or "").strip()}
+        for item in equilibria_actions
+        if str(item.get("key") or "").strip() and str(item.get("title") or "").strip()
+    ]
+    if actions_payload:
+        summary = ", ".join(item["title"] for item in actions_payload)
+    else:
+        summary = "No direct GUI action is currently allowed."
+    return {
+        "name": "list_allowed_actions",
+        "summary": summary,
+        "payload": {"actions": actions_payload},
+    }
+
+
+def _workflow_tool_check_flux_status(
+    flux_action_state: Optional[Dict[str, str]],
+) -> Dict[str, Any]:
+    status = str((flux_action_state or {}).get("status") or "").strip().upper()
+    detail = str((flux_action_state or {}).get("status_detail") or "").strip()
+    slurm_job_id = str((flux_action_state or {}).get("slurm_job_id") or "").strip()
+    flux_db_name = str((flux_action_state or {}).get("flux_db_name") or "").strip()
+    parts = [part for part in (status or "No Flux action recorded", detail, slurm_job_id, flux_db_name) if part]
+    return {
+        "name": "check_flux_status",
+        "summary": " | ".join(parts),
+        "payload": {
+            "status": status,
+            "detail": detail,
+            "slurm_job_id": slurm_job_id,
+            "flux_db_name": flux_db_name,
+        },
+    }
+
+
+def _workflow_tool_check_simulations(
+    *,
+    equilibria_workflow_status: Dict[str, object],
+    equilibria_monitor_report: Optional[Dict[str, object]],
+) -> Dict[str, Any]:
+    stage_map = {
+        str(item.get("label") or ""): item
+        for item in list(equilibria_workflow_status.get("stages") or [])
+        if isinstance(item, dict)
+    }
+    gk_batch = stage_map.get("gk_batch") or {}
+    gk_run = stage_map.get("gk_run") or {}
+    batch_count = len(list((equilibria_monitor_report or {}).get("batches") or []))
+    parts = [
+        str(gk_run.get("detail") or "").strip(),
+        str(gk_batch.get("detail") or "").strip(),
+    ]
+    if batch_count > 0:
+        parts.append(f"{batch_count} monitored batch DB(s)")
+    summary = " | ".join(part for part in parts if part) or "No batch-monitor detail is currently available."
+    return {
+        "name": "check_simulations",
+        "summary": summary,
+        "payload": {
+            "gk_batch": dict(gk_batch),
+            "gk_run": dict(gk_run),
+            "batch_count": batch_count,
+        },
+    }
+
+
+def _run_equilibria_tool_supervisor(
+    *,
+    selected_origin_details: Optional[Dict[str, object]],
+    equilibria_summary: Dict[str, int],
+    equilibria_workflow_status: Dict[str, object],
+    equilibria_actions: List[Dict[str, str]],
+    equilibria_action_notes: List[str],
+    flux_action_state: Optional[Dict[str, str]],
+    equilibria_monitor_report: Optional[Dict[str, object]],
+) -> Dict[str, Any]:
+    baseline = _recommend_equilibria_ai_action(
+        selected_origin_details=selected_origin_details,
+        equilibria_summary=equilibria_summary,
+        equilibria_workflow_status=equilibria_workflow_status,
+        equilibria_actions=equilibria_actions,
+        equilibria_action_notes=equilibria_action_notes,
+        flux_action_state=flux_action_state,
+    )
+    if not baseline.get("available"):
+        return baseline
+
+    stage_map = {
+        str(item.get("label") or ""): item
+        for item in list(equilibria_workflow_status.get("stages") or [])
+        if isinstance(item, dict)
+    }
+    tool_trace = [
+        _workflow_tool_get_origin_workflow_state(
+            selected_origin_details=selected_origin_details,
+            equilibria_summary=equilibria_summary,
+            equilibria_workflow_status=equilibria_workflow_status,
+        ),
+        _workflow_tool_list_allowed_actions(equilibria_actions),
+    ]
+    flux_tools_needed = bool(flux_action_state) or any(
+        str(item.get("key") or "").strip()
+        in {"run_on_flux", "check_flux_status", "sync_back_from_flux"}
+        for item in equilibria_actions
+    )
+    if flux_tools_needed:
+        tool_trace.append(_workflow_tool_check_flux_status(flux_action_state))
+    gk_batch_state = str((stage_map.get("gk_batch") or {}).get("state") or "").strip().upper()
+    gk_run_state = str((stage_map.get("gk_run") or {}).get("state") or "").strip().upper()
+    if equilibria_monitor_report or gk_batch_state or gk_run_state:
+        tool_trace.append(
+            _workflow_tool_check_simulations(
+                equilibria_workflow_status=equilibria_workflow_status,
+                equilibria_monitor_report=equilibria_monitor_report,
+            )
+        )
+
+    advice = dict(baseline)
+    advice["mode_label"] = "Tool-calling supervisor v1"
+    advice["tool_trace"] = tool_trace
+    advice["tool_names"] = [str(item.get("name") or "") for item in tool_trace if str(item.get("name") or "")]
+    advice["tool_policy"] = "Read-only typed tools only | actions remain approval-gated"
+    advice["tool_trace_text"] = " -> ".join(advice["tool_names"])
+    return advice
+
+
 def build_workflow_panel_context(
     *,
     conn: sqlite3.Connection,
@@ -220,6 +380,7 @@ def build_workflow_panel_context(
     plasma_origin_id: Optional[int],
     equilibria_valid_only: bool,
     monitor_report: Optional[Dict[str, object]],
+    eqp_analyze: bool,
     eqp_ion_tprim_min: Optional[float],
     eqp_max: int,
     eqp_coverage_enabled: bool,
@@ -323,13 +484,14 @@ def build_workflow_panel_context(
                 str(selected_origin_details.get("file_type") or ""),
                 flux_action_state,
             )
-            equilibria_ai_advisor = _recommend_equilibria_ai_action(
+            equilibria_ai_advisor = _run_equilibria_tool_supervisor(
                 selected_origin_details=selected_origin_details,
                 equilibria_summary=equilibria_summary,
                 equilibria_workflow_status=equilibria_workflow_status,
                 equilibria_actions=equilibria_actions,
                 equilibria_action_notes=equilibria_action_notes,
                 flux_action_state=flux_action_state,
+                equilibria_monitor_report=equilibria_monitor_report,
             )
             equilibria_monitor_report = filter_monitor_report_for_origin_fn(
                 monitor_report,
@@ -340,7 +502,7 @@ def build_workflow_panel_context(
         if plasma_origin_id is None:
             plasma_origin_id = origin_id
 
-    if selected_panel in {"equil-plasma-sampling", "equilibria"} and {
+    if eqp_analyze and selected_panel in {"equil-plasma-sampling", "equilibria"} and {
         "gk_input",
         "gk_study",
         "data_equil",

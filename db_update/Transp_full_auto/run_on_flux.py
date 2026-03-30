@@ -23,7 +23,7 @@ from database.create_gyrokinetic_db import ensure_flux_action_log_schema  # noqa
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 STEP1_SCRIPT = SCRIPT_DIR / "MainSteps_1_launch_on_laptop.sh"
-LOCAL_STAGE_DIR = ROOT_DIR / "transp_full_auto"
+LOCAL_STAGE_DIR = ROOT_DIR / "tmp" / "transp_full_auto"
 PYRO_TEMPLATE_DIR = ROOT_DIR / "pyrokinetics"
 REMOTE_STEP2_WRAPPER = "flux/run_mainsteps2_slurm.sh"
 SSH_WITH_DUO = ROOT_DIR / "tools" / "ssh_with_duo.py"
@@ -353,6 +353,28 @@ def mark_flux_action_submitted(main_db: str, log_id: int, slurm_job_id: str) -> 
         conn.commit()
 
 
+def refresh_active_flux_action(
+    main_db: str,
+    origin_db_id: int,
+    origin_name: str,
+    log_row: Optional[Dict[str, str]],
+) -> Optional[Dict[str, str]]:
+    if log_row is None:
+        return None
+    status = str(log_row.get("status") or "").strip().upper()
+    if status not in {"SUBMITTED", "RUNNING"}:
+        return log_row
+    try:
+        from db_update.Transp_full_auto.check_flux_job_status import run_status_check
+
+        run_status_check(main_db, origin_db_id, origin_name)
+    except (Exception, SystemExit):
+        return log_row
+    with sqlite3.connect(main_db) as conn:
+        ensure_flux_action_log_schema(conn)
+        return latest_flux_action(conn, origin_db_id, origin_name)
+
+
 def run_for_origin(
     main_db: str,
     origin_id: Optional[int],
@@ -367,6 +389,7 @@ def run_for_origin(
         origin = load_origin(conn, origin_id, origin_name)
         origin_db_id = int(origin["id"])
         log_row = latest_flux_action(conn, origin_db_id, origin["name"])
+    log_row = refresh_active_flux_action(main_db, origin_db_id, origin["name"], log_row)
     if log_row is not None and str(log_row.get("status") or "").upper() in {"SUBMITTED", "RUNNING"}:
         job_id = (log_row.get("slurm_job_id") or "").strip()
         job_fragment = f" (job {job_id})" if job_id else ""

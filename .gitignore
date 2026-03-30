@@ -42,3 +42,9 @@ docs
 Tasks
 *.md
 .playwright-cli
+datamak_runtime.env
+backup
+tmp
+transp_full_auto
+node_modules
+docs

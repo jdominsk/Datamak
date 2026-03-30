@@ -21,7 +21,35 @@
     <div class="panel-note" style="margin-bottom:12px;">{{ monitor_input_status_text|trim }}</div>
   {% endif %}
   {% if action_status and action_status.message %}
-    <div class="notice">{{ action_status.message }}</div>
+    <div class="notice notice-with-actions{% if action_status.is_error %} notice-error{% endif %}">
+      {% if action_status.support_bundle %}
+        <form method="post" action="/send_support_bundle" class="notice-action-form">
+          <input type="hidden" name="db" value="{{ db_path }}" />
+          <input type="hidden" name="panel" value="{{ monitor_form_panel|default('monitor') }}" />
+          {% if monitor_origin_details %}
+            <input type="hidden" name="origin_id" value="{{ monitor_origin_details['id'] }}" />
+          {% endif %}
+          <input type="hidden" name="bundle_path" value="{{ action_status.support_bundle }}" />
+          <button type="submit">Send support bundle</button>
+          <label class="notice-action-select-label">
+            <span>Email:</span>
+            <select name="compose_mode">
+              <option value="gmail" selected>Gmail</option>
+              <option value="mail">Mail</option>
+            </select>
+          </label>
+        </form>
+      {% endif %}
+      <div class="notice-text-stack">
+        <span>{{ action_status.message }}</span>
+        {% if action_status.technical_message %}
+          <details class="notice-technical">
+            <summary>Technical details</summary>
+            <pre>{{ action_status.technical_message }}</pre>
+          </details>
+        {% endif %}
+      </div>
+    </div>
   {% endif %}
   {% if actions.get("monitor_remote_runs") %}
     <form

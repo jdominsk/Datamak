@@ -11,11 +11,16 @@ import glob
 import math
 import random
 import time
+import traceback
+import zipfile
+from collections import OrderedDict
+from urllib.parse import quote
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, url_for
+from werkzeug.serving import WSGIRequestHandler
 try:
     import numpy as np
     HAVE_NUMPY = True
@@ -38,6 +43,7 @@ from gui.actions import (  # noqa: E402
     with_redirect_params,
 )
 from gui.panels.workflow import build_workflow_panel_context  # noqa: E402
+from gui.support_bundle import create_support_bundle  # noqa: E402
 
 DEFAULT_DB = os.path.join(PROJECT_DIR, "gyrokinetic_simulations.db")
 DB_UPDATE_DIR = os.path.join(PROJECT_DIR, "db_update")
@@ -54,22 +60,88 @@ AI_FEEDBACK_LOCK = threading.Lock()
 MONITOR_REPORT_PATH = os.path.join(ANALYSIS_DIR, "remote_monitor_report.json")
 HPC_TEST_PATH = os.path.join(ANALYSIS_DIR, "hpc_test_result.json")
 USAGE_LOG_PATH = os.path.join(ANALYSIS_DIR, "monitor_feedback.json")
+SUPPORT_BUNDLE_DIR = os.path.join(PROJECT_DIR, "output", "support_bundles")
 USAGE_LOG_LOCK = threading.Lock()
 DEMO_DATABASE_URL = (
     "https://drive.google.com/file/d/1XS1jpbqQICJNDR6AU_wXeYG7BM_nt4yM/view"
     "?usp=share_link"
 )
 DEMO_DATABASE_GLOB = "gyrokinetic_simulations*.db"
+SUPPORT_EMAIL_RECIPIENT = (
+    os.environ.get("DATAMAK_SUPPORT_EMAIL", "jdominsk@pppl.gov").strip()
+    or "jdominsk@pppl.gov"
+)
+GUI_DATA_CACHE_LOCK = threading.Lock()
+GUI_DATA_CACHE_MAX_ENTRIES = 128
+GUI_DATA_CACHE: "OrderedDict[tuple, object]" = OrderedDict()
+LAZY_TABLE_COUNT_TABLES = {
+    "gk_input",
+    "gk_run",
+    "sg_estimate",
+    "gk_convergence_timeseries",
+    "transp_timeseries",
+}
 
 ACTION_LOCK = threading.Lock()
+ACTION_MESSAGE_TTL_SECONDS = 20
 ACTION_STATE: Dict[str, object] = {
     "running": False,
     "name": None,
     "message": None,
+    "technical_message": None,
+    "is_error": False,
     "key": None,
+    "support_bundle": None,
     "token": 0,
     "completed_at": None,
 }
+
+QUIET_REQUEST_PATH_PREFIXES = (
+    "/action_status",
+    "/usage",
+)
+
+
+def _parse_action_completed_at(value: object) -> Optional[datetime]:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _prune_action_message_locked() -> None:
+    if ACTION_STATE.get("running") or not ACTION_STATE.get("message"):
+        return
+    completed_at = _parse_action_completed_at(ACTION_STATE.get("completed_at"))
+    if completed_at is None:
+        return
+    expires_at = completed_at + timedelta(seconds=ACTION_MESSAGE_TTL_SECONDS)
+    if datetime.now(timezone.utc) < expires_at:
+        return
+    ACTION_STATE["message"] = None
+    ACTION_STATE["technical_message"] = None
+    ACTION_STATE["is_error"] = False
+    ACTION_STATE["completed_at"] = None
+    ACTION_STATE["key"] = None
+    ACTION_STATE["support_bundle"] = None
+
+
+def _should_suppress_request_log(path: str) -> bool:
+    normalized = str(path or "").strip()
+    return any(normalized.startswith(prefix) for prefix in QUIET_REQUEST_PATH_PREFIXES)
+
+
+class DatamakRequestHandler(WSGIRequestHandler):
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        if _should_suppress_request_log(getattr(self, "path", "")):
+            return
+        super().log_request(code, size)
 
 app = Flask(__name__, static_folder="logo")
 
@@ -93,6 +165,50 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _db_cache_signature(conn: sqlite3.Connection) -> Tuple[str, int, int]:
+    db_path = ""
+    try:
+        for row in conn.execute("PRAGMA database_list").fetchall():
+            if str(row["name"] or "") == "main":
+                db_path = str(row["file"] or "")
+                break
+    except sqlite3.Error:
+        return db_path, 0, 0
+    if not db_path:
+        return db_path, 0, 0
+    try:
+        stat = os.stat(db_path)
+    except OSError:
+        return db_path, 0, 0
+    return db_path, int(stat.st_mtime_ns), int(stat.st_size)
+
+
+def _get_cached_gui_value(cache_key: tuple) -> Optional[object]:
+    with GUI_DATA_CACHE_LOCK:
+        cached = GUI_DATA_CACHE.get(cache_key)
+        if cached is None:
+            return None
+        GUI_DATA_CACHE.move_to_end(cache_key)
+        return cached
+
+
+def _set_cached_gui_value(cache_key: tuple, value: object) -> object:
+    with GUI_DATA_CACHE_LOCK:
+        GUI_DATA_CACHE[cache_key] = value
+        GUI_DATA_CACHE.move_to_end(cache_key)
+        while len(GUI_DATA_CACHE) > GUI_DATA_CACHE_MAX_ENTRIES:
+            GUI_DATA_CACHE.popitem(last=False)
+    return value
+
+
+def _should_compute_table_counts(table: Optional[str], explicit_request: bool) -> bool:
+    if explicit_request:
+        return True
+    if not table:
+        return False
+    return table not in LAZY_TABLE_COUNT_TABLES
 
 
 def load_hpc_config() -> Dict[str, str]:
@@ -120,6 +236,388 @@ def save_hpc_test_result(payload: Dict[str, object]) -> None:
     Path(HPC_TEST_PATH).parent.mkdir(parents=True, exist_ok=True)
     with open(HPC_TEST_PATH, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
+
+
+def _snapshot_action_state() -> Dict[str, object]:
+    with ACTION_LOCK:
+        state = dict(ACTION_STATE)
+    state["message"] = _sanitize_action_message_text(state.get("message"))
+    state["is_error"] = bool(state.get("is_error"))
+    return state
+
+
+def _sanitize_action_message_text(message: object) -> Optional[str]:
+    if message is None:
+        return None
+    cleaned = str(message).replace(
+        " Technical details are available below if you need them.", ""
+    ).replace(
+        "\nTechnical details are available below if you need them.", ""
+    )
+    return cleaned
+
+
+def _parse_batch_db_date_label(db_name: str) -> str:
+    match = re.match(r"batch_database_(\d{4})(\d{2})(\d{2})_\d{6}\.db$", db_name)
+    if not match:
+        return db_name
+    year, month, day = match.groups()
+    return f"{month}/{day}/{year}"
+
+
+def _parse_status_counts_fragment(fragment: str) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for part in str(fragment or "").split(","):
+        if "=" not in part:
+            continue
+        status, raw_count = part.split("=", 1)
+        status_key = status.strip()
+        count_text = raw_count.strip()
+        if not status_key:
+            continue
+        try:
+            counts[status_key] = int(count_text)
+        except ValueError:
+            continue
+    return counts
+
+
+def _format_status_counts_summary(counts: Dict[str, int]) -> str:
+    if not counts:
+        return ""
+    ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    return ", ".join(f"{status} {count}" for status, count in ordered)
+
+
+def _build_batch_sync_success_summary(raw_message: str) -> Optional[str]:
+    lines = [line.strip() for line in str(raw_message or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+
+    host = ""
+    checked_count: Optional[int] = None
+    header_match = re.search(r"Checking (\d+) batch DB\(s\) on (.+?)\.\.\.", raw_message)
+    if header_match:
+        checked_count = int(header_match.group(1))
+        host = header_match.group(2).strip()
+
+    batch_info: Dict[str, Dict[str, object]] = {}
+    for line in lines:
+        fetched_match = re.match(
+            r"^(?P<db>batch_database_\d{8}_\d{6}\.db): "
+            r"fetched_unsynced=(?P<unsynced>\d+), "
+            r"finished\([^)]+\)=(?P<finished>\d+), "
+            r"status_counts: (?P<statuses>.+)$",
+            line,
+        )
+        if fetched_match:
+            db_name = fetched_match.group("db")
+            batch_info.setdefault(db_name, {})
+            batch_info[db_name]["unsynced"] = int(fetched_match.group("unsynced"))
+            batch_info[db_name]["finished"] = int(fetched_match.group("finished"))
+            batch_info[db_name]["status_counts"] = _parse_status_counts_fragment(
+                fetched_match.group("statuses")
+            )
+            continue
+
+        png_match = re.match(
+            r"^(?P<db>batch_database_\d{8}_\d{6}\.db): rsynced (?P<count>\d+) png files?\.$",
+            line,
+        )
+        if png_match:
+            db_name = png_match.group("db")
+            batch_info.setdefault(db_name, {})
+            batch_info[db_name]["png_files"] = int(png_match.group("count"))
+            continue
+
+        sync_match = re.match(
+            r"^(?P<db>batch_database_\d{8}_\d{6}\.db): synchronizing (?P<count>\d+) runs?$",
+            line,
+        )
+        if sync_match:
+            db_name = sync_match.group("db")
+            batch_info.setdefault(db_name, {})
+            batch_info[db_name]["sync_runs"] = int(sync_match.group("count"))
+            continue
+
+    if not batch_info:
+        return None
+
+    intro_bits: List[str] = []
+    if checked_count is not None:
+        intro_bits.append(
+            f"Checked {checked_count} batch DB{'s' if checked_count != 1 else ''}"
+        )
+    if host:
+        intro_bits.append(f"on {host}")
+    intro = " ".join(intro_bits).strip()
+
+    if len(batch_info) == 1:
+        db_name, info = next(iter(batch_info.items()))
+        batch_label = _parse_batch_db_date_label(db_name)
+        run_count = int(info.get("sync_runs") or info.get("unsynced") or 0)
+        png_count = int(info.get("png_files") or 0)
+        status_counts = info.get("status_counts") or {}
+        pieces: List[str] = []
+        if intro:
+            pieces.append(f"{intro}.")
+        if run_count > 0:
+            run_phrase = f"Synchronizing {run_count} run{'s' if run_count != 1 else ''}"
+            if png_count > 0:
+                run_phrase += f", including {png_count} png file{'s' if png_count != 1 else ''}"
+            pieces.append(f"Batch {batch_label}: {run_phrase}.")
+        status_summary = _format_status_counts_summary(status_counts)
+        if status_summary:
+            pieces.append(f"Current statuses: {status_summary}.")
+        return " ".join(piece.strip() for piece in pieces if piece).strip() or None
+
+    total_runs = sum(int(info.get("sync_runs") or info.get("unsynced") or 0) for info in batch_info.values())
+    total_png = sum(int(info.get("png_files") or 0) for info in batch_info.values())
+    batches_with_sync = sum(
+        1 for info in batch_info.values() if int(info.get("sync_runs") or info.get("unsynced") or 0) > 0
+    )
+    pieces = [f"{intro}." if intro else ""]
+    if batches_with_sync > 0:
+        sync_summary = (
+            f"Synchronizing {total_runs} run{'s' if total_runs != 1 else ''} "
+            f"across {batches_with_sync} batch{'es' if batches_with_sync != 1 else ''}"
+        )
+        if total_png > 0:
+            sync_summary += f", including {total_png} png file{'s' if total_png != 1 else ''}"
+        pieces.append(sync_summary + ".")
+    return " ".join(piece.strip() for piece in pieces if piece).strip() or None
+
+
+def _build_human_friendly_success_message(
+    action_key: str,
+    action_label: str,
+    raw_message: str,
+) -> Tuple[str, Optional[str]]:
+    raw_text = str(raw_message or "").strip()
+    if not raw_text:
+        return "", None
+
+    summary: Optional[str] = None
+    if action_key == "check_launched_batches":
+        summary = _build_batch_sync_success_summary(raw_text)
+
+    if summary and summary != raw_text:
+        return summary, raw_text
+    return raw_text, None
+
+
+def _append_support_bundle_note(message: str, bundle_path: Optional[str]) -> str:
+    if not bundle_path:
+        return message
+    if "Support bundle:" in message:
+        return message
+    return f"{message} Support bundle: {bundle_path}"
+
+
+def _build_human_friendly_failure_message(
+    action_label: str,
+    technical_message: str,
+    *,
+    stdout_text: str = "",
+    stderr_text: str = "",
+    traceback_text: str = "",
+    returncode: Optional[int] = None,
+) -> str:
+    diagnostic_text = "\n".join(
+        part
+        for part in (
+            action_label,
+            technical_message,
+            stdout_text,
+            stderr_text,
+            traceback_text,
+        )
+        if part
+    )
+    lowered = diagnostic_text.lower()
+    action_prefix = f"{action_label} could not complete."
+    if (
+        "permission denied (publickey" in lowered
+        or "keyboard-interactive" in lowered
+        or "duo two-factor login" in lowered
+    ):
+        return (
+            f"{action_prefix} Datamak could not log into the remote system. "
+            "Check the saved username, SSH access, and Duo setup, then try again."
+        )
+    if "modulenotfounderror" in lowered or "no module named" in lowered:
+        return (
+            f"{action_prefix} A required Python module or staged Datamak file is missing "
+            "on the execution side. Refresh the staged scripts or environment, then retry."
+        )
+    if "unable to open database file" in lowered:
+        return (
+            f"{action_prefix} Datamak could not open the selected database file. "
+            "Check that the path exists and points to a readable SQLite database."
+        )
+    if "foreign key constraint failed" in lowered:
+        return (
+            f"{action_prefix} Datamak found inconsistent related records while writing "
+            "database updates, so it stopped to avoid corrupting the data."
+        )
+    if "check constraint failed" in lowered:
+        return (
+            f"{action_prefix} The database rejected a value because it did not match "
+            "the allowed workflow states or schema rules."
+        )
+    if "integrityerror" in lowered:
+        return (
+            f"{action_prefix} Datamak hit a database integrity check and stopped safely "
+            "before applying an invalid update."
+        )
+    if "permissionerror" in lowered or "[errno 13]" in lowered:
+        return (
+            f"{action_prefix} Datamak does not have permission to read or write one of "
+            "the required files."
+        )
+    if "file not found" in lowered or "no such file or directory" in lowered:
+        return (
+            f"{action_prefix} One of the required files or folders could not be found."
+        )
+    if "returned non-zero exit status" in lowered or returncode not in (None, 0):
+        return f"{action_prefix} The underlying command stopped before finishing."
+    return f"{action_prefix} Datamak stopped because of an unexpected error."
+
+
+def _resolve_support_bundle_path(bundle_path: str) -> Optional[Path]:
+    if not bundle_path:
+        return None
+    try:
+        candidate = Path(bundle_path).expanduser()
+        if not candidate.is_absolute():
+            candidate = (Path(PROJECT_DIR) / candidate).resolve()
+        else:
+            candidate = candidate.resolve()
+        bundle_root = Path(SUPPORT_BUNDLE_DIR).resolve()
+    except OSError:
+        return None
+    try:
+        candidate.relative_to(bundle_root)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def _set_support_bundle_feedback(message: str) -> None:
+    with ACTION_LOCK:
+        current_message = str(ACTION_STATE.get("message") or "").strip()
+        if current_message:
+            ACTION_STATE["message"] = f"{current_message}\n{message}"
+        else:
+            ACTION_STATE["message"] = message
+        ACTION_STATE["technical_message"] = None
+        ACTION_STATE["completed_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _escape_applescript(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _compose_support_bundle_mail(
+    bundle_path: Path, recipient: str, compose_mode: str = "gmail"
+) -> Tuple[bool, str]:
+    def _read_bundle_member(name: str, max_chars: int = 3000) -> str:
+        try:
+            with zipfile.ZipFile(bundle_path, "r") as archive:
+                with archive.open(name, "r") as handle:
+                    content = handle.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            return ""
+        if len(content) <= max_chars:
+            return content
+        return f"...\n{content[-max_chars:]}"
+
+    subject = f"Datamak support bundle: {bundle_path.name}"
+    error_summary = _read_bundle_member("error.txt", max_chars=1200)
+    stderr_excerpt = _read_bundle_member("stderr.txt", max_chars=2400)
+    traceback_excerpt = _read_bundle_member("traceback.txt", max_chars=2400)
+    details = error_summary
+    if stderr_excerpt:
+        details = (
+            f"{details}\n\nStderr excerpt:\n{stderr_excerpt}"
+            if details
+            else f"Stderr excerpt:\n{stderr_excerpt}"
+        )
+    elif traceback_excerpt:
+        details = (
+            f"{details}\n\nTraceback excerpt:\n{traceback_excerpt}"
+            if details
+            else f"Traceback excerpt:\n{traceback_excerpt}"
+        )
+    body = (
+        "Datamak generated a support bundle for a failed action.\n\n"
+        f"Bundle path: {bundle_path}\n\n"
+        f"{details}\n\n"
+        "You can still attach the generated zip file if more debugging context is needed.\n"
+    )
+    normalized_mode = str(compose_mode or "gmail").strip().lower()
+    if normalized_mode not in {"gmail", "mail"}:
+        normalized_mode = "gmail"
+    if normalized_mode == "mail":
+        if shutil.which("osascript"):
+            applescript = f'''
+tell application "Mail"
+  set newMessage to make new outgoing message with properties {{visible:true, subject:"{_escape_applescript(subject)}", content:"{_escape_applescript(body)}"}}
+  tell newMessage
+    make new to recipient at end of to recipients with properties {{address:"{_escape_applescript(recipient)}"}}
+    try
+      make new attachment with properties {{file name:POSIX file "{_escape_applescript(str(bundle_path))}"}} at after the last paragraph
+    end try
+  end tell
+  activate
+end tell
+'''.strip()
+            try:
+                subprocess.run(
+                    ["osascript", "-e", applescript],
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                )
+                return True, ""
+            except subprocess.CalledProcessError as exc:
+                error_text = (exc.stderr or exc.stdout or str(exc)).strip()
+                return False, error_text or "Could not open Apple Mail."
+        return False, "Apple Mail integration is not available on this system."
+    if shutil.which("open"):
+        gmail_url = (
+            "https://mail.google.com/mail/?view=cm&fs=1"
+            f"&to={quote(recipient)}"
+            f"&su={quote(subject)}"
+            f"&body={quote(body)}"
+        )
+        try:
+            subprocess.run(
+                ["open", gmail_url],
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            return True, ""
+        except subprocess.CalledProcessError as exc:
+            error_text = (exc.stderr or exc.stdout or str(exc)).strip()
+            mailto = (
+                f"mailto:{quote(recipient)}?subject={quote(subject)}&body="
+                f"{quote(body)}"
+            )
+            try:
+                subprocess.run(
+                    ["open", mailto],
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                )
+                return True, ""
+            except subprocess.CalledProcessError:
+                return False, error_text or "Could not open Gmail or the default mail client."
+    return False, "No mail-compose integration is available on this system."
 
 
 def list_tables(conn: sqlite3.Connection) -> List[str]:
@@ -392,6 +890,122 @@ def ensure_gk_surrogate_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def surrogate_commentary(summary: Dict[str, object]) -> Optional[str]:
+    count = int(summary.get("count") or 0)
+    if count <= 0:
+        return None
+
+    eval_count = int(summary.get("eval_count") or 0)
+    test_rows_raw = summary.get("test_rows")
+    test_rows = (
+        int(test_rows_raw)
+        if isinstance(test_rows_raw, (int, float)) and not isinstance(test_rows_raw, bool)
+        else None
+    )
+    rel_unc_pct_raw = summary.get("eval_relative_uncertainty_pct")
+    rel_unc_pct = (
+        float(rel_unc_pct_raw)
+        if isinstance(rel_unc_pct_raw, (int, float)) and math.isfinite(float(rel_unc_pct_raw))
+        else None
+    )
+    coverage_raw = summary.get("eval_coverage")
+    coverage = (
+        float(coverage_raw)
+        if isinstance(coverage_raw, (int, float)) and math.isfinite(float(coverage_raw))
+        else None
+    )
+    r2_raw = summary.get("eval_r2")
+    r2 = (
+        float(r2_raw)
+        if isinstance(r2_raw, (int, float)) and math.isfinite(float(r2_raw))
+        else None
+    )
+
+    sentences: List[str] = []
+    validation_rows = test_rows if test_rows is not None and test_rows > 0 else eval_count
+    if validation_rows > 0 and validation_rows < 20:
+        sentences.append(
+            f"Validation remains limited because only {validation_rows} held-out or truth-matched points are currently available."
+        )
+    elif validation_rows >= 20 and validation_rows < 50:
+        sentences.append(
+            f"Validation is based on a modest sample of {validation_rows} held-out or truth-matched points."
+        )
+
+    if rel_unc_pct is not None:
+        rel_unc_scale = rel_unc_pct / 100.0
+        rel_unc_scale_text = f"{rel_unc_scale:.2f}".rstrip("0").rstrip(".")
+        sentences.append(
+            f"The median relative uncertainty is ~{rel_unc_pct:.0f}%, meaning the typical model-reported uncertainty is about {rel_unc_scale_text}x the magnitude of the true value."
+        )
+        if rel_unc_pct >= 100:
+            sentences.append(
+                "This places the surrogate in a low-confidence regime, so the estimates should be interpreted with caution."
+            )
+        elif rel_unc_pct >= 50:
+            sentences.append(
+                "This indicates substantial uncertainty, so the surrogate is better suited to coarse ranking than to precise quantitative prediction."
+            )
+        elif rel_unc_pct >= 25:
+            sentences.append(
+                "This indicates moderate uncertainty, so the surrogate may be useful for screening, but it still requires caution."
+            )
+        else:
+            sentences.append(
+                "This indicates a relatively tight uncertainty scale, consistent with higher-confidence estimates."
+            )
+    elif eval_count <= 0:
+        sentences.append(
+            f"Predictions are available for {count:,} rows, but no ground-truth points are currently available to validate this surrogate."
+        )
+
+    if coverage is not None:
+        coverage_pct = coverage * 100.0
+        if coverage <= 0.3:
+            sentences.append(
+                f"Only ~{coverage_pct:.0f}% of validation points fall within sg_quality, suggesting that the reported uncertainty is not yet well calibrated."
+            )
+        elif coverage >= 0.7:
+            sentences.append(
+                f"About ~{coverage_pct:.0f}% of validation points fall within sg_quality, suggesting that the reported uncertainty is reasonably calibrated."
+            )
+
+    if r2 is not None:
+        if r2 < 0.2:
+            sentences.append(
+                "The low R² value indicates limited predictive skill relative to a simple mean predictor."
+            )
+        elif r2 >= 0.8:
+            sentences.append(
+                "The high R² value indicates strong predictive agreement on the available validation set."
+            )
+
+    if not sentences:
+        return None
+    return " ".join(sentences)
+
+
+def surrogate_relative_uncertainty_label(summary: Dict[str, object]) -> Optional[str]:
+    raw_value = summary.get("eval_relative_uncertainty_pct")
+    source_suffix = ""
+    if not isinstance(raw_value, (int, float)) or not math.isfinite(float(raw_value)):
+        raw_value = summary.get("relative_uncertainty_pct")
+        source_suffix = " (mean)"
+    if not isinstance(raw_value, (int, float)) or not math.isfinite(float(raw_value)):
+        return None
+
+    rel_unc_pct = float(raw_value)
+    if rel_unc_pct >= 100:
+        level = "Very high"
+    elif rel_unc_pct >= 50:
+        level = "High"
+    elif rel_unc_pct >= 25:
+        level = "Moderate"
+    else:
+        level = "Low"
+    return f"{level} relative uncertainty (~{rel_unc_pct:.0f}%){source_suffix}"
+
+
 def get_sg_estimate_summary(
     conn: sqlite3.Connection, surrogate_id: int, sample_limit: int = 20
 ) -> Dict[str, object]:
@@ -500,6 +1114,8 @@ def get_sg_estimate_summary(
         }
         for row in sample_rows
     ]
+    summary["relative_uncertainty_label"] = surrogate_relative_uncertainty_label(summary)
+    summary["commentary"] = surrogate_commentary(summary)
     return summary
 
 
@@ -1537,7 +2153,8 @@ def get_table_rows(
     limit: int = 100,
     origin_filter: Optional[int] = None,
     transpfile_regex: Optional[str] = None,
-) -> Tuple[List[str], List[sqlite3.Row], int, int]:
+    include_counts: bool = True,
+) -> Tuple[List[str], List[sqlite3.Row], Optional[int], Optional[int]]:
     columns = [
         row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
     ]
@@ -1573,14 +2190,19 @@ def get_table_rows(
     where_sql = ""
     if where_clauses:
         where_sql = " WHERE " + " AND ".join(where_clauses)
-    total_count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-    if where_sql:
-        filtered_count = conn.execute(
-            f"SELECT COUNT(*) FROM {table}{where_sql}",
-            params,
-        ).fetchone()[0]
-    else:
-        filtered_count = total_count
+    total_count: Optional[int] = None
+    filtered_count: Optional[int] = None
+    if include_counts:
+        total_count = int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        if where_sql:
+            filtered_count = int(
+                conn.execute(
+                    f"SELECT COUNT(*) FROM {table}{where_sql}",
+                    params,
+                ).fetchone()[0]
+            )
+        else:
+            filtered_count = total_count
     rows = conn.execute(
         f"SELECT * FROM {table}{where_sql} LIMIT {limit}",
         params,
@@ -1963,32 +2585,37 @@ PLASMA_REGIME_DEFAULTS = ["electron_dens", "electron_temp", "ion_temp"]
 def get_gk_input_points(
     conn: sqlite3.Connection, x_col: str, y_col: str, origin_id: Optional[int]
 ) -> List[dict]:
-    base_query = f"""
-        SELECT {x_col}, {y_col}, do.name, do.color
-        FROM gk_input
-        JOIN gk_study ON gk_study.id = gk_input.gk_study_id
-        JOIN data_equil ON data_equil.id = gk_study.data_equil_id
-        JOIN data_origin AS do ON do.id = data_equil.data_origin_id
-        WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL
-    """
-    params = []
-    if origin_id is not None:
-        base_query += " AND data_equil.data_origin_id = ?"
-        params.append(origin_id)
-    try:
-        rows = conn.execute(base_query, params).fetchall()
-    except sqlite3.OperationalError:
-        return []
-    points = []
-    for x_val, y_val, origin_name, origin_color in rows:
-        points.append(
-            {
-                "x": float(x_val),
-                "y": float(y_val),
-                "color": data_origin_color(origin_name, origin_color),
-            }
+    cache_key = ("gk_input_points", *_db_cache_signature(conn), x_col, y_col, origin_id)
+    cached = _get_cached_gui_value(cache_key)
+    if cached is None:
+        base_query = f"""
+            SELECT {x_col}, {y_col}, do.name, do.color
+            FROM gk_input
+            JOIN gk_study ON gk_study.id = gk_input.gk_study_id
+            JOIN data_equil ON data_equil.id = gk_study.data_equil_id
+            JOIN data_origin AS do ON do.id = data_equil.data_origin_id
+            WHERE {x_col} IS NOT NULL AND {y_col} IS NOT NULL
+        """
+        params = []
+        if origin_id is not None:
+            base_query += " AND data_equil.data_origin_id = ?"
+            params.append(origin_id)
+        try:
+            rows = conn.execute(base_query, params).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        cached = _set_cached_gui_value(
+            cache_key,
+            tuple(
+                (
+                    float(x_val),
+                    float(y_val),
+                    data_origin_color(origin_name, origin_color),
+                )
+                for x_val, y_val, origin_name, origin_color in rows
+            ),
         )
-    return points
+    return [{"x": x, "y": y, "color": color} for x, y, color in cached]
 
 
 def _as_finite_float(value: object) -> Optional[float]:
@@ -2046,17 +2673,28 @@ def _column_basic_stats(values: List[float], total_rows: int) -> Dict[str, objec
 def get_sampling_dataset(
     conn: sqlite3.Connection, origin_id: Optional[int], columns: List[str]
 ) -> Tuple[List[Dict[str, Optional[float]]], int]:
-    base_query = f"""
-        SELECT gk_input.id, {", ".join(columns)}
-        FROM gk_input
-        JOIN gk_study ON gk_study.id = gk_input.gk_study_id
-        JOIN data_equil ON data_equil.id = gk_study.data_equil_id
-    """
-    params: List[object] = []
-    if origin_id is not None:
-        base_query += " WHERE data_equil.data_origin_id = ?"
-        params.append(origin_id)
-    rows = conn.execute(base_query, params).fetchall()
+    cache_key = (
+        "sampling_dataset",
+        *_db_cache_signature(conn),
+        origin_id,
+        tuple(columns),
+    )
+    rows = _get_cached_gui_value(cache_key)
+    if rows is None:
+        base_query = f"""
+            SELECT gk_input.id, {", ".join(columns)}
+            FROM gk_input
+            JOIN gk_study ON gk_study.id = gk_input.gk_study_id
+            JOIN data_equil ON data_equil.id = gk_study.data_equil_id
+        """
+        params: List[object] = []
+        if origin_id is not None:
+            base_query += " WHERE data_equil.data_origin_id = ?"
+            params.append(origin_id)
+        rows = _set_cached_gui_value(
+            cache_key,
+            tuple(tuple(row) for row in conn.execute(base_query, params).fetchall()),
+        )
     dataset: List[Dict[str, Optional[float]]] = []
     for row in rows:
         item: Dict[str, Optional[float]] = {}
@@ -2940,29 +3578,41 @@ def get_equil_plasma_dataset(
         "gk_input.tripri",
         "gk_input.betaprim",
     ]
-    base_query = f"""
-        SELECT {", ".join(columns)}
-        FROM gk_input
-        JOIN gk_study ON gk_study.id = gk_input.gk_study_id
-        JOIN data_equil ON data_equil.id = gk_study.data_equil_id
-    """
-    params: List[object] = []
-    if origin_id is not None:
-        base_query += " WHERE data_equil.data_origin_id = ?"
-        params.append(origin_id)
-    if status_filter is not None:
-        if "WHERE" in base_query:
-            base_query += " AND gk_input.status = ?"
-        else:
-            base_query += " WHERE gk_input.status = ?"
-        params.append(status_filter)
-    if ion_tprim_min is not None:
-        if "WHERE" in base_query:
-            base_query += " AND gk_input.ion_tprim >= ?"
-        else:
-            base_query += " WHERE gk_input.ion_tprim >= ?"
-        params.append(ion_tprim_min)
-    rows = conn.execute(base_query, params).fetchall()
+    cache_key = (
+        "equil_plasma_dataset",
+        *_db_cache_signature(conn),
+        origin_id,
+        status_filter,
+        ion_tprim_min,
+    )
+    rows = _get_cached_gui_value(cache_key)
+    if rows is None:
+        base_query = f"""
+            SELECT {", ".join(columns)}
+            FROM gk_input
+            JOIN gk_study ON gk_study.id = gk_input.gk_study_id
+            JOIN data_equil ON data_equil.id = gk_study.data_equil_id
+        """
+        params: List[object] = []
+        if origin_id is not None:
+            base_query += " WHERE data_equil.data_origin_id = ?"
+            params.append(origin_id)
+        if status_filter is not None:
+            if "WHERE" in base_query:
+                base_query += " AND gk_input.status = ?"
+            else:
+                base_query += " WHERE gk_input.status = ?"
+            params.append(status_filter)
+        if ion_tprim_min is not None:
+            if "WHERE" in base_query:
+                base_query += " AND gk_input.ion_tprim >= ?"
+            else:
+                base_query += " WHERE gk_input.ion_tprim >= ?"
+            params.append(ion_tprim_min)
+        rows = _set_cached_gui_value(
+            cache_key,
+            tuple(tuple(row) for row in conn.execute(base_query, params).fetchall()),
+        )
     dataset: List[Dict[str, Optional[float]]] = []
     for row in rows:
         (
@@ -3193,60 +3843,75 @@ def get_results_points_any(
     results_filter: str,
     origin_id: Optional[int],
 ) -> Tuple[List[dict], bool]:
-    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    axis_x = _axis_info(conn, x_col, "x")
-    axis_y = _axis_info(conn, y_col, "y")
-    if axis_x is None or axis_y is None:
-        return [], False
-    joins = []
-    params: List[object] = []
-    needs_gk_run = axis_x["needs_gk_run"] or axis_y["needs_gk_run"]
-    joins.extend(axis_x["joins"])
-    joins.extend(axis_y["joins"])
-    params.extend(axis_x["params"])
-    params.extend(axis_y["params"])
-    if results_filter in {"finished", "growth"}:
-        needs_gk_run = True
-    if needs_gk_run and "gk_run" not in tables:
-        return [], False
-    if needs_gk_run:
-        joins.append("JOIN gk_run AS gr ON gr.gk_input_id = gk_input.id")
-    joins.append("JOIN gk_study ON gk_study.id = gk_input.gk_study_id")
-    joins.append("JOIN data_equil ON data_equil.id = gk_study.data_equil_id")
-    joins.append("JOIN data_origin AS do ON do.id = data_equil.data_origin_id")
-    where_clauses = []
-    where_clauses.extend(axis_x["where"])
-    where_clauses.extend(axis_y["where"])
-    if results_filter == "finished":
-        where_clauses.append("gr.status IN ('SUCCESS', 'CONVERGED')")
-    if results_filter == "growth":
-        where_clauses.append("gr.gamma_max IS NOT NULL AND gr.gamma_max != 0")
-    if origin_id is not None:
-        where_clauses.append("data_equil.data_origin_id = ?")
-        params.append(origin_id)
-    base_query = (
-        f"SELECT DISTINCT {axis_x['expr']}, {axis_y['expr']}, do.name, do.color "
-        "FROM gk_input "
-        + " ".join(joins)
+    cache_key = (
+        "results_points_any",
+        *_db_cache_signature(conn),
+        x_col,
+        y_col,
+        results_filter,
+        origin_id,
     )
-    if where_clauses:
-        base_query += " WHERE " + " AND ".join(where_clauses)
-    rows = conn.execute(base_query, params).fetchall()
-    points = []
-    has_non_finite = False
-    for x_val, y_val, origin_name, origin_color in rows:
-        try:
-            x_float = float(x_val)
-            y_float = float(y_val)
-        except (TypeError, ValueError):
-            has_non_finite = True
-            continue
-        if not math.isfinite(x_float) or not math.isfinite(y_float):
-            has_non_finite = True
-            continue
-        color = data_origin_color(origin_name, origin_color)
-        points.append({"x": x_float, "y": y_float, "color": color})
-    return points, has_non_finite
+    cached = _get_cached_gui_value(cache_key)
+    if cached is None:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        axis_x = _axis_info(conn, x_col, "x")
+        axis_y = _axis_info(conn, y_col, "y")
+        if axis_x is None or axis_y is None:
+            return [], False
+        joins = []
+        params: List[object] = []
+        needs_gk_run = axis_x["needs_gk_run"] or axis_y["needs_gk_run"]
+        joins.extend(axis_x["joins"])
+        joins.extend(axis_y["joins"])
+        params.extend(axis_x["params"])
+        params.extend(axis_y["params"])
+        if results_filter in {"finished", "growth"}:
+            needs_gk_run = True
+        if needs_gk_run and "gk_run" not in tables:
+            return [], False
+        if needs_gk_run:
+            joins.append("JOIN gk_run AS gr ON gr.gk_input_id = gk_input.id")
+        joins.append("JOIN gk_study ON gk_study.id = gk_input.gk_study_id")
+        joins.append("JOIN data_equil ON data_equil.id = gk_study.data_equil_id")
+        joins.append("JOIN data_origin AS do ON do.id = data_equil.data_origin_id")
+        where_clauses = []
+        where_clauses.extend(axis_x["where"])
+        where_clauses.extend(axis_y["where"])
+        if results_filter == "finished":
+            where_clauses.append("gr.status IN ('SUCCESS', 'CONVERGED')")
+        if results_filter == "growth":
+            where_clauses.append("gr.gamma_max IS NOT NULL AND gr.gamma_max != 0")
+        if origin_id is not None:
+            where_clauses.append("data_equil.data_origin_id = ?")
+            params.append(origin_id)
+        base_query = (
+            f"SELECT DISTINCT {axis_x['expr']}, {axis_y['expr']}, do.name, do.color "
+            "FROM gk_input "
+            + " ".join(joins)
+        )
+        if where_clauses:
+            base_query += " WHERE " + " AND ".join(where_clauses)
+        rows = conn.execute(base_query, params).fetchall()
+        points = []
+        has_non_finite = False
+        for x_val, y_val, origin_name, origin_color in rows:
+            try:
+                x_float = float(x_val)
+                y_float = float(y_val)
+            except (TypeError, ValueError):
+                has_non_finite = True
+                continue
+            if not math.isfinite(x_float) or not math.isfinite(y_float):
+                has_non_finite = True
+                continue
+            color = data_origin_color(origin_name, origin_color)
+            points.append((x_float, y_float, color))
+        cached = _set_cached_gui_value(cache_key, (tuple(points), has_non_finite))
+    point_rows, has_non_finite = cached
+    return (
+        [{"x": x_float, "y": y_float, "color": color} for x_float, y_float, color in point_rows],
+        has_non_finite,
+    )
     use_gk_run = True
     if y_col.startswith("gk_run."):
         y_field = y_col.split(".", 1)[1]
@@ -3531,12 +4196,19 @@ def get_surrogate_results_points(
 
 def get_action_state() -> Dict[str, Optional[str]]:
     with ACTION_LOCK:
-        return dict(ACTION_STATE)
+        _prune_action_message_locked()
+        state = dict(ACTION_STATE)
+    state["message"] = _sanitize_action_message_text(state.get("message"))
+    return state
 
 
 @app.route("/action_status")
 def action_status():
-    return jsonify(get_action_state())
+    response = jsonify(get_action_state())
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 def get_gamma_max_status_report(
@@ -3589,27 +4261,73 @@ def _run_action(
     db_path: Optional[str],
     extra_args: Optional[List[str]] = None,
     env_overrides: Optional[Dict[str, str]] = None,
+    failure_context: Optional[Dict[str, object]] = None,
 ) -> None:
+    action_key = spec.key
+    action_label = spec.label
+    script_path = spec.script
+    script_args: List[str] = list(spec.args)
+    use_db = spec.use_db
+    db_arg = spec.db_arg
+    capture_output = spec.capture_output
+    message: Optional[str] = None
+    technical_message: Optional[str] = None
+    support_bundle_path: Optional[str] = None
+    is_error = False
+
+    if extra_args:
+        script_args = [*script_args, *extra_args]
+    if use_db and db_path:
+        if db_arg:
+            script_args = [*script_args, db_arg, db_path]
+        else:
+            script_args = [*script_args, db_path]
+    env = os.environ.copy()
+    if env_overrides:
+        env.update(env_overrides)
+    cmd = [sys.executable, script_path, *script_args]
+    panel_name = str((failure_context or {}).get("panel") or "action")
+    redirect_params = dict((failure_context or {}).get("redirect_params") or {})
+
+    def _create_failure_bundle(
+        *,
+        failure_kind: str,
+        returncode: Optional[int],
+        stdout_text: str,
+        stderr_text: str,
+        traceback_text: str,
+    ) -> Optional[str]:
+        try:
+            hpc_config = load_hpc_config()
+        except Exception:
+            hpc_config = {}
+        action_state_snapshot = _snapshot_action_state()
+        action_state_snapshot["running"] = False
+        action_state_snapshot["name"] = None
+        action_state_snapshot["key"] = action_key
+        return create_support_bundle(
+            bundle_dir=SUPPORT_BUNDLE_DIR,
+            project_dir=PROJECT_DIR,
+            usage_log_path=USAGE_LOG_PATH,
+            action_key=action_key,
+            action_label=action_label,
+            script_path=script_path,
+            command=cmd,
+            db_path=db_path,
+            panel=panel_name,
+            redirect_params=redirect_params,
+            env_overrides=env_overrides,
+            failure_kind=failure_kind,
+            returncode=returncode,
+            stdout=stdout_text,
+            stderr=stderr_text,
+            traceback_text=traceback_text,
+            action_state=action_state_snapshot,
+            hpc_config=hpc_config,
+        )
+
     try:
-        action_key = spec.key
-        action_label = spec.label
-        script_path = spec.script
-        script_args: List[str] = list(spec.args)
-        use_db = spec.use_db
-        db_arg = spec.db_arg
-        capture_output = spec.capture_output
-        if extra_args:
-            script_args = [*script_args, *extra_args]
-        if use_db and db_path:
-            if db_arg:
-                script_args = [*script_args, db_arg, db_path]
-            else:
-                script_args = [*script_args, db_path]
-        env = os.environ.copy()
-        if env_overrides:
-            env.update(env_overrides)
         if capture_output:
-            cmd = [sys.executable, script_path, *script_args]
             if action_key == "train_gamma_surrogate":
                 def _run_surrogate_once(
                     run_args: List[str],
@@ -3729,13 +4447,39 @@ def _run_action(
                     if len(combined) > 2000:
                         combined = combined[:2000].rstrip() + "\n... (truncated)"
                 if result.returncode != 0:
-                    message = (
+                    is_error = True
+                    technical_message = (
                         f"Action '{action_label}' failed:\n{combined}"
                         if combined
                         else f"Action '{action_label}' failed."
                     )
+                    support_bundle_path = _create_failure_bundle(
+                        failure_kind="nonzero_return",
+                        returncode=result.returncode,
+                        stdout_text=stdout,
+                        stderr_text=stderr,
+                        traceback_text="",
+                    )
+                    technical_message = _append_support_bundle_note(
+                        technical_message, support_bundle_path
+                    )
+                    message = _build_human_friendly_failure_message(
+                        action_label,
+                        technical_message,
+                        stdout_text=stdout,
+                        stderr_text=stderr,
+                        returncode=result.returncode,
+                    )
                 else:
-                    message = combined if combined else None
+                    if combined:
+                        message, technical_message = _build_human_friendly_success_message(
+                            action_key,
+                            action_label,
+                            combined,
+                        )
+                    else:
+                        message = None
+                        technical_message = None
             else:
                 result = subprocess.run(
                     cmd,
@@ -3753,23 +4497,49 @@ def _run_action(
                     print(combined)
                     if len(combined) > 2000:
                         combined = combined[:2000].rstrip() + "\n... (truncated)"
-                    message = combined
+                    message, technical_message = _build_human_friendly_success_message(
+                        action_key,
+                        action_label,
+                        combined,
+                    )
                 else:
                     message = None
+                    technical_message = None
         else:
-            subprocess.run([sys.executable, script_path, *script_args], check=True, env=env)
+            subprocess.run(cmd, check=True, env=env)
             message = None
+            technical_message = None
     except subprocess.CalledProcessError as exc:
+        is_error = True
         stdout = (exc.stdout or "").strip() if capture_output else ""
         stderr = (exc.stderr or "").strip() if capture_output else ""
         combined = "\n".join([chunk for chunk in (stdout, stderr) if chunk])
+        traceback_text = traceback.format_exc()
         if combined:
             print(combined)
             if len(combined) > 2000:
                 combined = combined[:2000].rstrip() + "\n... (truncated)"
-            message = f"Action '{action_label}' failed:\n{combined}"
+            technical_message = f"Action '{action_label}' failed:\n{combined}"
         else:
-            message = f"Action '{action_label}' failed: {exc}"
+            technical_message = f"Action '{action_label}' failed: {exc}"
+        support_bundle_path = _create_failure_bundle(
+            failure_kind="called_process_error",
+            returncode=exc.returncode,
+            stdout_text=stdout,
+            stderr_text=stderr,
+            traceback_text=traceback_text,
+        )
+        technical_message = _append_support_bundle_note(
+            technical_message, support_bundle_path
+        )
+        message = _build_human_friendly_failure_message(
+            action_label,
+            technical_message,
+            stdout_text=stdout,
+            stderr_text=stderr,
+            traceback_text=traceback_text,
+            returncode=exc.returncode,
+        )
         if action_key == "test_hpc_connection":
             save_hpc_test_result(
                 {
@@ -3780,18 +4550,77 @@ def _run_action(
                 }
             )
     except Exception as exc:
-        message = f"Action '{action_label}' failed: {exc}"
+        is_error = True
+        technical_message = f"Action '{action_label}' failed: {exc}"
+        support_bundle_path = _create_failure_bundle(
+            failure_kind="exception",
+            returncode=None,
+            stdout_text="",
+            stderr_text=str(exc),
+            traceback_text=traceback.format_exc(),
+        )
+        technical_message = _append_support_bundle_note(
+            technical_message, support_bundle_path
+        )
+        message = _build_human_friendly_failure_message(
+            action_label,
+            technical_message,
+            stderr_text=str(exc),
+            traceback_text=traceback.format_exc(),
+        )
     if message:
         print(message)
     with ACTION_LOCK:
         ACTION_STATE["running"] = False
         ACTION_STATE["name"] = None
         ACTION_STATE["message"] = message
+        ACTION_STATE["technical_message"] = technical_message
+        ACTION_STATE["is_error"] = is_error
+        ACTION_STATE["support_bundle"] = support_bundle_path
         ACTION_STATE["completed_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
 
 def _redirect_to_index(**kwargs):
     return redirect(url_for("index", **kwargs))
+
+
+def _support_bundle_redirect_kwargs(form_data: object) -> Dict[str, object]:
+    kwargs: Dict[str, object] = {
+        "panel": request.form.get("panel", "action"),
+        "db": request.form.get("db", DEFAULT_DB),
+    }
+    origin_id = request.form.get("origin_id", "").strip()
+    if origin_id.isdigit():
+        kwargs["origin_id"] = origin_id
+    surrogate_tab = request.form.get("surrogate_tab", "").strip().lower()
+    if surrogate_tab in {"models", "train"}:
+        kwargs["surrogate_tab"] = surrogate_tab
+    if request.form.get("equilibria_valid_only", "").strip().lower() in {"1", "true", "on", "yes"}:
+        kwargs["equilibria_valid_only"] = "1"
+    table_name = request.form.get("table", "").strip()
+    if table_name:
+        kwargs["table"] = table_name
+    return kwargs
+
+
+@app.route("/send_support_bundle", methods=["POST"])
+def send_support_bundle():
+    redirect_kwargs = _support_bundle_redirect_kwargs(request.form)
+    bundle_path = _resolve_support_bundle_path(request.form.get("bundle_path", ""))
+    if bundle_path is None:
+        _set_support_bundle_feedback(
+            "Support bundle could not be found anymore. Please rerun the failed action if needed."
+        )
+        return _redirect_to_index(**redirect_kwargs)
+    compose_mode = request.form.get("compose_mode", "gmail").strip().lower()
+    ok, error = _compose_support_bundle_mail(
+        bundle_path,
+        SUPPORT_EMAIL_RECIPIENT,
+        compose_mode=compose_mode,
+    )
+    if not ok:
+        _set_support_bundle_feedback(f"Could not open support-bundle email draft: {error}")
+    return _redirect_to_index(**redirect_kwargs)
 
 
 @app.route("/copy_demo_database", methods=["POST"])
@@ -3832,7 +4661,14 @@ def _redirect_after_validation_error(
     exc: ActionValidationError,
 ):
     with ACTION_LOCK:
+        ACTION_STATE["running"] = False
+        ACTION_STATE["name"] = None
         ACTION_STATE["message"] = exc.message
+        ACTION_STATE["technical_message"] = None
+        ACTION_STATE["is_error"] = True
+        ACTION_STATE["key"] = None
+        ACTION_STATE["support_bundle"] = None
+        ACTION_STATE["completed_at"] = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     merged_redirect_params = dict(redirect_params or {})
     if exc.redirect_params:
         merged_redirect_params.update(exc.redirect_params)
@@ -3853,12 +4689,16 @@ def _start_action(
         if ACTION_STATE["running"]:
             current = ACTION_STATE["name"] or "another action"
             ACTION_STATE["message"] = f"Action '{current}' is already running."
+            ACTION_STATE["is_error"] = False
             return _redirect_to_index(panel=panel, db=db_path)
         ACTION_STATE["token"] = int(ACTION_STATE.get("token") or 0) + 1
         ACTION_STATE["running"] = True
         ACTION_STATE["name"] = spec.label
         ACTION_STATE["message"] = f"Action '{spec.label}' is running."
+        ACTION_STATE["technical_message"] = None
+        ACTION_STATE["is_error"] = False
         ACTION_STATE["key"] = spec.key
+        ACTION_STATE["support_bundle"] = None
         ACTION_STATE["completed_at"] = None
     thread = threading.Thread(
         target=_run_action,
@@ -3867,6 +4707,10 @@ def _start_action(
             db_path,
             resolved.extra_args or None,
             resolved.env_overrides,
+            {
+                "panel": panel,
+                "redirect_params": dict(resolved.redirect_params or {}),
+            },
         ),
         daemon=True,
     )
@@ -4147,6 +4991,7 @@ def index():
         int(table_origin_raw) if table_origin_raw and table_origin_raw.isdigit() else None
     )
     table_transpfile_regex = request.args.get("table_transpfile_regex", "").strip()
+    table_counts_requested = request.args.get("table_counts") in {"1", "true", "on", "yes"}
     table_limit_raw = request.args.get("table_limit", "100")
     if table_limit_raw.isdigit():
         table_limit = int(table_limit_raw)
@@ -4184,6 +5029,7 @@ def index():
     )
     sampling_report_file = request.args.get("sampling_report_file", "")
     sampling_tab = (request.args.get("sampling_tab") or "equil").strip().lower()
+    surrogate_tab = (request.args.get("surrogate_tab") or "models").strip().lower()
     if panel_param == "equil-plasma-sampling":
         selected_panel = "equilibria"
     elif panel_param == "monitor":
@@ -4200,6 +5046,8 @@ def index():
         selected_panel = "sampling"
     if sampling_tab not in {"equil", "plasma", "batch"}:
         sampling_tab = "equil"
+    if surrogate_tab not in {"models", "train"}:
+        surrogate_tab = "models"
     sampling_batch_origin_raw = request.args.get("sampling_batch_origin_id")
     sampling_batch_origin_id = (
         int(sampling_batch_origin_raw)
@@ -4219,6 +5067,7 @@ def index():
     eqp_method = request.args.get("eqp_method", "farthest").strip().lower()
     if eqp_method not in {"farthest", "kmeans"}:
         eqp_method = "farthest"
+    eqp_analyze = request.args.get("eqp_analyze") in {"1", "true", "on", "yes"}
     sampling_target_raw = request.args.get("sampling_target", "50")
     sampling_target = (
         int(sampling_target_raw) if sampling_target_raw.isdigit() else 50
@@ -4426,12 +5275,18 @@ def index():
     equilibria_ai_advisor: Dict[str, object] = {"available": False}
     equilibria_monitor_report: Optional[Dict[str, object]] = monitor_report
     results_columns = build_results_columns(surrogate_models=surrogate_models)
-    table_total_count = 0
-    table_filtered_count = 0
+    table_total_count: Optional[int] = None
+    table_filtered_count: Optional[int] = None
     table_schema_rows: List[Dict[str, str]] = []
+    table_counts_loaded = False
     ai_suggestions: List[Dict[str, object]] = []
     demo_database_candidates: List[Dict[str, str]] = []
     data_origin_colors: Dict[str, str] = {}
+    compute_tables_panel = selected_panel == "tables"
+    compute_sampling_panel = selected_panel == "sampling"
+    compute_surrogate_panel = selected_panel == "surrogate"
+    compute_results_panel = selected_panel == "results"
+    compute_workflow_panel = selected_panel == "equilibria"
 
     def build_index_context(**overrides: object) -> Dict[str, object]:
         context: Dict[str, object] = {
@@ -4464,6 +5319,8 @@ def index():
             "table_total_count": table_total_count,
             "table_filtered_count": table_filtered_count,
             "table_schema_rows": table_schema_rows,
+            "table_counts_requested": table_counts_requested,
+            "table_counts_loaded": table_counts_loaded,
             "table_origin_id": table_origin_id,
             "table_transpfile_regex": table_transpfile_regex,
             "stats_points": stats_points,
@@ -4559,6 +5416,7 @@ def index():
             "hpc_test_result": hpc_test_result,
             "surrogate_models": surrogate_models,
             "surrogate_model_selected": surrogate_model_selected,
+            "surrogate_tab": surrogate_tab,
             "plasma_origin_id": plasma_origin_id,
             "plasma_report": plasma_report,
             "plasma_coverage": plasma_coverage,
@@ -4573,6 +5431,7 @@ def index():
             "plasma_target": plasma_target,
             "plasma_max": plasma_max,
             "eqp_method": eqp_method,
+            "eqp_analyze": eqp_analyze,
             "eqp_target": eqp_target,
             "eqp_max": eqp_max,
             "eqp_coverage_enabled": eqp_coverage_enabled,
@@ -4639,11 +5498,24 @@ def index():
             pass
         ai_feedback = load_ai_feedback()
         ai_suggestions = get_ai_suggestions(conn, ai_feedback)
-        table_total_count = 0
-        table_filtered_count = 0
+        table_total_count = None
+        table_filtered_count = None
         data_origin_colors: Dict[str, str] = {}
-        surrogate_models = list_surrogate_models_db(conn) if "gk_surrogate" in tables else []
-        if surrogate_models:
+        if "data_origin" in tables:
+            data_origins = get_data_origins(conn)
+            data_origin_colors = {
+                origin_name: data_origin_color(origin_name, origin_color)
+                for _, origin_name, origin_color in data_origins
+            }
+            if origin_id is None and data_origins:
+                origin_id = data_origins[0][0]
+            if sampling_origin_id is None:
+                sampling_origin_id = origin_id
+            if plasma_origin_id is None:
+                plasma_origin_id = origin_id
+        if compute_surrogate_panel or compute_results_panel:
+            surrogate_models = list_surrogate_models_db(conn) if "gk_surrogate" in tables else []
+        if compute_surrogate_panel and surrogate_models:
             model_ids: List[int] = []
             for model in surrogate_models:
                 try:
@@ -4652,9 +5524,9 @@ def index():
                     continue
             if surrogate_id is None or (model_ids and surrogate_id not in model_ids):
                 surrogate_id = model_ids[0] if model_ids else None
-        if surrogate_id is not None and "sg_estimate" in tables:
+        if compute_surrogate_panel and surrogate_id is not None and "sg_estimate" in tables:
             surrogate_estimate_summary = get_sg_estimate_summary(conn, surrogate_id)
-        if "gk_run" in tables:
+        if compute_results_panel and "gk_run" in tables:
             gk_run_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(gk_run)").fetchall()
@@ -4662,9 +5534,11 @@ def index():
             results_columns = build_results_columns(gk_run_columns, surrogate_models)
             if not results_columns:
                 results_columns = build_results_columns(surrogate_models=surrogate_models)
+        elif compute_results_panel:
+            results_columns = build_results_columns(surrogate_models=surrogate_models)
         if selected_table not in tables:
             selected_table = tables[0] if tables else None
-        if selected_table:
+        if compute_tables_panel and selected_table:
             table_schema_rows = get_table_schema_rows(conn, selected_table)
             if table_transpfile_regex:
                 def _regexp(expr, item):
@@ -4674,6 +5548,10 @@ def index():
                         return 0
 
                 conn.create_function("REGEXP", 2, _regexp)
+            include_table_counts = _should_compute_table_counts(
+                selected_table,
+                table_counts_requested,
+            )
             columns, rows, table_total_count, table_filtered_count = get_table_rows(
                 conn,
                 selected_table,
@@ -4681,116 +5559,118 @@ def index():
                 table_limit,
                 table_origin_id,
                 table_transpfile_regex if table_transpfile_regex else None,
+                include_counts=include_table_counts,
             )
-        if "gk_input" in tables:
+            table_counts_loaded = table_total_count is not None
+        if compute_sampling_panel and "gk_input" in tables:
             gk_input_columns = get_table_columns(conn, "gk_input")
             stats_points = get_gk_input_points(conn, x_col, y_col, origin_id)
             stats_points_2 = get_gk_input_points(conn, x2_col, y2_col, origin_id)
             stats_points_3 = get_gk_input_points(conn, x3_col, y3_col, origin_id)
             stats_points_4 = get_gk_input_points(conn, x4_col, y4_col, origin_id)
-            if selected_panel in ("sampling", "plasma-sampling"):
+            dataset, total_rows = get_sampling_dataset(
+                conn, sampling_origin_id, MHD_COLUMNS
+            )
+            sampling_report = build_sampling_report(dataset, total_rows, MHD_COLUMNS)
+            sampling_coverage = build_sampling_coverage(
+                dataset, MHD_COLUMNS, sampling_max
+            )
+            sampling_regimes = build_sampling_regimes(
+                dataset, MHD_COLUMNS, params=MHD_REGIME_DEFAULTS
+            )
+            sampling_cluster = build_sampling_clustering(
+                dataset, MHD_COLUMNS, sampling_k, sampling_max
+            )
+            sampling_pca = build_sampling_pca(dataset, MHD_COLUMNS, max_points=sampling_max)
+            sampling_selection = build_sampling_selection(
+                dataset, MHD_COLUMNS, sampling_target, sampling_max, id_column=MHD_ID_COLUMN
+            )
+            plasma_columns = [col for col in PLASMA_COLUMNS if col in gk_input_columns]
+            plasma_missing_columns = [
+                col for col in PLASMA_COLUMNS if col not in gk_input_columns
+            ]
+            if plasma_columns:
                 dataset, total_rows = get_sampling_dataset(
-                    conn, sampling_origin_id, MHD_COLUMNS
+                    conn, plasma_origin_id, plasma_columns
                 )
-                sampling_report = build_sampling_report(dataset, total_rows, MHD_COLUMNS)
-                sampling_coverage = build_sampling_coverage(
-                    dataset, MHD_COLUMNS, sampling_max
+                plasma_report = build_sampling_report(
+                    dataset, total_rows, plasma_columns
                 )
-                sampling_regimes = build_sampling_regimes(
-                    dataset, MHD_COLUMNS, params=MHD_REGIME_DEFAULTS
+                plasma_coverage = build_sampling_coverage(
+                    dataset, plasma_columns, plasma_max
                 )
-                sampling_cluster = build_sampling_clustering(
-                    dataset, MHD_COLUMNS, sampling_k, sampling_max
+                plasma_regimes = build_sampling_regimes(
+                    dataset, plasma_columns, params=PLASMA_REGIME_DEFAULTS
                 )
-                sampling_pca = build_sampling_pca(dataset, MHD_COLUMNS, max_points=sampling_max)
-                sampling_selection = build_sampling_selection(
-                    dataset, MHD_COLUMNS, sampling_target, sampling_max, id_column=MHD_ID_COLUMN
+                plasma_cluster = build_sampling_clustering(
+                    dataset, plasma_columns, plasma_k, plasma_max
                 )
-            if selected_panel in ("plasma-sampling", "sampling"):
-                plasma_columns = [col for col in PLASMA_COLUMNS if col in gk_input_columns]
-                plasma_missing_columns = [
-                    col for col in PLASMA_COLUMNS if col not in gk_input_columns
-                ]
-                if plasma_columns:
-                    dataset, total_rows = get_sampling_dataset(
-                        conn, plasma_origin_id, plasma_columns
-                    )
-                    plasma_report = build_sampling_report(
-                        dataset, total_rows, plasma_columns
-                    )
-                    plasma_coverage = build_sampling_coverage(
-                        dataset, plasma_columns, plasma_max
-                    )
-                    plasma_regimes = build_sampling_regimes(
-                        dataset, plasma_columns, params=PLASMA_REGIME_DEFAULTS
-                    )
-                    plasma_cluster = build_sampling_clustering(
-                        dataset, plasma_columns, plasma_k, plasma_max
-                    )
-                    plasma_pca = build_sampling_pca(
-                        dataset, plasma_columns, max_points=plasma_max
-                    )
-                    plasma_selection = build_sampling_selection(
-                        dataset,
-                        plasma_columns,
-                        plasma_target,
-                        plasma_max,
-                        id_column=MHD_ID_COLUMN,
-                    )
-        workflow_panel_context = build_workflow_panel_context(
-            conn=conn,
-            tables=tables,
-            selected_panel=selected_panel,
-            origin_id=origin_id,
-            sampling_origin_id=sampling_origin_id,
-            plasma_origin_id=plasma_origin_id,
-            equilibria_valid_only=equilibria_valid_only,
-            monitor_report=monitor_report,
-            eqp_ion_tprim_min=eqp_ion_tprim_min,
-            eqp_max=eqp_max,
-            eqp_coverage_enabled=eqp_coverage_enabled,
-            eqp_target=eqp_target,
-            eqp_method=eqp_method,
-            data_origin_color_fn=data_origin_color,
-            get_data_origins_fn=get_data_origins,
-            get_data_origin_details_fn=get_data_origin_details,
-            get_equilibria_origin_summary_fn=get_equilibria_origin_summary,
-            get_equilibria_preview_fn=get_equilibria_preview,
-            get_latest_flux_action_state_fn=get_latest_flux_action_state,
-            get_equilibria_origin_workflow_status_fn=get_equilibria_origin_workflow_status,
-            get_equilibria_origin_actions_fn=get_equilibria_origin_actions,
-            filter_monitor_report_for_origin_fn=filter_monitor_report_for_origin,
-            get_equil_plasma_dataset_fn=get_equil_plasma_dataset,
-            get_equil_plasma_status_counts_fn=get_equil_plasma_status_counts,
-            build_sampling_report_fn=build_sampling_report,
-            build_sampling_coverage_fn=build_sampling_coverage,
-            build_sampling_selection_fn=build_sampling_selection,
-            build_kmeans_selection_fn=build_kmeans_selection,
-            equil_plasma_columns=EQUIL_PLASMA_COLUMNS,
-            mhd_id_column=MHD_ID_COLUMN,
-        )
-        origin_id = workflow_panel_context["origin_id"]
-        sampling_origin_id = workflow_panel_context["sampling_origin_id"]
-        plasma_origin_id = workflow_panel_context["plasma_origin_id"]
-        data_origins = workflow_panel_context["data_origins"]
-        origin_details = workflow_panel_context["origin_details"]
-        selected_origin_details = workflow_panel_context["selected_origin_details"]
-        equilibria_summary = workflow_panel_context["equilibria_summary"]
-        equilibria_preview_columns = workflow_panel_context["equilibria_preview_columns"]
-        equilibria_preview_rows = workflow_panel_context["equilibria_preview_rows"]
-        equilibria_preview_total = workflow_panel_context["equilibria_preview_total"]
-        equilibria_actions = workflow_panel_context["equilibria_actions"]
-        equilibria_action_notes = workflow_panel_context["equilibria_action_notes"]
-        flux_action_state = workflow_panel_context["flux_action_state"]
-        equilibria_workflow_status = workflow_panel_context["equilibria_workflow_status"]
-        equilibria_ai_advisor = workflow_panel_context["equilibria_ai_advisor"]
-        equilibria_monitor_report = workflow_panel_context["equilibria_monitor_report"]
-        data_origin_colors = workflow_panel_context["data_origin_colors"]
-        eqp_report = workflow_panel_context["eqp_report"]
-        eqp_coverage = workflow_panel_context["eqp_coverage"]
-        eqp_selection = workflow_panel_context["eqp_selection"]
-        eqp_status_counts = workflow_panel_context["eqp_status_counts"]
-        if selected_panel == "sampling" and sampling_tab == "batch":
+                plasma_pca = build_sampling_pca(
+                    dataset, plasma_columns, max_points=plasma_max
+                )
+                plasma_selection = build_sampling_selection(
+                    dataset,
+                    plasma_columns,
+                    plasma_target,
+                    plasma_max,
+                    id_column=MHD_ID_COLUMN,
+                )
+        if compute_workflow_panel:
+            workflow_panel_context = build_workflow_panel_context(
+                conn=conn,
+                tables=tables,
+                selected_panel=selected_panel,
+                origin_id=origin_id,
+                sampling_origin_id=sampling_origin_id,
+                plasma_origin_id=plasma_origin_id,
+                equilibria_valid_only=equilibria_valid_only,
+                monitor_report=monitor_report,
+                eqp_analyze=eqp_analyze,
+                eqp_ion_tprim_min=eqp_ion_tprim_min,
+                eqp_max=eqp_max,
+                eqp_coverage_enabled=eqp_coverage_enabled,
+                eqp_target=eqp_target,
+                eqp_method=eqp_method,
+                data_origin_color_fn=data_origin_color,
+                get_data_origins_fn=get_data_origins,
+                get_data_origin_details_fn=get_data_origin_details,
+                get_equilibria_origin_summary_fn=get_equilibria_origin_summary,
+                get_equilibria_preview_fn=get_equilibria_preview,
+                get_latest_flux_action_state_fn=get_latest_flux_action_state,
+                get_equilibria_origin_workflow_status_fn=get_equilibria_origin_workflow_status,
+                get_equilibria_origin_actions_fn=get_equilibria_origin_actions,
+                filter_monitor_report_for_origin_fn=filter_monitor_report_for_origin,
+                get_equil_plasma_dataset_fn=get_equil_plasma_dataset,
+                get_equil_plasma_status_counts_fn=get_equil_plasma_status_counts,
+                build_sampling_report_fn=build_sampling_report,
+                build_sampling_coverage_fn=build_sampling_coverage,
+                build_sampling_selection_fn=build_sampling_selection,
+                build_kmeans_selection_fn=build_kmeans_selection,
+                equil_plasma_columns=EQUIL_PLASMA_COLUMNS,
+                mhd_id_column=MHD_ID_COLUMN,
+            )
+            origin_id = workflow_panel_context["origin_id"]
+            sampling_origin_id = workflow_panel_context["sampling_origin_id"]
+            plasma_origin_id = workflow_panel_context["plasma_origin_id"]
+            data_origins = workflow_panel_context["data_origins"]
+            origin_details = workflow_panel_context["origin_details"]
+            selected_origin_details = workflow_panel_context["selected_origin_details"]
+            equilibria_summary = workflow_panel_context["equilibria_summary"]
+            equilibria_preview_columns = workflow_panel_context["equilibria_preview_columns"]
+            equilibria_preview_rows = workflow_panel_context["equilibria_preview_rows"]
+            equilibria_preview_total = workflow_panel_context["equilibria_preview_total"]
+            equilibria_actions = workflow_panel_context["equilibria_actions"]
+            equilibria_action_notes = workflow_panel_context["equilibria_action_notes"]
+            flux_action_state = workflow_panel_context["flux_action_state"]
+            equilibria_workflow_status = workflow_panel_context["equilibria_workflow_status"]
+            equilibria_ai_advisor = workflow_panel_context["equilibria_ai_advisor"]
+            equilibria_monitor_report = workflow_panel_context["equilibria_monitor_report"]
+            data_origin_colors = workflow_panel_context["data_origin_colors"]
+            eqp_report = workflow_panel_context["eqp_report"]
+            eqp_coverage = workflow_panel_context["eqp_coverage"]
+            eqp_selection = workflow_panel_context["eqp_selection"]
+            eqp_status_counts = workflow_panel_context["eqp_status_counts"]
+        if compute_sampling_panel and sampling_tab == "batch":
             if sampling_reports:
                 if sampling_report_file not in sampling_reports:
                     sampling_report_file = sampling_reports[-1]
@@ -4832,7 +5712,7 @@ def index():
                             sampling_batch_detail_error = "Selected origin not found in report."
             else:
                 sampling_batch_error = "No sampling_results_*.json files found."
-        if "gk_input" in tables:
+        if compute_results_panel and "gk_input" in tables:
             results_values = {opt["value"] for opt in results_columns}
             if results_x_col is None:
                 results_x_col = f"gk_input.{x_col}"
@@ -4933,77 +5813,88 @@ def index():
             elif results_filter == "growth":
                 results_filter_sql = "AND r.gamma_max IS NOT NULL AND r.gamma_max != 0"
             if "gk_run" in tables:
-                plot_rows = conn.execute(
-                    f"""
-                    SELECT r.id AS run_id,
-                           r.gk_input_id AS gk_input_id,
-                           r.input_name AS input_name,
-                           b.batch_database_name AS batch_db
-                    FROM gk_run r
-                    LEFT JOIN gk_batch b ON b.id = r.gk_batch_id
-                    LEFT JOIN gk_input gi ON gi.id = r.gk_input_id
-                    {"LEFT JOIN gk_study gs ON gs.id = gi.gk_study_id" if join_study else ""}
-                    {"LEFT JOIN data_equil de ON de.id = gs.data_equil_id" if join_equil else ""}
-                    WHERE r.input_name IS NOT NULL
-                    {origin_filter_sql}
-                    {results_filter_sql}
-                    ORDER BY r.id DESC
-                    LIMIT 500
-                    """,
-                    plot_params,
-                ).fetchall()
-                results_plot_options = [
-                    {
-                        "run_id": int(row["run_id"]),
-                        "gk_input_id": int(row["gk_input_id"] or 0),
-                        "input_name": row["input_name"],
-                        "batch_db": row["batch_db"],
-                    }
-                    for row in plot_rows
-                ]
-                selected_run_id = results_plot_run_id
-                if results_plot_options and selected_run_id is None:
-                    selected_run_id = int(results_plot_options[0]["run_id"])
-                if selected_run_id is not None:
-                    selected_row = next(
-                        (
-                            row
-                            for row in results_plot_options
-                            if int(row["run_id"]) == selected_run_id
-                        ),
-                        None,
-                    )
-                    if selected_row:
-                        input_name = selected_row.get("input_name") or ""
-                        batch_db = selected_row.get("batch_db") or ""
-                        base = input_name[:-3] if input_name.endswith(".in") else input_name
-                        subdir = batch_db.replace(".db", "")
-                        growth_name = f"{base}_growth_rate.png"
-                        gamma_name = f"{base}_gamma_vs_ky.png"
-                        growth_path = os.path.join(BATCH_BASE_DIR, "plots", subdir, growth_name)
-                        gamma_path = os.path.join(BATCH_BASE_DIR, "plots", subdir, gamma_name)
-                        results_plot_selected = {
-                            "run_id": selected_run_id,
-                            "gk_input_id": selected_row.get("gk_input_id"),
-                            "growth_url": url_for("plots_file", filename=f"{subdir}/{growth_name}")
-                            if os.path.exists(growth_path)
-                            else None,
-                            "gamma_url": url_for("plots_file", filename=f"{subdir}/{gamma_name}")
-                            if os.path.exists(gamma_path)
-                            else None,
+                gk_run_columns = {
+                    row["name"] for row in conn.execute("PRAGMA table_info(gk_run)").fetchall()
+                }
+                can_load_results_plots = {
+                    "id",
+                    "gk_input_id",
+                    "input_name",
+                }.issubset(gk_run_columns)
+                if can_load_results_plots:
+                    join_batch = "gk_batch" in tables and "gk_batch_id" in gk_run_columns
+                    plot_rows = conn.execute(
+                        f"""
+                        SELECT r.id AS run_id,
+                               r.gk_input_id AS gk_input_id,
+                               r.input_name AS input_name,
+                               {"b.batch_database_name AS batch_db" if join_batch else "'' AS batch_db"}
+                        FROM gk_run r
+                        {"LEFT JOIN gk_batch b ON b.id = r.gk_batch_id" if join_batch else ""}
+                        LEFT JOIN gk_input gi ON gi.id = r.gk_input_id
+                        {"LEFT JOIN gk_study gs ON gs.id = gi.gk_study_id" if join_study else ""}
+                        {"LEFT JOIN data_equil de ON de.id = gs.data_equil_id" if join_equil else ""}
+                        WHERE r.input_name IS NOT NULL
+                        {origin_filter_sql}
+                        {results_filter_sql}
+                        ORDER BY r.id DESC
+                        LIMIT 500
+                        """,
+                        plot_params,
+                    ).fetchall()
+                    results_plot_options = [
+                        {
+                            "run_id": int(row["run_id"]),
+                            "gk_input_id": int(row["gk_input_id"] or 0),
+                            "input_name": row["input_name"],
+                            "batch_db": row["batch_db"],
                         }
-                        results_highlight = _fetch_run_point(
-                            selected_run_id, results_x_col, results_y_col
+                        for row in plot_rows
+                    ]
+                    selected_run_id = results_plot_run_id
+                    if results_plot_options and selected_run_id is None:
+                        selected_run_id = int(results_plot_options[0]["run_id"])
+                    if selected_run_id is not None:
+                        selected_row = next(
+                            (
+                                row
+                                for row in results_plot_options
+                                if int(row["run_id"]) == selected_run_id
+                            ),
+                            None,
                         )
-                        results_highlight_2 = _fetch_run_point(
-                            selected_run_id, results_x2_col, results_y2_col
-                        )
-                        results_highlight_3 = _fetch_run_point(
-                            selected_run_id, results_x3_col, results_y3_col
-                        )
-                        results_highlight_4 = _fetch_run_point(
-                            selected_run_id, results_x4_col, results_y4_col
-                        )
+                        if selected_row:
+                            input_name = selected_row.get("input_name") or ""
+                            batch_db = selected_row.get("batch_db") or ""
+                            base = input_name[:-3] if input_name.endswith(".in") else input_name
+                            subdir = batch_db.replace(".db", "")
+                            growth_name = f"{base}_growth_rate.png"
+                            gamma_name = f"{base}_gamma_vs_ky.png"
+                            growth_path = os.path.join(BATCH_BASE_DIR, "plots", subdir, growth_name)
+                            gamma_path = os.path.join(BATCH_BASE_DIR, "plots", subdir, gamma_name)
+                            results_plot_selected = {
+                                "run_id": selected_run_id,
+                                "gk_input_id": selected_row.get("gk_input_id"),
+                                "growth_url": url_for("plots_file", filename=f"{subdir}/{growth_name}")
+                                if os.path.exists(growth_path)
+                                else None,
+                                "gamma_url": url_for("plots_file", filename=f"{subdir}/{gamma_name}")
+                                if os.path.exists(gamma_path)
+                                else None,
+                            }
+                            results_highlight = _fetch_run_point(
+                                selected_run_id, results_x_col, results_y_col
+                            )
+                            results_highlight_2 = _fetch_run_point(
+                                selected_run_id, results_x2_col, results_y2_col
+                            )
+                            results_highlight_3 = _fetch_run_point(
+                                selected_run_id, results_x3_col, results_y3_col
+                            )
+                            results_highlight_4 = _fetch_run_point(
+                                selected_run_id, results_x4_col, results_y4_col
+                            )
+        if compute_tables_panel and "gk_input" in tables:
             if edit_gk_input_id and edit_gk_input_id.isdigit():
                 row = conn.execute(
                     "SELECT content, status FROM gk_input WHERE id = ?",
@@ -5014,14 +5905,14 @@ def index():
                 else:
                     edit_gk_input_content = str(row["content"])
                     edit_status = str(row["status"])
-        if "gk_model" in tables:
+        if compute_tables_panel and "gk_model" in tables:
             gk_model_columns, gk_model_rows, _, _ = get_table_rows(
                 conn, "gk_model", False
             )
     finally:
         conn.close()
 
-    if batch_dbs:
+    if compute_tables_panel and batch_dbs:
         if selected_batch_db not in batch_dbs:
             selected_batch_db = batch_dbs[0]
         batch_db_path = os.path.join(batch_dir, selected_batch_db)
@@ -5044,4 +5935,4 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, use_reloader=False)
+    app.run(debug=True, use_reloader=False, request_handler=DatamakRequestHandler)

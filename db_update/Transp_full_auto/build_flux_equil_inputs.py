@@ -15,11 +15,27 @@ DEFAULT_MAIN_DB = os.path.join(
 )
 DEFAULT_OUT_DIR = os.path.join(
     os.environ.get("DTWIN_ROOT", os.path.dirname(os.path.dirname(__file__))),
+    "tmp",
     "transp_full_auto",
 )
 
 TABLES_TO_COPY = ["data_origin", "gk_code", "gk_model"]
 TABLES_TO_CREATE = ["data_equil", "gk_study", "gk_input"]
+GK_INPUT_STATUS_WITH_NEW_SQL = (
+    "status in ('new', 'wait', 'torun', 'batch', 'crashed', 'success', 'error')"
+)
+
+
+def _gk_model_signature(
+    row: Tuple[object, ...],
+) -> Tuple[int, int, int, int, str]:
+    return (
+        int(row[1]),
+        int(row[2]),
+        int(row[3]),
+        int(row[4]),
+        str(row[5] or ""),
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -82,6 +98,227 @@ def fetch_table_sql(conn: sqlite3.Connection, table: str) -> str:
     if not row or not row[0]:
         raise SystemExit(f"Table {table} not found in main DB.")
     return str(row[0])
+
+
+def _normalize_sql(sql: Optional[str]) -> str:
+    if not sql:
+        return ""
+    return " ".join(str(sql).lower().split())
+
+
+def _gk_input_sql(conn: sqlite3.Connection) -> str:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gk_input'"
+    ).fetchone()
+    return str(row[0]) if row and row[0] is not None else ""
+
+
+def _rebuild_gk_input_with_new_status(conn: sqlite3.Connection) -> None:
+    columns = [str(row[1]) for row in conn.execute("PRAGMA table_info(gk_input)").fetchall()]
+    target_columns = [
+        "id",
+        "gk_study_id",
+        "gk_model_id",
+        "file_name",
+        "file_path",
+        "content",
+        "psin",
+        "status",
+        "comment",
+        "geo_option",
+        "rhoc",
+        "Rmaj",
+        "R_geo",
+        "qinp",
+        "shat",
+        "shift",
+        "akappa",
+        "akappri",
+        "tri",
+        "tripri",
+        "betaprim",
+        "beta",
+        "electron_z",
+        "electron_mass",
+        "electron_dens",
+        "electron_temp",
+        "electron_temp_ev",
+        "electron_tprim",
+        "electron_fprim",
+        "electron_vnewk",
+        "ion_z",
+        "ion_mass",
+        "ion_dens",
+        "ion_temp",
+        "ion_temp_ev",
+        "ion_tprim",
+        "ion_fprim",
+        "ion_vnewk",
+        "creation_date",
+    ]
+    extra_columns = sorted(column for column in columns if column not in target_columns)
+    if extra_columns:
+        raise SystemExit(
+            "Refusing to rebuild gk_input because it contains unexpected columns: "
+            + ", ".join(extra_columns)
+        )
+
+    table_sql = """
+        CREATE TABLE gk_input (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gk_study_id INTEGER NOT NULL,
+            gk_model_id INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            content TEXT NOT NULL,
+            psin REAL NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('NEW', 'WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS', 'ERROR')),
+            comment TEXT NOT NULL DEFAULT '',
+            geo_option TEXT,
+            rhoc REAL,
+            Rmaj REAL,
+            R_geo REAL,
+            qinp REAL,
+            shat REAL,
+            shift REAL,
+            akappa REAL,
+            akappri REAL,
+            tri REAL,
+            tripri REAL,
+            betaprim REAL,
+            beta REAL,
+            electron_z REAL,
+            electron_mass REAL,
+            electron_dens REAL,
+            electron_temp REAL,
+            electron_temp_ev REAL,
+            electron_tprim REAL,
+            electron_fprim REAL,
+            electron_vnewk REAL,
+            ion_z REAL,
+            ion_mass REAL,
+            ion_dens REAL,
+            ion_temp REAL,
+            ion_temp_ev REAL,
+            ion_tprim REAL,
+            ion_fprim REAL,
+            ion_vnewk REAL,
+            creation_date TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (gk_study_id) REFERENCES gk_study(id) ON DELETE CASCADE,
+            FOREIGN KEY (gk_model_id) REFERENCES gk_model(id)
+        )
+    """
+    joined_columns = ", ".join(target_columns)
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute("ALTER TABLE gk_input RENAME TO gk_input__old")
+        conn.execute(table_sql)
+        conn.execute(
+            f"""
+            INSERT INTO gk_input ({joined_columns})
+            SELECT {joined_columns}
+            FROM gk_input__old
+            """
+        )
+        conn.execute("DROP TABLE gk_input__old")
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def ensure_gk_input_status_allows_new(conn: sqlite3.Connection) -> None:
+    gk_input_sql = _normalize_sql(_gk_input_sql(conn))
+    if gk_input_sql and GK_INPUT_STATUS_WITH_NEW_SQL not in gk_input_sql:
+        _rebuild_gk_input_with_new_status(conn)
+
+
+def _prefer_source_gk_input_row(target: sqlite3.Row, source: sqlite3.Row) -> bool:
+    target_content = str(target["content"] or "").strip()
+    source_content = str(source["content"] or "").strip()
+    if source_content and not target_content:
+        return True
+    target_status = str(target["status"] or "").strip().upper()
+    source_status = str(source["status"] or "").strip().upper()
+    if target_status == "NEW" and source_status != "NEW":
+        return True
+    if not str(target["comment"] or "").strip() and str(source["comment"] or "").strip():
+        return True
+    return False
+
+
+def canonicalize_flux_gk_models(conn: sqlite3.Connection) -> int:
+    model_rows = conn.execute(
+        """
+        SELECT id, gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template
+        FROM gk_model
+        ORDER BY id
+        """
+    ).fetchall()
+    canonical_by_signature: Dict[Tuple[int, int, int, int, str], int] = {}
+    remapped = 0
+    for model_row in model_rows:
+        model_id = int(model_row[0])
+        signature = _gk_model_signature(model_row)
+        canonical_id = canonical_by_signature.get(signature)
+        if canonical_id is None:
+            canonical_by_signature[signature] = model_id
+            continue
+
+        duplicate_inputs = conn.execute(
+            """
+            SELECT id, gk_study_id, psin, file_name, file_path, content, status, comment
+            FROM gk_input
+            WHERE gk_model_id = ?
+            ORDER BY id
+            """,
+            (model_id,),
+        ).fetchall()
+        for source in duplicate_inputs:
+            target = conn.execute(
+                """
+                SELECT id, file_name, file_path, content, status, comment
+                FROM gk_input
+                WHERE gk_model_id = ?
+                  AND gk_study_id = ?
+                  AND psin = ?
+                LIMIT 1
+                """,
+                (canonical_id, int(source["gk_study_id"]), float(source["psin"])),
+            ).fetchone()
+            if target is None:
+                conn.execute(
+                    "UPDATE gk_input SET gk_model_id = ? WHERE id = ?",
+                    (canonical_id, int(source["id"])),
+                )
+                continue
+            if _prefer_source_gk_input_row(target, source):
+                conn.execute(
+                    """
+                    UPDATE gk_input
+                    SET file_name = ?, file_path = ?, content = ?, status = ?, comment = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        str(source["file_name"] or ""),
+                        str(source["file_path"] or ""),
+                        str(source["content"] or ""),
+                        str(source["status"] or ""),
+                        str(source["comment"] or ""),
+                        int(target["id"]),
+                    ),
+                )
+            conn.execute("DELETE FROM gk_input WHERE id = ?", (int(source["id"]),))
+
+        conn.execute("DELETE FROM gk_model WHERE id = ?", (model_id,))
+        remapped += 1
+    return remapped
 
 
 def copy_table_data(conn_src: sqlite3.Connection, conn_dst: sqlite3.Connection, table: str) -> int:
@@ -184,10 +421,11 @@ def psin_values(start: float, end: float, step: float) -> List[float]:
 def fetch_active_models(conn: sqlite3.Connection) -> List[Dict[str, object]]:
     rows = conn.execute(
         """
-        SELECT id, input_template
+        SELECT MIN(id) AS id, input_template
         FROM gk_model
         WHERE active = 1
-        ORDER BY id
+        GROUP BY gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template
+        ORDER BY MIN(id)
         """
     ).fetchall()
     if not rows:
@@ -474,8 +712,16 @@ def main() -> None:
         if not os.path.exists(args.flux_db):
             raise SystemExit(f"Flux DB not found: {args.flux_db}")
         dst = sqlite3.connect(args.flux_db)
+        dst.row_factory = sqlite3.Row
         try:
             dst.execute("PRAGMA foreign_keys = ON")
+            ensure_gk_input_status_allows_new(dst)
+            remapped_models = canonicalize_flux_gk_models(dst)
+            if remapped_models:
+                dst.commit()
+                print(
+                    f"Canonicalized {remapped_models} duplicate gk_model rows in {args.flux_db}"
+                )
             if args.populate_equil:
                 inserted_equil, inserted_ts, skipped_files = populate_equil_and_timeseries(
                     dst,
@@ -510,16 +756,22 @@ def main() -> None:
     src = sqlite3.connect(args.db)
     dst = sqlite3.connect(out_db)
     try:
+        dst.row_factory = sqlite3.Row
         dst.execute("PRAGMA foreign_keys = ON")
         for table in TABLES_TO_COPY + TABLES_TO_CREATE:
             dst.execute(fetch_table_sql(src, table))
         ensure_transp_timeseries(dst)
+        ensure_gk_input_status_allows_new(dst)
         total = 0
         for table in TABLES_TO_COPY:
             total += copy_table_data(src, dst, table)
+        remapped_models = canonicalize_flux_gk_models(dst)
+        if remapped_models:
+            print(f"Canonicalized {remapped_models} duplicate gk_model rows in {out_db}")
         if args.create_gk_inputs:
+            origin_id_val, _, _ = resolve_origin(dst, args.origin_id, args.origin_name)
             psins = psin_values(args.psin_start, args.psin_end, args.psin_step)
-            created = create_gk_inputs(dst, args.origin_name, psins, args.status)
+            created = create_gk_inputs(dst, origin_id_val, psins, args.status)
             print(f"Created {created} gk_input rows in {out_db}")
         dst.commit()
     finally:

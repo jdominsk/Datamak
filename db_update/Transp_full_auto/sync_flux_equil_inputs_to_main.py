@@ -47,6 +47,53 @@ def ensure_transp_timeseries(conn: sqlite3.Connection) -> None:
     )
 
 
+def _gk_model_signature(row: Tuple[object, ...]) -> Tuple[int, int, int, int, str]:
+    return (
+        int(row[1]),
+        int(row[2]),
+        int(row[3]),
+        int(row[4]),
+        str(row[5] or ""),
+    )
+
+
+def build_flux_to_main_gk_model_id_map(
+    flux: sqlite3.Connection,
+    main: sqlite3.Connection,
+) -> Dict[int, int]:
+    main_rows = main.execute(
+        """
+        SELECT id, gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template
+        FROM gk_model
+        ORDER BY id
+        """
+    ).fetchall()
+    main_by_signature = {
+        _gk_model_signature(row): int(row[0])
+        for row in main_rows
+    }
+
+    flux_rows = flux.execute(
+        """
+        SELECT id, gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template
+        FROM gk_model
+        ORDER BY id
+        """
+    ).fetchall()
+    flux_to_main: Dict[int, int] = {}
+    for row in flux_rows:
+        flux_id = int(row[0])
+        signature = _gk_model_signature(row)
+        main_id = main_by_signature.get(signature)
+        if main_id is None:
+            raise SystemExit(
+                "No matching gk_model found in main DB for flux model "
+                f"id={flux_id}, template={row[5]}"
+            )
+        flux_to_main[flux_id] = main_id
+    return flux_to_main
+
+
 def upsert_transp_timeseries(
     main: sqlite3.Connection, rows: Iterable[Tuple]
 ) -> int:
@@ -166,10 +213,11 @@ def upsert_gk_input(
     main: sqlite3.Connection,
     row: Tuple,
     study_id_map: Dict[int, int],
-) -> None:
+    flux_to_main_gk_model_id: Dict[int, int],
+) -> bool:
     (
         flux_gk_study_id,
-        gk_model_id,
+        flux_gk_model_id,
         file_name,
         file_path,
         content,
@@ -182,7 +230,10 @@ def upsert_gk_input(
         status = "ERROR"
     main_gk_study_id = study_id_map.get(int(flux_gk_study_id))
     if not main_gk_study_id:
-        return
+        return False
+    main_gk_model_id = flux_to_main_gk_model_id.get(int(flux_gk_model_id))
+    if not main_gk_model_id:
+        return False
     main.execute(
         """
         INSERT INTO gk_input (
@@ -207,7 +258,7 @@ def upsert_gk_input(
         """,
         (
             main_gk_study_id,
-            gk_model_id,
+            main_gk_model_id,
             file_name,
             file_path,
             content_str,
@@ -216,6 +267,7 @@ def upsert_gk_input(
             comment,
         ),
     )
+    return True
 
 
 def main() -> None:
@@ -230,6 +282,7 @@ def main() -> None:
     try:
         main.execute("PRAGMA foreign_keys = ON")
         ensure_transp_timeseries(main)
+        flux_to_main_gk_model_id = build_flux_to_main_gk_model_id_map(flux, main)
 
         ts_rows = flux.execute(
             """
@@ -285,8 +338,10 @@ def main() -> None:
             WHERE status = 'WAIT'
             """
         ).fetchall()
+        synced_inputs = 0
         for row in flux_inputs:
-            upsert_gk_input(main, row, study_id_map)
+            if upsert_gk_input(main, row, study_id_map, flux_to_main_gk_model_id):
+                synced_inputs += 1
 
         main.commit()
     finally:
@@ -295,6 +350,7 @@ def main() -> None:
 
     print(
         f"Synced data_equil={equil_count}, transp_timeseries={ts_count} "
+        f"gk_input_wait_rows={synced_inputs} "
         f"from {os.path.basename(args.flux_db)}"
     )
 

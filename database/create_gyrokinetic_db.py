@@ -38,6 +38,9 @@ ORIGIN_NAME_RENAMES = {
     "Alexei Transp 09 (full-auto) OLD": "Transp 09 (full-auto) OLD",
     "Alexei Transp 10 (full-auto)": "Transp 10 (full-auto)",
 }
+GK_INPUT_STATUS_WITH_NEW_SQL = (
+    "status in ('new', 'wait', 'torun', 'batch', 'crashed', 'success', 'error')"
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,6 +66,140 @@ def _data_origin_sql(conn: sqlite3.Connection) -> str:
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'data_origin'"
     ).fetchone()
     return str(row[0]) if row and row[0] is not None else ""
+
+
+def _gk_input_sql(conn: sqlite3.Connection) -> str:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gk_input'"
+    ).fetchone()
+    return str(row[0]) if row and row[0] is not None else ""
+
+
+def _rebuild_gk_input_with_new_status(conn: sqlite3.Connection) -> None:
+    columns = [str(row[1]) for row in conn.execute("PRAGMA table_info(gk_input)").fetchall()]
+    target_columns = [
+        "id",
+        "gk_study_id",
+        "gk_model_id",
+        "file_name",
+        "file_path",
+        "content",
+        "psin",
+        "status",
+        "comment",
+        "geo_option",
+        "rhoc",
+        "Rmaj",
+        "R_geo",
+        "qinp",
+        "shat",
+        "shift",
+        "akappa",
+        "akappri",
+        "tri",
+        "tripri",
+        "betaprim",
+        "beta",
+        "electron_z",
+        "electron_mass",
+        "electron_dens",
+        "electron_temp",
+        "electron_temp_ev",
+        "electron_tprim",
+        "electron_fprim",
+        "electron_vnewk",
+        "ion_z",
+        "ion_mass",
+        "ion_dens",
+        "ion_temp",
+        "ion_temp_ev",
+        "ion_tprim",
+        "ion_fprim",
+        "ion_vnewk",
+        "creation_date",
+    ]
+    extra_columns = sorted(column for column in columns if column not in target_columns)
+    if extra_columns:
+        raise SystemExit(
+            "Refusing to rebuild gk_input because it contains unexpected columns: "
+            + ", ".join(extra_columns)
+        )
+
+    table_sql = """
+        CREATE TABLE gk_input (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            gk_study_id INTEGER NOT NULL,
+            gk_model_id INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            content TEXT NOT NULL,
+            psin REAL NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('NEW', 'WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS', 'ERROR')),
+            comment TEXT NOT NULL DEFAULT '',
+            geo_option TEXT,
+            rhoc REAL,
+            Rmaj REAL,
+            R_geo REAL,
+            qinp REAL,
+            shat REAL,
+            shift REAL,
+            akappa REAL,
+            akappri REAL,
+            tri REAL,
+            tripri REAL,
+            betaprim REAL,
+            beta REAL,
+            electron_z REAL,
+            electron_mass REAL,
+            electron_dens REAL,
+            electron_temp REAL,
+            electron_temp_ev REAL,
+            electron_tprim REAL,
+            electron_fprim REAL,
+            electron_vnewk REAL,
+            ion_z REAL,
+            ion_mass REAL,
+            ion_dens REAL,
+            ion_temp REAL,
+            ion_temp_ev REAL,
+            ion_tprim REAL,
+            ion_fprim REAL,
+            ion_vnewk REAL,
+            creation_date TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (gk_study_id) REFERENCES gk_study(id) ON DELETE CASCADE,
+            FOREIGN KEY (gk_model_id) REFERENCES gk_model(id)
+        )
+    """
+    joined_target_columns = ", ".join(target_columns)
+    joined_select_columns = ", ".join(target_columns)
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute("ALTER TABLE gk_input RENAME TO gk_input__old")
+        conn.execute(table_sql)
+        conn.execute(
+            f"""
+            INSERT INTO gk_input ({joined_target_columns})
+            SELECT {joined_select_columns}
+            FROM gk_input__old
+            """
+        )
+        conn.execute("DROP TABLE gk_input__old")
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
+def ensure_gk_input_status_allows_new(conn: sqlite3.Connection) -> None:
+    gk_input_sql = _normalize_sql(_gk_input_sql(conn))
+    if gk_input_sql and GK_INPUT_STATUS_WITH_NEW_SQL not in gk_input_sql:
+        _rebuild_gk_input_with_new_status(conn)
 
 
 def _rebuild_data_origin_with_constraints(conn: sqlite3.Connection) -> None:
@@ -551,6 +688,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gk_input ADD COLUMN gk_model_id INTEGER")
     if "beta" not in columns:
         conn.execute("ALTER TABLE gk_input ADD COLUMN beta REAL")
+    ensure_gk_input_status_allows_new(conn)
     ensure_gk_model_uniqueness(conn)
 
     conn.execute(

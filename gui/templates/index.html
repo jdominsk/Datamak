@@ -172,6 +172,12 @@
       .sampling-subpanel.active {
         display: block;
       }
+      .surrogate-subpanel {
+        display: none;
+      }
+      .surrogate-subpanel.active {
+        display: block;
+      }
       .chart-wrap {
         border: 1px solid #d9e2ec;
         border-radius: 8px;
@@ -366,8 +372,14 @@
         gap: 10px;
       }
       .ai-advisor-kv {
-        display: grid;
-        gap: 4px;
+        display: block;
+      }
+      .ai-advisor-kv strong {
+        color: #243b53;
+      }
+      .ai-advisor-kv .panel-note {
+        display: inline;
+        margin: 0;
       }
       .ai-advisor-label {
         margin: 0;
@@ -399,6 +411,35 @@
       }
       .ai-advisor-available strong {
         color: #243b53;
+      }
+      .surrogate-summary-box {
+        border: 1px solid #d9e2ec;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 16px;
+      }
+      .surrogate-summary-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .surrogate-summary-header h4 {
+        margin: 0;
+      }
+      .surrogate-summary-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .surrogate-summary-actions form {
+        margin: 0;
+      }
+      .surrogate-summary-box .table-wrapper {
+        width: fit-content;
+        max-width: 100%;
       }
       .equilibria-side-panel-header {
         display: flex;
@@ -676,6 +717,71 @@
         padding: 8px 10px;
         border: 1px solid #bee3f8;
       }
+      .notice-with-actions {
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .notice.notice-error {
+        color: #7f1d1d;
+        background: #fff5f5;
+        border-color: #f2b8b5;
+      }
+      .notice-text-stack {
+        min-width: 0;
+        flex: 1 1 320px;
+      }
+      .notice-technical {
+        margin-top: 6px;
+      }
+      .notice-technical summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: #52606d;
+      }
+      .notice-technical pre {
+        margin: 6px 0 0;
+        padding: 8px 10px;
+        border: 1px solid #d9e2ec;
+        border-radius: 8px;
+        background: #f8fafc;
+        color: #334e68;
+        font-size: 12px;
+        line-height: 1.35;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .notice-action-form {
+        margin: 0;
+        flex: 0 0 auto;
+        order: -1;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+      .notice-action-select-label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: #52606d;
+      }
+      .notice-action-select-label select {
+        min-width: 84px;
+      }
+      .notice-with-actions .notice-action-form button {
+        color: #9b1c1c;
+        font-weight: 700;
+        border-color: #f2b8b5;
+        background: #fff5f5;
+      }
+      .notice-with-actions .notice-action-form button:hover {
+        background: #ffe3e3;
+        border-color: #e07b7b;
+      }
       .assistant-panel {
         border: 1px solid #d9e2ec;
         background: #f8fafc;
@@ -891,7 +997,12 @@
         <button class="tab{% if selected_panel == 'results' %} active{% endif %}" type="button" data-tab="results">
           Physics Results
         </button>
-        <button class="tab{% if selected_panel == 'surrogate' %} active{% endif %}" type="button" data-tab="surrogate">
+        <button
+          class="tab{% if selected_panel == 'surrogate' %} active{% endif %}"
+          type="button"
+          data-tab="surrogate"
+          title="Train and manage surrogate models. Models are saved under db_surrogate/models with JSON metadata."
+        >
           Surrogate Models
         </button>
         <button class="tab{% if selected_panel == 'sampling' %} active{% endif %}" type="button" data-tab="sampling">
@@ -1040,12 +1151,12 @@
           </div>
         {% endif %}
         {% if selected_table %}
-          <form method="get">
+          <form method="get" data-panel-fetch="tables">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="tables" />
             <div class="row table-controls">
               <label for="table">Table</label>
-              <select id="table" name="table" onchange="this.form.submit()">
+              <select id="table" name="table" onchange="this.form.requestSubmit()">
                 {% for table in tables %}
                   <option value="{{ table }}" {% if table == selected_table %}selected{% endif %}>
                     {{ table }}
@@ -1054,7 +1165,7 @@
               </select>
               {% if selected_table in ['data_equil', 'gk_input'] and data_origins %}
                 <label for="table_origin_id">Origin</label>
-                <select id="table_origin_id" name="table_origin_id" onchange="this.form.submit()">
+                <select id="table_origin_id" name="table_origin_id" onchange="this.form.requestSubmit()">
                   <option value="" {% if table_origin_id is none %}selected{% endif %}>All</option>
                   {% for origin_id, origin_name, _ in data_origins %}
                     <option value="{{ origin_id }}" {% if table_origin_id == origin_id %}selected{% endif %}>
@@ -1081,10 +1192,10 @@
                 type="checkbox"
                 value="1"
                 {% if only_active %}checked{% endif %}
-                onchange="this.form.submit()"
+                onchange="this.form.requestSubmit()"
               />
               <label for="table_limit">Rows</label>
-              <select id="table_limit" name="table_limit" onchange="this.form.submit()">
+              <select id="table_limit" name="table_limit" onchange="this.form.requestSubmit()">
                 {% for val in [10, 20, 50, 100, 200, 500] %}
                   <option value="{{ val }}" {% if table_limit == val %}selected{% endif %}>
                     {{ val }}
@@ -1094,10 +1205,32 @@
               <noscript><button type="submit">View</button></noscript>
             </div>
           </form>
-          <div class="panel-note table-counts">
-            Rows shown: {{ rows|length }} of {{ "{:,}".format(table_filtered_count) }}
-            filtered ({{ "{:,}".format(table_total_count) }} total).
-          </div>
+          {% if table_counts_loaded %}
+            <div class="panel-note table-counts">
+              Rows shown: {{ rows|length }} of {{ "{:,}".format(table_filtered_count) }}
+              filtered ({{ "{:,}".format(table_total_count) }} total).
+            </div>
+          {% else %}
+            <div class="panel-note table-counts">
+              Rows shown: {{ rows|length }}. Total row counts are deferred for this table until requested.
+              <form method="get" data-panel-fetch="tables" style="display:inline-block; margin-left:8px;">
+                <input type="hidden" name="db" value="{{ db_path }}" />
+                <input type="hidden" name="panel" value="tables" />
+                <input type="hidden" name="table" value="{{ selected_table }}" />
+                {% if table_origin_id is not none %}
+                  <input type="hidden" name="table_origin_id" value="{{ table_origin_id }}" />
+                {% endif %}
+                {% if table_transpfile_regex %}
+                  <input type="hidden" name="table_transpfile_regex" value="{{ table_transpfile_regex }}" />
+                {% endif %}
+                {% if only_active %}
+                  <input type="hidden" name="only_active" value="1" />
+                {% endif %}
+                <input type="hidden" name="table_limit" value="{{ table_limit }}" />
+                <button type="submit" name="table_counts" value="1">Load counts</button>
+              </form>
+            </div>
+          {% endif %}
           {% if table_schema_rows %}
             <div class="table-wrapper" style="margin-bottom:12px;">
               <table>
@@ -1228,7 +1361,7 @@
         </div>
         <div class="sampling-subpanel{% if sampling_tab == 'equil' %} active{% endif %}" data-subpanel="equil">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
-          <form method="get">
+          <form method="get" data-panel-fetch="sampling">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="sampling" />
             <input type="hidden" name="sampling_tab" value="equil" />
@@ -1593,7 +1726,7 @@
         </div>
         <div class="sampling-subpanel{% if sampling_tab == 'plasma' %} active{% endif %}" data-subpanel="plasma">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
-          <form method="get">
+          <form method="get" data-panel-fetch="sampling">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="sampling" />
             <input type="hidden" name="sampling_tab" value="plasma" />
@@ -1964,13 +2097,13 @@
         </div>
         <div class="sampling-subpanel{% if sampling_tab == 'batch' %} active{% endif %}" data-subpanel="batch">
           <div class="chart-wrap borderless" style="margin-bottom:16px;">
-            <form method="get">
+            <form method="get" data-panel-fetch="sampling">
               <input type="hidden" name="db" value="{{ db_path }}" />
               <input type="hidden" name="panel" value="sampling" />
               <input type="hidden" name="sampling_tab" value="batch" />
               <div class="row">
                 <label for="sampling_report_file">Sampling report</label>
-                <select id="sampling_report_file" name="sampling_report_file" onchange="this.form.submit()">
+                <select id="sampling_report_file" name="sampling_report_file" onchange="this.form.requestSubmit()">
                   {% for report in sampling_reports %}
                     <option value="{{ report }}" {% if sampling_report_file == report %}selected{% endif %}>
                       {{ report }}
@@ -1979,7 +2112,7 @@
                 </select>
                 {% if sampling_batch_results|length > 0 %}
                   <label for="sampling_batch_origin_id">Origin detail</label>
-                  <select id="sampling_batch_origin_id" name="sampling_batch_origin_id" onchange="this.form.submit()">
+                  <select id="sampling_batch_origin_id" name="sampling_batch_origin_id" onchange="this.form.requestSubmit()">
                     {% for item in sampling_batch_results %}
                       <option value="{{ item.origin_id }}" {% if sampling_batch_origin_id == item.origin_id %}selected{% endif %}>
                         {{ item.origin_id }} - {{ item.origin_name }}
@@ -2367,334 +2500,347 @@
           {% endif %}
         </div>
       </section>
-      <section class="panel panel-tabbed{% if selected_panel != 'surrogate' %} panel-hidden{% endif %}" data-panel="surrogate">
-        <div class="panel-note" style="margin-bottom:12px;">
-          Train and manage surrogate models. Models are saved under <code>db_surrogate/models</code>
-          with JSON metadata.
+      <section class="panel panel-tabbed{% if selected_panel != 'surrogate' %} panel-hidden{% endif %}" data-panel="surrogate" data-surrogate-tab="{{ surrogate_tab }}">
+        <div class="subtab-bar">
+          <button class="subtab" type="button" data-surrogate-subtab="models">Models & Estimates</button>
+          <button class="subtab" type="button" data-surrogate-subtab="train">Train New Model</button>
         </div>
-        {% if action_status and action_status.message %}
-          <div class="notice">{{ action_status.message }}</div>
-        {% endif %}
-        {% if surrogate_models and surrogate_models|length > 0 %}
-          <div class="panel-note" style="margin-bottom:8px;">
-            Train/Test rows are the counts used for model fitting and validation. MAE/RMSE/R² are
-            computed on the test set (empty if test size = 0).
-          </div>
-          <div class="table-wrapper" style="margin-bottom:20px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Label</th>
-                  <th>Maps to</th>
-                  <th>Created</th>
-                  <th>Status filter</th>
-                  <th>Train rows</th>
-                  <th>Test rows</th>
-                  <th>Test-set MAE</th>
-                  <th>Test-set RMSE</th>
-                  <th>Test-set R²</th>
-                  <th>Run</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for model in surrogate_models %}
-                  <tr>
-                    <td>{{ model.name }}</td>
-                    <td>{{ model.sg_label or "" }}</td>
-                    <td>{{ model.mapsto or "" }}</td>
-                    <td>{{ model.created_at or "" }}</td>
-                    <td>{{ model.status_filter or "" }}</td>
-                    <td>{{ model.train_rows if model.train_rows is not none else "" }}</td>
-                    <td>{{ model.test_rows if model.test_rows is not none else "" }}</td>
-                    <td>{{ model.metrics.mae if model.metrics and model.metrics.mae is defined else "" }}</td>
-                    <td>{{ model.metrics.rmse if model.metrics and model.metrics.rmse is defined else "" }}</td>
-                    <td>{{ model.metrics.r2 if model.metrics and model.metrics.r2 is defined else "" }}</td>
-                    <td>
-                      {% if actions.get("run_surrogate_estimate") %}
-                        <form method="post" action="/action/run_surrogate_estimate">
-                          <input type="hidden" name="db" value="{{ db_path }}" />
-                          <input type="hidden" name="panel" value="surrogate" />
-                          <input type="hidden" name="surrogate_id" value="{{ model.id }}" />
-                          <button type="submit">Run</button>
-                        </form>
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <div class="panel-note" style="margin-bottom:20px;">No surrogate models found yet.</div>
-        {% endif %}
-
-        <h4>Estimate Summary</h4>
-        {% if surrogate_models and surrogate_models|length > 0 %}
-          <form method="get" style="margin-bottom:12px;">
-            <input type="hidden" name="panel" value="surrogate" />
-            <input type="hidden" name="db" value="{{ db_path }}" />
-            <div class="row">
-              <label for="surrogate_id">Estimates for model</label>
-              <select
-                id="surrogate_id"
-                name="surrogate_id"
-                onchange="this.form.requestSubmit(document.getElementById('surrogate-view-btn'))"
-              >
-                {% for model in surrogate_models %}
-                  <option value="{{ model.id }}" {% if surrogate_id == model.id %}selected{% endif %}>{{ model.name }}</option>
-                {% endfor %}
-              </select>
-              <button type="submit" id="surrogate-view-btn">View</button>
-              <button type="submit" formaction="/action/run_surrogate_estimate" formmethod="post">Compute estimates</button>
-              <button
-                type="submit"
-                formaction="/action/delete_surrogate_model"
-                formmethod="post"
-                onclick="return confirm('Delete this surrogate model and all its estimates?');"
-              >
-                Delete model
-              </button>
-            </div>
-          </form>
-        {% endif %}
-        {% if surrogate_estimate_summary %}
-          {% if surrogate_estimate_summary.count == 0 %}
-            <div class="panel-note" style="margin-bottom:20px;">No estimates found for this model.</div>
-          {% else %}
-            <div class="panel-note" style="margin:18px 0; font-size:15px; color:#0b2a5b;">
-              {% if surrogate_estimate_summary.eval_relative_uncertainty_pct is defined %}
-                <strong>~{{ "%.0f"|format(surrogate_estimate_summary.eval_relative_uncertainty_pct) }}% relative uncertainty (median)</strong>
-                |
-              {% elif surrogate_estimate_summary.relative_uncertainty_pct is defined %}
-                <strong>~{{ "%.0f"|format(surrogate_estimate_summary.relative_uncertainty_pct) }}% relative uncertainty (mean)</strong> 
-                |
+        <div class="surrogate-subpanel{% if surrogate_tab == 'models' %} active{% endif %}" data-surrogate-subpanel="models">
+          {% if action_status and action_status.message %}
+            <div class="notice action-notice notice-with-actions{% if action_status.is_error %} notice-error{% endif %}">
+              {% if action_status.support_bundle %}
+                <form method="post" action="/send_support_bundle" class="notice-action-form">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="surrogate" />
+                  <input type="hidden" name="surrogate_tab" value="models" />
+                  <input type="hidden" name="bundle_path" value="{{ action_status.support_bundle }}" />
+                  <button type="submit">Send support bundle</button>
+                  <label class="notice-action-select-label">
+                    <span>Email:</span>
+                    <select name="compose_mode">
+                      <option value="gmail" selected>Gmail</option>
+                      <option value="mail">Mail</option>
+                    </select>
+                  </label>
+                </form>
               {% endif %}
-              Train rows: {{ surrogate_estimate_summary.train_rows if surrogate_estimate_summary.train_rows is not none else "" }}
-              | Test rows: {{ surrogate_estimate_summary.test_rows if surrogate_estimate_summary.test_rows is not none else "" }}
-              | Estimate rows: {{ surrogate_estimate_summary.count }}
-            </div>
-            <div class="panel-note" style="margin:18px 0; font-size:15px; color:#0b2a5b;">
-              {% if surrogate_estimate_summary.eval_count and surrogate_estimate_summary.eval_count > 0 %}
-                {% if surrogate_estimate_summary.eval_verdict %}
-                  <strong>Verdict:</strong> {{ surrogate_estimate_summary.eval_verdict }}.
+              <div class="notice-text-stack">
+                <span>{{ action_status.message }}</span>
+                {% if action_status.technical_message %}
+                  <details class="notice-technical">
+                    <summary>Technical details</summary>
+                    <pre>{{ action_status.technical_message }}</pre>
+                  </details>
                 {% endif %}
-                Based on {{ surrogate_estimate_summary.eval_count }} points with ground truth.
-              {% else %}
-                No ground-truth points available for {{ surrogate_estimate_summary.count }} estimates.
-              {% endif %}
-            </div>
-            {% if surrogate_estimate_summary.eval_count and surrogate_estimate_summary.eval_count > 0 %}
-              <div class="table-wrapper" style="margin-bottom:18px;">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Metric</th>
-                      <th>Value</th>
-                      <th>Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>MAE (mean absolute error)</td>
-                      <td>
-                        {% if surrogate_estimate_summary.eval_mae is not none %}
-                          {{ "%.3g"|format(surrogate_estimate_summary.eval_mae) }}
-                        {% else %}n/a{% endif %}
-                      </td>
-                      <td>
-                        {% if surrogate_estimate_summary.eval_mae is not none %}
-                          {% if surrogate_estimate_summary.eval_mae_relative_pct is not none
-                             and surrogate_estimate_summary.eval_mean_truth is not none %}
-                            Suggests a relative error of ~{{ "%.0f"|format(surrogate_estimate_summary.eval_mae_relative_pct) }}%
-                            when compared to the mean true value ({{ "%.3g"|format(surrogate_estimate_summary.eval_mean_truth) }}).
-                          {% else %}
-                            Average absolute difference between estimate and truth.
-                          {% endif %}
-                        {% endif %}
-                      </td>
-                    </tr>
-                    <tr>
-                      <td>RMSE (root mean squared error)</td>
-                      <td>
-                        {% if surrogate_estimate_summary.eval_rmse is not none %}
-                          {{ "%.3g"|format(surrogate_estimate_summary.eval_rmse) }}
-                        {% else %}n/a{% endif %}
-                      </td>
-                      <td>Penalizes large errors more strongly than MAE.</td>
-                    </tr>
-                    <tr>
-                      <td>R² (coefficient of determination)</td>
-                      <td>
-                        {% if surrogate_estimate_summary.eval_r2 is not none %}
-                          {{ "%.3g"|format(surrogate_estimate_summary.eval_r2) }}
-                        {% else %}n/a{% endif %}
-                      </td>
-                      <td>1 = perfect fit; 0 = mean predictor; &lt;0 worse.</td>
-                    </tr>
-                    <tr>
-                      <td>Bias (mean error)</td>
-                      <td>
-                        {% if surrogate_estimate_summary.eval_bias is not none %}
-                          {{ "%.3g"|format(surrogate_estimate_summary.eval_bias) }}
-                        {% else %}n/a{% endif %}
-                      </td>
-                      <td>Positive = over-predict; negative = under-predict.</td>
-                    </tr>
-                    <tr>
-                      <td>Median relative error</td>
-                      <td>
-                        {% if surrogate_estimate_summary.eval_median_relative_error is not none %}
-                          {{ "%.0f"|format(100 * surrogate_estimate_summary.eval_median_relative_error) }}%
-                        {% else %}n/a{% endif %}
-                      </td>
-                      <td>Typical error size relative to the true value.</td>
-                    </tr>
-                    <tr>
-                      <td>Coverage (within sg_quality)</td>
-                      <td>
-                        {% if surrogate_estimate_summary.eval_coverage is not none %}
-                          {{ "%.0f"|format(100 * surrogate_estimate_summary.eval_coverage) }}%
-                        {% else %}n/a{% endif %}
-                      </td>
-                      <td>Share of points where |estimate − truth| ≤ sg_quality (not input-space coverage).</td>
-                    </tr>
-                    <tr>
-                      <td>DB truth</td>
-                      <td>—</td>
-                      <td>
-                        Stored value in the target column (e.g., <code>gk_run.gamma_max</code>) for each
-                        <code>gk_input</code> where it exists.
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
               </div>
-            {% endif %}
+            </div>
+          {% endif %}
+          {% if surrogate_models and surrogate_models|length > 0 %}
+            {% set surrogate_ns = namespace(selected_model=None) %}
+            {% for model in surrogate_models %}
+              {% if surrogate_id == model.id %}
+                {% set surrogate_ns.selected_model = model %}
+              {% endif %}
+            {% endfor %}
+            <form method="get" id="surrogate-row-select-form" style="display:none;">
+              <input type="hidden" name="panel" value="surrogate" />
+              <input type="hidden" name="db" value="{{ db_path }}" />
+              <input type="hidden" name="surrogate_tab" value="models" />
+              <input type="hidden" name="surrogate_id" id="surrogate-row-select-input" value="{{ surrogate_id if surrogate_id is not none else '' }}" />
+            </form>
             <div class="table-wrapper" style="margin-bottom:20px;">
               <table>
                 <thead>
                   <tr>
-                    <th></th>
-                    <th>Min</th>
-                    <th>Median</th>
-                    <th>Mean</th>
-                    <th>Max</th>
+                    <th>Name</th>
+                    <th>Label</th>
+                    <th>Maps to</th>
+                    <th>Created</th>
+                    <th>Status filter</th>
+                    <th>Train rows</th>
+                    <th>Test rows</th>
+                    <th>Test-set MAE</th>
+                    <th>Test-set RMSE</th>
+                    <th>Test-set R²</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td>sg_estimate</td>
-                    <td>{{ surrogate_estimate_summary.estimate_min }}</td>
-                    <td>{{ surrogate_estimate_summary.estimate_median }}</td>
-                    <td>{{ surrogate_estimate_summary.estimate_mean }}</td>
-                    <td>{{ surrogate_estimate_summary.estimate_max }}</td>
-                  </tr>
-                  <tr>
-                    <td>sg_quality</td>
-                    <td>{{ surrogate_estimate_summary.quality_min }}</td>
-                    <td>{{ surrogate_estimate_summary.quality_median }}</td>
-                    <td>{{ surrogate_estimate_summary.quality_mean }}</td>
-                    <td>{{ surrogate_estimate_summary.quality_max }}</td>
-                  </tr>
+                  {% for model in surrogate_models %}
+                    <tr
+                      class="surrogate-model-row{% if surrogate_id == model.id %} active{% endif %}"
+                      data-surrogate-id="{{ model.id }}"
+                      tabindex="0"
+                      role="button"
+                      aria-label="Select surrogate model {{ model.name }}"
+                    >
+                      <td>{{ model.name }}</td>
+                      <td>{{ model.sg_label or "" }}</td>
+                      <td>{{ model.mapsto or "" }}</td>
+                      <td>{{ model.created_at or "" }}</td>
+                      <td>{{ model.status_filter or "" }}</td>
+                      <td>{{ model.train_rows if model.train_rows is not none else "" }}</td>
+                      <td>{{ model.test_rows if model.test_rows is not none else "" }}</td>
+                      <td>{{ model.metrics.mae if model.metrics and model.metrics.mae is defined else "" }}</td>
+                      <td>{{ model.metrics.rmse if model.metrics and model.metrics.rmse is defined else "" }}</td>
+                      <td>{{ model.metrics.r2 if model.metrics and model.metrics.r2 is defined else "" }}</td>
+                    </tr>
+                  {% endfor %}
                 </tbody>
               </table>
             </div>
-            {% if surrogate_estimate_summary.sample_rows and surrogate_estimate_summary.sample_rows|length > 0 %}
-              <details style="margin-bottom:20px;">
-                <summary>Sample estimates (first 20 gk_input rows)</summary>
-                <div class="table-wrapper" style="margin-top:10px;">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>gk_input_id</th>
-                        <th>sg_estimate</th>
-                        <th>sg_quality</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for row in surrogate_estimate_summary.sample_rows %}
-                        <tr>
-                          <td>{{ row.gk_input_id }}</td>
-                          <td>{{ row.sg_estimate }}</td>
-                          <td>{{ row.sg_quality }}</td>
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-            {% endif %}
+            <div class="panel-note" style="margin:-10px 0 18px;">
+              Train/Test rows are the counts used for model fitting and validation. MAE/RMSE/R² are
+              computed on the test set (empty if test size = 0).
+            </div>
+          {% else %}
+            <div class="panel-note" style="margin-bottom:20px;">No surrogate models found yet.</div>
           {% endif %}
-        {% endif %}
 
-        <h4>Train Surrogate Model</h4>
-        <form method="post" action="/action/train_gamma_surrogate">
-          <input type="hidden" name="db" value="{{ db_path }}" />
-          <input type="hidden" name="panel" value="surrogate" />
-          <div class="row">
-            <label for="surrogate_name">Model name</label>
-            <input id="surrogate_name" name="surrogate_name" type="text" required placeholder="e.g. gamma_v1" />
-            <label for="surrogate_mapsto">Map to</label>
-            <select id="surrogate_mapsto" name="surrogate_mapsto">
-              <option value="ALL">ALL (train gamma_max, ky_abs_mean, diffusion)</option>
-              <option value="gk_run.gamma_max" selected>gk_run.gamma_max</option>
-              <option value="gk_run.ky_abs_mean">gk_run.ky_abs_mean</option>
-              <option value="gk_run.diffusion">gk_run.diffusion</option>
-            </select>
-          </div>
-          <div class="row">
-            <label for="surrogate_origin_id">Data origin</label>
-            <select id="surrogate_origin_id" name="surrogate_origin_id">
-              <option value="">All origins</option>
-              {% if data_origins %}
-                {% for origin_id, origin_name, _ in data_origins %}
-                  <option value="{{ origin_id }}">{{ origin_id }} - {{ origin_name }}</option>
-                {% endfor %}
+          <div class="surrogate-summary-box">
+            {% if surrogate_models and surrogate_models|length > 0 %}
+              {% if surrogate_ns.selected_model %}
+                <div class="surrogate-summary-header">
+                  <h4>Model Estimates &amp; Validation: {{ surrogate_ns.selected_model.name }}</h4>
+                  <div class="surrogate-summary-actions">
+                    {% if actions.get("run_surrogate_estimate") %}
+                      <form method="post" action="/action/run_surrogate_estimate">
+                        <input type="hidden" name="db" value="{{ db_path }}" />
+                        <input type="hidden" name="panel" value="surrogate" />
+                        <input type="hidden" name="surrogate_tab" value="models" />
+                        <input type="hidden" name="surrogate_id" value="{{ surrogate_ns.selected_model.id }}" />
+                        <button type="submit">Compute estimates</button>
+                      </form>
+                    {% endif %}
+                    {% if actions.get("delete_surrogate_model") %}
+                      <form method="post" action="/action/delete_surrogate_model">
+                        <input type="hidden" name="db" value="{{ db_path }}" />
+                        <input type="hidden" name="panel" value="surrogate" />
+                        <input type="hidden" name="surrogate_tab" value="models" />
+                        <input type="hidden" name="surrogate_id" value="{{ surrogate_ns.selected_model.id }}" />
+                        <button
+                          type="submit"
+                          onclick="return confirm('Delete this surrogate model and all its estimates?');"
+                        >
+                          Delete model
+                        </button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </div>
+              {% else %}
+                <h4>Model Estimates &amp; Validation</h4>
               {% endif %}
-            </select>
-            <label for="surrogate_statuses">Runs' status</label>
-            <input id="surrogate_statuses" name="surrogate_statuses" type="text" value="SUCCESS,CONVERGED" />
-            <span class="panel-note" style="margin:0;">Use <code>ALL</code> to include every status.</span>
+            {% else %}
+              <h4>Model Estimates &amp; Validation</h4>
+            {% endif %}
+            {% if surrogate_estimate_summary %}
+              {% if surrogate_estimate_summary.count == 0 %}
+                <div class="panel-note" style="margin-bottom:0;">No estimates found for this model.</div>
+              {% else %}
+                <div class="panel-note" style="margin:18px 0; font-size:15px; color:#0b2a5b;">
+                  {% if surrogate_estimate_summary.relative_uncertainty_label %}
+                    <strong>{{ surrogate_estimate_summary.relative_uncertainty_label }}</strong>
+                    |
+                  {% endif %}
+                  Train rows: {{ surrogate_estimate_summary.train_rows if surrogate_estimate_summary.train_rows is not none else "" }}
+                  | Test rows: {{ surrogate_estimate_summary.test_rows if surrogate_estimate_summary.test_rows is not none else "" }}
+                  | Estimate rows: {{ surrogate_estimate_summary.count }}
+                  {% if surrogate_estimate_summary.commentary %}
+                    <span style="display:block; margin-top:6px; color:#334e68; font-size:13px; line-height:1.45;">
+                      {{ surrogate_estimate_summary.commentary }}
+                    </span>
+                  {% endif %}
+                </div>
+                {% if surrogate_estimate_summary.eval_count and surrogate_estimate_summary.eval_count > 0 %}
+                  <div class="table-wrapper" style="margin-bottom:0;">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Metric</th>
+                          <th>Value</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>MAE (mean absolute error)</td>
+                          <td>
+                            {% if surrogate_estimate_summary.eval_mae is not none %}
+                              {{ "%.3g"|format(surrogate_estimate_summary.eval_mae) }}
+                            {% else %}n/a{% endif %}
+                          </td>
+                          <td>
+                            {% if surrogate_estimate_summary.eval_mae is not none %}
+                              {% if surrogate_estimate_summary.eval_mae_relative_pct is not none
+                                 and surrogate_estimate_summary.eval_mean_truth is not none %}
+                                Suggests a relative error of ~{{ "%.0f"|format(surrogate_estimate_summary.eval_mae_relative_pct) }}%
+                                when compared to the mean true value ({{ "%.3g"|format(surrogate_estimate_summary.eval_mean_truth) }}).
+                              {% else %}
+                                Average absolute difference between estimate and truth.
+                              {% endif %}
+                            {% endif %}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td>RMSE (root mean squared error)</td>
+                          <td>
+                            {% if surrogate_estimate_summary.eval_rmse is not none %}
+                              {{ "%.3g"|format(surrogate_estimate_summary.eval_rmse) }}
+                            {% else %}n/a{% endif %}
+                          </td>
+                          <td>Penalizes large errors more strongly than MAE.</td>
+                        </tr>
+                        <tr>
+                          <td>R² (coefficient of determination)</td>
+                          <td>
+                            {% if surrogate_estimate_summary.eval_r2 is not none %}
+                              {{ "%.3g"|format(surrogate_estimate_summary.eval_r2) }}
+                            {% else %}n/a{% endif %}
+                          </td>
+                          <td>1 = perfect fit; 0 = mean predictor; &lt;0 worse.</td>
+                        </tr>
+                        <tr>
+                          <td>Bias (mean error)</td>
+                          <td>
+                            {% if surrogate_estimate_summary.eval_bias is not none %}
+                              {{ "%.3g"|format(surrogate_estimate_summary.eval_bias) }}
+                            {% else %}n/a{% endif %}
+                          </td>
+                          <td>Positive = over-predict; negative = under-predict.</td>
+                        </tr>
+                        <tr>
+                          <td>Median relative error</td>
+                          <td>
+                            {% if surrogate_estimate_summary.eval_median_relative_error is not none %}
+                              {{ "%.0f"|format(100 * surrogate_estimate_summary.eval_median_relative_error) }}%
+                            {% else %}n/a{% endif %}
+                          </td>
+                          <td>Typical error size relative to the true value.</td>
+                        </tr>
+                        <tr>
+                          <td>Coverage (within sg_quality)</td>
+                          <td>
+                            {% if surrogate_estimate_summary.eval_coverage is not none %}
+                              {{ "%.0f"|format(100 * surrogate_estimate_summary.eval_coverage) }}%
+                            {% else %}n/a{% endif %}
+                          </td>
+                          <td>Share of points where |estimate − truth| ≤ sg_quality (not input-space coverage).</td>
+                        </tr>
+                        <tr>
+                          <td>DB truth</td>
+                          <td>—</td>
+                          <td>
+                            Stored value in the target column (e.g., <code>gk_run.gamma_max</code>) for each
+                            <code>gk_input</code> where it exists.
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                {% endif %}
+              {% endif %}
+            {% endif %}
           </div>
-          <div class="row">
-            <label for="surrogate_test_size">Test size</label>
-            <input id="surrogate_test_size" name="surrogate_test_size" type="text" value="0.1" />
-            <label for="surrogate_n_estimators">Trees</label>
-            <input id="surrogate_n_estimators" name="surrogate_n_estimators" type="text" value="300" />
-            <label for="surrogate_max_depth">Max depth</label>
-            <input id="surrogate_max_depth" name="surrogate_max_depth" type="text" placeholder="None" />
-            <label for="surrogate_min_samples_leaf">Min samples leaf</label>
-            <input id="surrogate_min_samples_leaf" name="surrogate_min_samples_leaf" type="text" value="2" />
-          </div>
-          <div class="row" style="gap:16px;">
-            <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#52606d; margin:0;">
-              <input type="checkbox" name="surrogate_log1p" value="1" />
-              log1p(target)
-            </label>
-            <button type="submit">Train Surrogate Model</button>
-          </div>
-        </form>
-        <details style="margin-top:12px;">
-          <summary>About these training parameters</summary>
-          <div class="panel-note" style="margin-top:8px;">
+        </div>
+
+        <div class="surrogate-subpanel{% if surrogate_tab == 'train' %} active{% endif %}" data-surrogate-subpanel="train">
+          {% if action_status and action_status.message %}
+            <div class="notice action-notice notice-with-actions{% if action_status.is_error %} notice-error{% endif %}">
+              {% if action_status.support_bundle %}
+                <form method="post" action="/send_support_bundle" class="notice-action-form">
+                  <input type="hidden" name="db" value="{{ db_path }}" />
+                  <input type="hidden" name="panel" value="surrogate" />
+                  <input type="hidden" name="surrogate_tab" value="train" />
+                  <input type="hidden" name="bundle_path" value="{{ action_status.support_bundle }}" />
+                  <button type="submit">Send support bundle</button>
+                  <label class="notice-action-select-label">
+                    <span>Email:</span>
+                    <select name="compose_mode">
+                      <option value="gmail" selected>Gmail</option>
+                      <option value="mail">Mail</option>
+                    </select>
+                  </label>
+                </form>
+              {% endif %}
+              <div class="notice-text-stack">
+                <span>{{ action_status.message }}</span>
+                {% if action_status.technical_message %}
+                  <details class="notice-technical">
+                    <summary>Technical details</summary>
+                    <pre>{{ action_status.technical_message }}</pre>
+                  </details>
+                {% endif %}
+              </div>
+            </div>
+          {% endif %}
+          <h4>Train Surrogate Model</h4>
+          <div class="panel-note" style="margin:8px 0 14px;">
             <strong>Algorithm.</strong> A RandomForest regressor (ensemble of decision trees) is trained on the
             selected gk_input features and predicts the chosen gk_run target. Uncertainty is estimated from the
             tree-to-tree spread (standard deviation).
           </div>
-          <ul>
-            <li><strong>Test size</strong>: Fraction of rows held out for validation. <code>0</code> trains on all data and skips validation metrics.</li>
-            <li><strong>Trees</strong>: Number of trees in the forest. More trees usually improve stability but take longer.</li>
-            <li><strong>Max depth</strong>: Maximum depth of each tree. Blank/None allows fully grown trees.</li>
-            <li><strong>Min samples leaf</strong>: Minimum rows required in a leaf node. Higher values smooth the model.</li>
-            <li><strong>log1p(target)</strong>: Train on <code>log(1 + target)</code> to reduce skew. Predictions are back-transformed; requires non-negative targets.</li>
-          </ul>
-        </details>
+          <form method="post" action="/action/train_gamma_surrogate">
+            <input type="hidden" name="db" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="surrogate" />
+            <input type="hidden" name="surrogate_tab" value="train" />
+            <div class="row">
+              <label for="surrogate_name">Model name</label>
+              <input id="surrogate_name" name="surrogate_name" type="text" required placeholder="e.g. gamma_v1" />
+              <label for="surrogate_mapsto">Map to</label>
+              <select id="surrogate_mapsto" name="surrogate_mapsto">
+                <option value="ALL">ALL (train gamma_max, ky_abs_mean, diffusion)</option>
+                <option value="gk_run.gamma_max" selected>gk_run.gamma_max</option>
+                <option value="gk_run.ky_abs_mean">gk_run.ky_abs_mean</option>
+                <option value="gk_run.diffusion">gk_run.diffusion</option>
+              </select>
+            </div>
+            <div class="row">
+              <label for="surrogate_origin_id">Data origin</label>
+              <select id="surrogate_origin_id" name="surrogate_origin_id">
+                <option value="">All origins</option>
+                {% if data_origins %}
+                  {% for origin_id, origin_name, _ in data_origins %}
+                    <option value="{{ origin_id }}">{{ origin_id }} - {{ origin_name }}</option>
+                  {% endfor %}
+                {% endif %}
+              </select>
+              <label for="surrogate_statuses">Runs' status</label>
+              <input id="surrogate_statuses" name="surrogate_statuses" type="text" value="SUCCESS,CONVERGED" />
+              <span class="panel-note" style="margin:0;">Use <code>ALL</code> to include every status.</span>
+            </div>
+            <div class="row">
+              <label for="surrogate_test_size">Test size</label>
+              <input id="surrogate_test_size" name="surrogate_test_size" type="text" value="0.1" />
+              <label for="surrogate_n_estimators">Trees</label>
+              <input id="surrogate_n_estimators" name="surrogate_n_estimators" type="text" value="300" />
+              <label for="surrogate_max_depth">Max depth</label>
+              <input id="surrogate_max_depth" name="surrogate_max_depth" type="text" placeholder="None" />
+              <label for="surrogate_min_samples_leaf">Min samples leaf</label>
+              <input id="surrogate_min_samples_leaf" name="surrogate_min_samples_leaf" type="text" value="2" />
+            </div>
+            <div class="row" style="gap:16px;">
+              <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#52606d; margin:0;">
+                <input type="checkbox" name="surrogate_log1p" value="1" />
+                log1p(target)
+              </label>
+              <button type="submit">Train Surrogate Model</button>
+            </div>
+          </form>
+          <div style="margin-top:12px;">
+            <ul>
+              <li><strong>Test size</strong>: Fraction of rows held out for validation. <code>0</code> trains on all data and skips validation metrics.</li>
+              <li><strong>Trees</strong>: Number of trees in the forest. More trees usually improve stability but take longer.</li>
+              <li><strong>Max depth</strong>: Maximum depth of each tree. Blank/None allows fully grown trees.</li>
+              <li><strong>Min samples leaf</strong>: Minimum rows required in a leaf node. Higher values smooth the model.</li>
+              <li><strong>log1p(target)</strong>: Train on <code>log(1 + target)</code> to reduce skew. Predictions are back-transformed; requires non-negative targets.</li>
+            </ul>
+          </div>
+        </div>
       </section>
 
       <section class="panel panel-tabbed{% if selected_panel != 'results' %} panel-hidden{% endif %}" data-panel="results">
         <div class="chart-wrap borderless" style="margin-bottom:16px;">
-          <form method="get">
+          <form method="get" data-panel-fetch="results">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
@@ -2830,7 +2976,7 @@
         {% endif %}
         <div class="stats-grid">
         <div class="chart-wrap">
-          <form method="get">
+          <form method="get" data-panel-fetch="results">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
@@ -2865,7 +3011,7 @@
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
               <label for="x_col_results">X-axis</label>
-              <select id="x_col_results" name="results_x_col" onchange="this.form.submit()">
+              <select id="x_col_results" name="results_x_col" onchange="this.form.requestSubmit()">
                 {% for column in results_columns %}
                   <option value="{{ column.value }}" {% if column.value == results_x_col %}selected{% endif %}>
                     {{ column.label }}
@@ -2873,7 +3019,7 @@
                 {% endfor %}
               </select>
               <label for="y_col_results">Y-axis</label>
-              <select id="y_col_results" name="results_y_col" onchange="this.form.submit()">
+              <select id="y_col_results" name="results_y_col" onchange="this.form.requestSubmit()">
                 {% for column in results_columns %}
                   <option value="{{ column.value }}" {% if column.value == results_y_col %}selected{% endif %}>
                     {{ column.label }}
@@ -2922,7 +3068,7 @@
           </div>
         </div>
         <div class="chart-wrap">
-          <form method="get">
+          <form method="get" data-panel-fetch="results">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
@@ -2958,7 +3104,7 @@
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
               <label for="x2_col_results">X-axis</label>
-              <select id="x2_col_results" name="results_x2_col" onchange="this.form.submit()">
+              <select id="x2_col_results" name="results_x2_col" onchange="this.form.requestSubmit()">
                 {% for column in results_columns %}
                   <option value="{{ column.value }}" {% if column.value == results_x2_col %}selected{% endif %}>
                     {{ column.label }}
@@ -2966,7 +3112,7 @@
                 {% endfor %}
               </select>
               <label for="y2_col_results">Y-axis</label>
-              <select id="y2_col_results" name="results_y2_col" onchange="this.form.submit()">
+              <select id="y2_col_results" name="results_y2_col" onchange="this.form.requestSubmit()">
                 {% for column in results_columns %}
                   <option value="{{ column.value }}" {% if column.value == results_y2_col %}selected{% endif %}>
                     {{ column.label }}
@@ -3015,7 +3161,7 @@
           </div>
         </div>
         <div class="chart-wrap">
-          <form method="get">
+          <form method="get" data-panel-fetch="results">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
@@ -3052,7 +3198,7 @@
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
               <label for="x3_col_results">X-axis</label>
-              <select id="x3_col_results" name="results_x3_col" onchange="this.form.submit()">
+              <select id="x3_col_results" name="results_x3_col" onchange="this.form.requestSubmit()">
                 {% for column in results_columns %}
                   <option value="{{ column.value }}" {% if column.value == results_x3_col %}selected{% endif %}>
                     {{ column.label }}
@@ -3060,7 +3206,7 @@
                 {% endfor %}
               </select>
               <label for="y3_col_results">Y-axis</label>
-              <select id="y3_col_results" name="results_y3_col" onchange="this.form.submit()">
+              <select id="y3_col_results" name="results_y3_col" onchange="this.form.requestSubmit()">
                 {% for column in results_columns %}
                   <option value="{{ column.value }}" {% if column.value == results_y3_col %}selected{% endif %}>
                     {{ column.label }}
@@ -3109,7 +3255,7 @@
           </div>
         </div>
         <div class="chart-wrap">
-          <form method="get">
+          <form method="get" data-panel-fetch="results">
             <input type="hidden" name="db" value="{{ db_path }}" />
             <input type="hidden" name="panel" value="results" />
             <input type="hidden" name="table" value="{{ selected_table }}" />
@@ -3147,7 +3293,7 @@
             <input type="hidden" name="origin_id" value="{{ selected_origin_id }}" />
             <div class="row">
               <label for="x4_col_results">X-axis</label>
-              <select id="x4_col_results" name="results_x4_col" onchange="this.form.submit()">
+              <select id="x4_col_results" name="results_x4_col" onchange="this.form.requestSubmit()">
                 {% for column in results_columns %}
                   <option value="{{ column.value }}" {% if column.value == results_x4_col %}selected{% endif %}>
                     {{ column.label }}
@@ -3155,7 +3301,7 @@
                 {% endfor %}
               </select>
               <label for="y4_col_results">Y-axis</label>
-              <select id="y4_col_results" name="results_y4_col" onchange="this.form.submit()">
+              <select id="y4_col_results" name="results_y4_col" onchange="this.form.requestSubmit()">
                 {% for column in results_columns %}
                   <option value="{{ column.value }}" {% if column.value == results_y4_col %}selected{% endif %}>
                     {{ column.label }}
@@ -3206,7 +3352,7 @@
         </div>
         {% if results_plot_options %}
           <div class="chart-wrap" style="margin-top:20px;">
-            <form method="get">
+            <form method="get" data-panel-fetch="results">
               <input type="hidden" name="db" value="{{ db_path }}" />
               <input type="hidden" name="panel" value="results" />
               <input type="hidden" name="table" value="{{ selected_table }}" />
@@ -3246,7 +3392,7 @@
               <input type="hidden" name="results_y4_scale" value="{{ results_y4_scale }}" />
               <div class="row">
                 <label for="results_plot_run">Show plots</label>
-                <select id="results_plot_run" name="results_plot_run" onchange="this.form.submit()">
+                <select id="results_plot_run" name="results_plot_run" onchange="this.form.requestSubmit()">
                   {% for item in results_plot_options %}
                     <option value="{{ item.run_id }}"
                       {% if results_plot_selected and results_plot_selected.run_id == item.run_id %}selected{% endif %}>
@@ -3426,6 +3572,11 @@
     "sync_back_from_flux",
     "check_flux_status",
   ]|tojson }}</script>
+  <script type="application/json" id="surrogate-refresh-actions-data">{{ [
+    "train_gamma_surrogate",
+    "run_surrogate_estimate",
+    "delete_surrogate_model",
+  ]|tojson }}</script>
   <script type="application/json" id="stats-points-data">{{ stats_points|tojson }}</script>
   <script type="application/json" id="stats-points2-data">{{ stats_points_2|tojson }}</script>
   <script type="application/json" id="stats-points3-data">{{ stats_points_3|tojson }}</script>
@@ -3483,6 +3634,7 @@
     const actionStateEl = document.getElementById("action-state-data");
     const monitorActionsEl = document.getElementById("monitor-actions-data");
     const manualFluxActionsEl = document.getElementById("manual-flux-actions-data");
+    const surrogateRefreshActionsEl = document.getElementById("surrogate-refresh-actions-data");
     const actionState = actionStateEl ? JSON.parse(actionStateEl.textContent || "null") : null;
     let lastActionState = actionState;
     const monitorAutoRefreshActions = monitorActionsEl
@@ -3491,6 +3643,31 @@
     const manualFluxActions = manualFluxActionsEl
       ? JSON.parse(manualFluxActionsEl.textContent || "[]")
       : [];
+    const surrogateRefreshActions = surrogateRefreshActionsEl
+      ? JSON.parse(surrogateRefreshActionsEl.textContent || "[]")
+      : [];
+    const ACTION_NOTICE_TTL_MS = 20000;
+    const hideActionNotices = () => {
+      document.querySelectorAll(".action-notice").forEach((notice) => {
+        notice.style.display = "none";
+      });
+    };
+    const scheduleActionNoticeExpiry = () => {
+      if (!actionState || actionState.running || !actionState.message || !actionState.completed_at) {
+        return;
+      }
+      const completedAtMs = Date.parse(actionState.completed_at);
+      if (Number.isNaN(completedAtMs)) {
+        return;
+      }
+      const remainingMs = completedAtMs + ACTION_NOTICE_TTL_MS - Date.now();
+      if (remainingMs <= 0) {
+        hideActionNotices();
+        return;
+      }
+      window.setTimeout(hideActionNotices, remainingMs);
+    };
+    scheduleActionNoticeExpiry();
     const refreshMonitorOnce = () => {
       const url = new URL(window.location.href);
       if (url.searchParams.get("monitor_refresh") === "1") {
@@ -3507,7 +3684,7 @@
       if (selectedPanel !== "surrogate") {
         return;
       }
-      if (!state || state.key !== "train_gamma_surrogate") {
+      if (!state || !surrogateRefreshActions.includes(state.key)) {
         return;
       }
       const token = state.token;
@@ -3522,8 +3699,20 @@
       url.searchParams.set("panel", "surrogate");
       window.location.assign(url.toString());
     };
+    const refreshEquilibriaOnce = (state) => {
+      if (selectedPanel !== "equilibria") {
+        return;
+      }
+      if (!state || monitorAutoRefreshActions.includes(state.key)) {
+        return;
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.set("panel", "equilibria");
+      url.searchParams.set("_action_refresh", String(Date.now()));
+      window.location.assign(url.toString());
+    };
     const pollActionStatus = () => {
-      fetch("/action_status")
+      fetch("/action_status", { cache: "no-store" })
         .then((res) => (res.ok ? res.json() : null))
         .then((state) => {
           if (!state) {
@@ -3534,13 +3723,11 @@
               refreshMonitorOnce();
               return;
             }
+            refreshEquilibriaOnce(state);
             refreshSurrogateOnce(state);
           }
           lastActionState = state;
           if (state.running) {
-            if (manualFluxActions.includes(state.key)) {
-              return;
-            }
             setTimeout(pollActionStatus, 2000);
           } else {
             setTimeout(pollActionStatus, 5000);
@@ -3551,11 +3738,7 @@
         });
     };
     if (selectedPanel === "equilibria") {
-      if (
-        actionState &&
-        actionState.running &&
-        !manualFluxActions.includes(actionState.key)
-      ) {
+      if (actionState && actionState.running) {
         pollActionStatus();
       } else if (actionState && actionState.message) {
         if (monitorAutoRefreshActions.includes(actionState.key)) {
@@ -3567,7 +3750,7 @@
       selectedPanel === "surrogate" &&
       actionState &&
       actionState.running &&
-      actionState.key === "train_gamma_surrogate"
+      surrogateRefreshActions.includes(actionState.key)
     ) {
       pollActionStatus();
     }
@@ -4148,14 +4331,6 @@
         }
       );
     });
-    const setActiveTab = (name) => {
-      document.querySelectorAll(".tab").forEach((tab) => {
-        tab.classList.toggle("active", tab.dataset.tab === name);
-      });
-      document.querySelectorAll("[data-panel]").forEach((panel) => {
-        panel.classList.toggle("panel-hidden", panel.dataset.panel !== name);
-      });
-    };
     const postUsage = (event, details) => {
       fetch("/usage", {
         method: "POST",
@@ -4168,22 +4343,47 @@
       path: window.location.pathname,
       query: window.location.search
     });
-    document.querySelectorAll(".tab").forEach((tab) => {
-      tab.addEventListener("click", () => {
-        const previous = document.querySelector(".tab.active");
-        setActiveTab(tab.dataset.tab);
-        updateStickyOffset();
-        postUsage("tab_switch", {
-          from: previous ? previous.dataset.tab : null,
-          to: tab.dataset.tab
-        });
-        if (tab.dataset.tab === "tables") {
-          restoreTablesScroll();
-        }
-      });
-    });
-    const samplingPanel = document.querySelector('[data-panel="sampling"]');
+    const getSamplingPanel = () => document.querySelector('[data-panel="sampling"]');
+    const getSurrogatePanel = () => document.querySelector('[data-panel="surrogate"]');
+    const getHpcPanel = () => document.querySelector(".hpc-panel");
+    const getTablesWrapper = () => {
+      const panel = document.querySelector('[data-panel="tables"]');
+      return panel ? panel.querySelector(".table-wrapper") : null;
+    };
+    const saveTablesScroll = () => {
+      const tablesWrapper = getTablesWrapper();
+      if (!tablesWrapper) {
+        return;
+      }
+      sessionStorage.setItem("tablesScrollTop", String(tablesWrapper.scrollTop));
+      sessionStorage.setItem("tablesScrollLeft", String(tablesWrapper.scrollLeft));
+    };
+    const restoreTablesScroll = () => {
+      const tablesWrapper = getTablesWrapper();
+      if (!tablesWrapper) {
+        return;
+      }
+      const top = Number(sessionStorage.getItem("tablesScrollTop") || 0);
+      const left = Number(sessionStorage.getItem("tablesScrollLeft") || 0);
+      tablesWrapper.scrollTop = top;
+      tablesWrapper.scrollLeft = left;
+    };
+    const requestSubmitCompat = (form, submitter = null) => {
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      if (submitter && typeof form.requestSubmit === "function") {
+        form.requestSubmit(submitter);
+        return;
+      }
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+        return;
+      }
+      form.submit();
+    };
     const setSamplingTab = (name, updateUrl = true) => {
+      const samplingPanel = getSamplingPanel();
       if (!samplingPanel) {
         return;
       }
@@ -4200,17 +4400,27 @@
         window.history.replaceState({}, "", url.toString());
       }
     };
-    if (samplingPanel) {
-      const initialSamplingTab = samplingPanel.dataset.samplingTab || "equil";
-      setSamplingTab(initialSamplingTab, false);
-      samplingPanel.querySelectorAll(".subtab").forEach((tab) => {
-        tab.addEventListener("click", () => {
-          setSamplingTab(tab.dataset.subtab);
-        });
+    const setSurrogateTab = (name, updateUrl = true) => {
+      const surrogatePanel = getSurrogatePanel();
+      if (!surrogatePanel) {
+        return;
+      }
+      const normalized = name === "train" ? "train" : "models";
+      surrogatePanel.querySelectorAll("[data-surrogate-subtab]").forEach((tab) => {
+        tab.classList.toggle("active", tab.dataset.surrogateSubtab === normalized);
       });
-    }
-    const hpcPanel = document.querySelector(".hpc-panel");
+      surrogatePanel.querySelectorAll("[data-surrogate-subpanel]").forEach((panel) => {
+        panel.classList.toggle("active", panel.dataset.surrogateSubpanel === normalized);
+      });
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.set("panel", "surrogate");
+        url.searchParams.set("surrogate_tab", normalized);
+        window.history.replaceState({}, "", url.toString());
+      }
+    };
     const setHpcTab = (name, updateUrl = true) => {
+      const hpcPanel = getHpcPanel();
       if (!hpcPanel) {
         return;
       }
@@ -4231,43 +4441,6 @@
         window.history.replaceState({}, "", url.toString());
       }
     };
-    if (hpcPanel) {
-      const initialHpcTab = hpcPanel.dataset.hpcTab || "perlmutter";
-      setHpcTab(initialHpcTab, false);
-      hpcPanel.querySelectorAll("[data-hpc-subtab]").forEach((tab) => {
-        tab.addEventListener("click", () => {
-          setHpcTab(tab.dataset.hpcSubtab);
-        });
-      });
-    }
-    const tablesPanel = document.querySelector('[data-panel="tables"]');
-    const tablesWrapper = tablesPanel
-      ? tablesPanel.querySelector(".table-wrapper")
-      : null;
-    const saveTablesScroll = () => {
-      if (!tablesWrapper) {
-        return;
-      }
-      sessionStorage.setItem("tablesScrollTop", String(tablesWrapper.scrollTop));
-      sessionStorage.setItem("tablesScrollLeft", String(tablesWrapper.scrollLeft));
-    };
-    const restoreTablesScroll = () => {
-      if (!tablesWrapper) {
-        return;
-      }
-      const top = Number(sessionStorage.getItem("tablesScrollTop") || 0);
-      const left = Number(sessionStorage.getItem("tablesScrollLeft") || 0);
-      tablesWrapper.scrollTop = top;
-      tablesWrapper.scrollLeft = left;
-    };
-    if (tablesPanel) {
-      tablesPanel.querySelectorAll("form").forEach((form) => {
-        form.addEventListener("submit", saveTablesScroll);
-      });
-      window.addEventListener("load", () => {
-        restoreTablesScroll();
-      });
-    }
     const closeAllCustomPickers = (except = null) => {
       document.querySelectorAll("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1']").forEach((picker) => {
         if (picker !== except) {
@@ -4275,10 +4448,10 @@
         }
       });
     };
-      const enhanceSelectPicker = (selectEl) => {
-        if (!(selectEl instanceof HTMLSelectElement)) {
-          return;
-        }
+    const enhanceSelectPicker = (selectEl) => {
+      if (!(selectEl instanceof HTMLSelectElement)) {
+        return;
+      }
       if (
         selectEl.multiple ||
         selectEl.disabled ||
@@ -4288,31 +4461,39 @@
       ) {
         return;
       }
-        const options = Array.from(selectEl.options).filter((option) => !option.hidden);
-        if (options.length === 0) {
-          return;
-        }
-        const wrapper = document.createElement("details");
-        wrapper.className = "select-picker";
+      const options = Array.from(selectEl.options).filter((option) => !option.hidden);
+      if (options.length === 0) {
+        return;
+      }
+      const wrapper = document.createElement("details");
+      wrapper.className = "select-picker";
       wrapper.dataset.selectPicker = "1";
-        const summary = document.createElement("summary");
-        const summaryLabel = document.createElement("span");
-        summaryLabel.className = "select-picker-option-label";
+      const summary = document.createElement("summary");
+      const summaryLabel = document.createElement("span");
+      summaryLabel.className = "select-picker-option-label";
       summaryLabel.dataset.selectSummaryLabel = "1";
       summary.appendChild(summaryLabel);
-        const panel = document.createElement("div");
-        panel.className = "choice-picker-panel";
-        options.forEach((option) => {
-          const button = document.createElement("button");
-          button.className = "select-picker-option";
-          button.type = "button";
-          button.dataset.selectSubmit = "1";
-          button.dataset.selectLabel = option.textContent.trim();
-          button.dataset.selectIndex = String(option.index);
-          const label = document.createElement("span");
-          label.className = "select-picker-option-label";
-          label.textContent = option.textContent.trim();
-          button.appendChild(label);
+      const panel = document.createElement("div");
+      panel.className = "choice-picker-panel";
+      const syncGeneratedSelectPicker = () => {
+        const selectedOption = selectEl.options[selectEl.selectedIndex] || options[0];
+        const selectedIndex = String(selectedOption ? selectedOption.index : 0);
+        summaryLabel.textContent = selectedOption ? selectedOption.textContent.trim() : "";
+        panel.querySelectorAll("[data-select-submit='1']").forEach((button) => {
+          button.classList.toggle("active", button.dataset.selectIndex === selectedIndex);
+        });
+      };
+      options.forEach((option) => {
+        const button = document.createElement("button");
+        button.className = "select-picker-option";
+        button.type = "button";
+        button.dataset.selectSubmit = "1";
+        button.dataset.selectLabel = option.textContent.trim();
+        button.dataset.selectIndex = String(option.index);
+        const label = document.createElement("span");
+        label.className = "select-picker-option-label";
+        label.textContent = option.textContent.trim();
+        button.appendChild(label);
         button.addEventListener("click", () => {
           const selectedIndex = Number(button.dataset.selectIndex);
           if (!Number.isNaN(selectedIndex)) {
@@ -4326,14 +4507,6 @@
       });
       wrapper.appendChild(summary);
       wrapper.appendChild(panel);
-      const syncGeneratedSelectPicker = () => {
-        const selectedOption = selectEl.options[selectEl.selectedIndex] || options[0];
-        const selectedIndex = String(selectedOption ? selectedOption.index : 0);
-        summaryLabel.textContent = selectedOption ? selectedOption.textContent.trim() : "";
-        panel.querySelectorAll("[data-select-submit='1']").forEach((button) => {
-          button.classList.toggle("active", button.dataset.selectIndex === selectedIndex);
-        });
-      };
       wrapper.addEventListener("toggle", () => {
         if (!wrapper.open) {
           return;
@@ -4346,149 +4519,397 @@
       selectEl.addEventListener("change", syncGeneratedSelectPicker);
       syncGeneratedSelectPicker();
     };
-    const originSelects = document.querySelectorAll("[data-origin-select='1']");
-    const originSubmitButtons = document.querySelectorAll("[data-origin-submit='1']");
-    const originPickers = document.querySelectorAll("[data-origin-picker='1']");
-    const choiceSubmitButtons = document.querySelectorAll("[data-choice-submit='1']");
-    const choicePickers = document.querySelectorAll("[data-choice-picker='1']");
+    const bindPickerToggleHandlers = (root = document) => {
+      root.querySelectorAll("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1']").forEach((picker) => {
+        if (picker.dataset.pickerToggleBound === "1") {
+          return;
+        }
+        picker.dataset.pickerToggleBound = "1";
+        picker.addEventListener("toggle", () => {
+          if (!picker.open) {
+            return;
+          }
+          closeAllCustomPickers(picker);
+        });
+      });
+    };
+    const enhanceSelectPickers = (root = document) => {
+      root.querySelectorAll(".panel select, .assistant-panel select").forEach((selectEl) => {
+        enhanceSelectPicker(selectEl);
+      });
+      bindPickerToggleHandlers(root);
+    };
+    const replaceJsonScriptFromDoc = (id, nextDoc) => {
+      const current = document.getElementById(id);
+      const incoming = nextDoc.getElementById(id);
+      if (!current || !incoming) {
+        return;
+      }
+      current.textContent = incoming.textContent || "";
+    };
+    const renderResultsChartsFromPageData = () => {
+      const resultsConfigCurrent = parseJsonScript("results-config-data", {});
+      const getSelectLabel = (id, fallback = "") => {
+        const select = document.getElementById(id);
+        if (!(select instanceof HTMLSelectElement)) {
+          return fallback;
+        }
+        const option = select.options[select.selectedIndex];
+        return option ? option.textContent.trim() : fallback;
+      };
+      renderStatsChart(
+        "#stats-chart-results",
+        "#stats-empty-results",
+        parseJsonScript("results-points-data", []),
+        getSelectLabel("x_col_results"),
+        getSelectLabel("y_col_results"),
+        {
+          xMin: resultsConfigCurrent.xMin,
+          xMax: resultsConfigCurrent.xMax,
+          yMin: resultsConfigCurrent.yMin,
+          yMax: resultsConfigCurrent.yMax
+        },
+        {
+          xScale: resultsConfigCurrent.xScale,
+          yScale: resultsConfigCurrent.yScale,
+          highlight: resultsConfigCurrent.highlight
+        }
+      );
+      renderStatsChart(
+        "#stats-chart-2-results",
+        "#stats-empty-2-results",
+        parseJsonScript("results-points2-data", []),
+        getSelectLabel("x2_col_results"),
+        getSelectLabel("y2_col_results"),
+        {
+          xMin: resultsConfigCurrent.x2Min,
+          xMax: resultsConfigCurrent.x2Max,
+          yMin: resultsConfigCurrent.y2Min,
+          yMax: resultsConfigCurrent.y2Max
+        },
+        {
+          xScale: resultsConfigCurrent.x2Scale,
+          yScale: resultsConfigCurrent.y2Scale,
+          highlight: resultsConfigCurrent.highlight2
+        }
+      );
+      renderStatsChart(
+        "#stats-chart-3-results",
+        "#stats-empty-3-results",
+        parseJsonScript("results-points3-data", []),
+        getSelectLabel("x3_col_results"),
+        getSelectLabel("y3_col_results"),
+        {
+          xMin: resultsConfigCurrent.x3Min,
+          xMax: resultsConfigCurrent.x3Max,
+          yMin: resultsConfigCurrent.y3Min,
+          yMax: resultsConfigCurrent.y3Max
+        },
+        {
+          xScale: resultsConfigCurrent.x3Scale,
+          yScale: resultsConfigCurrent.y3Scale,
+          highlight: resultsConfigCurrent.highlight3
+        }
+      );
+      renderStatsChart(
+        "#stats-chart-4-results",
+        "#stats-empty-4-results",
+        parseJsonScript("results-points4-data", []),
+        getSelectLabel("x4_col_results"),
+        getSelectLabel("y4_col_results"),
+        {
+          xMin: resultsConfigCurrent.x4Min,
+          xMax: resultsConfigCurrent.x4Max,
+          yMin: resultsConfigCurrent.y4Min,
+          yMax: resultsConfigCurrent.y4Max
+        },
+        {
+          xScale: resultsConfigCurrent.x4Scale,
+          yScale: resultsConfigCurrent.y4Scale,
+          highlight: resultsConfigCurrent.highlight4
+        }
+      );
+    };
+    const refreshPanelFromResponse = async (form, submitter = null) => {
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      const panelName = form.dataset.panelFetch;
+      if (!panelName) {
+        return;
+      }
+      const url = new URL(form.action || window.location.href, window.location.origin);
+      const formData = new FormData(form);
+      if (submitter && submitter.name) {
+        formData.append(submitter.name, submitter.value || "");
+      }
+      url.search = new URLSearchParams(formData).toString();
+      if (panelName === "tables") {
+        saveTablesScroll();
+      }
+      try {
+        const response = await fetch(url.toString(), {
+          cache: "no-store",
+          headers: { "X-Requested-With": "fetch" }
+        });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const html = await response.text();
+        const nextDoc = new DOMParser().parseFromString(html, "text/html");
+        const currentPanel = document.querySelector(`[data-panel="${panelName}"]`);
+        const nextPanel = nextDoc.querySelector(`[data-panel="${panelName}"]`);
+        if (!currentPanel || !nextPanel) {
+          throw new Error(`Missing panel ${panelName}`);
+        }
+        currentPanel.replaceWith(nextPanel);
+        [
+          "action-state-data",
+          "stats-points-data",
+          "stats-points2-data",
+          "stats-points3-data",
+          "stats-points4-data",
+          "results-points-data",
+          "results-points2-data",
+          "results-points3-data",
+          "results-points4-data",
+          "results-config-data"
+        ].forEach((id) => replaceJsonScriptFromDoc(id, nextDoc));
+        applyColorSwatches();
+        enhanceSelectPickers(nextPanel);
+        if (panelName === "tables") {
+          restoreTablesScroll();
+        }
+        if (panelName === "results") {
+          renderResultsChartsFromPageData();
+        }
+        window.history.replaceState({}, "", url.toString());
+      } catch (error) {
+        window.location.assign(url.toString());
+      }
+    };
     const urlParams = new URLSearchParams(window.location.search);
     const storedOrigin = localStorage.getItem("dtwin_origin_id");
     if (!urlParams.has("origin_id") && storedOrigin) {
       urlParams.set("origin_id", storedOrigin);
       window.location.search = urlParams.toString();
-    } else {
-      originSelects.forEach((selectEl) => {
-        selectEl.addEventListener("change", () => {
-          const val = selectEl.value;
-          if (val) {
-            localStorage.setItem("dtwin_origin_id", val);
-          } else {
-            localStorage.removeItem("dtwin_origin_id");
-          }
-        });
-      });
-      originSubmitButtons.forEach((button) => {
-        button.addEventListener("click", () => {
-          const val = button.dataset.originValue;
-          const label = button.dataset.originLabel || "";
-          const color = button.dataset.originColor || "";
-          const form = button.closest("form");
-          const picker = button.closest("[data-origin-picker='1']");
-          const hiddenInput = form ? form.querySelector("[data-origin-hidden='1']") : null;
-          const summaryLabel = picker ? picker.querySelector("[data-origin-summary-label='1']") : null;
-          const summarySwatch = picker ? picker.querySelector("[data-origin-summary-swatch='1']") : null;
-          if (val) {
-            localStorage.setItem("dtwin_origin_id", val);
-          } else {
-            localStorage.removeItem("dtwin_origin_id");
-          }
-          if (hiddenInput) {
-            hiddenInput.value = val || "";
-          }
-          if (summaryLabel && label) {
-            summaryLabel.textContent = label;
-          }
-          if (summarySwatch && color) {
-            summarySwatch.dataset.color = color;
-            summarySwatch.style.background = color;
-          }
-          if (picker) {
-            picker.querySelectorAll("[data-origin-submit='1']").forEach((option) => {
-              option.classList.toggle("active", option === button);
-            });
-            picker.open = false;
-          }
-          if (form) {
-            window.setTimeout(() => {
-              form.submit();
-            }, 60);
-          }
-        });
-      });
-      choiceSubmitButtons.forEach((button) => {
-        button.addEventListener("click", () => {
-          const val = button.dataset.choiceValue || "";
-          const label = button.dataset.choiceLabel || "";
-          const form = button.closest("form");
-          const wrapper = button.closest(".choice-picker-wrap");
-          const picker = button.closest("[data-choice-picker='1']");
-          const hiddenInput = wrapper ? wrapper.querySelector("[data-choice-hidden='1']") : null;
-          const summaryLabel = wrapper ? wrapper.querySelector("[data-choice-summary-label='1']") : null;
-          if (hiddenInput) {
-            hiddenInput.value = val;
-          }
-          if (summaryLabel && label) {
-            summaryLabel.textContent = label;
-          }
-          if (picker) {
-            picker.querySelectorAll("[data-choice-submit='1']").forEach((option) => {
-              option.classList.toggle("active", option === button);
-            });
-            picker.open = false;
-          }
-          if (form) {
-            window.setTimeout(() => {
-              form.submit();
-            }, 60);
-          }
-        });
-      });
     }
-    document.querySelectorAll(".panel select, .assistant-panel select").forEach((selectEl) => {
-      enhanceSelectPicker(selectEl);
+    const samplingPanel = getSamplingPanel();
+    if (samplingPanel) {
+      setSamplingTab(samplingPanel.dataset.samplingTab || "equil", false);
+    }
+    const surrogatePanel = getSurrogatePanel();
+    if (surrogatePanel) {
+      setSurrogateTab(surrogatePanel.dataset.surrogateTab || "models", false);
+    }
+    const hpcPanel = getHpcPanel();
+    if (hpcPanel) {
+      setHpcTab(hpcPanel.dataset.hpcTab || "perlmutter", false);
+    }
+    enhanceSelectPickers(document);
+    window.addEventListener("load", () => {
+      restoreTablesScroll();
+      renderResultsChartsFromPageData();
     });
-    originPickers.forEach((picker) => {
-      picker.addEventListener("toggle", () => {
-        if (!picker.open) {
-          return;
-        }
-        closeAllCustomPickers(picker);
-      });
+    document.addEventListener("submit", (event) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      if (form.closest('[data-panel="tables"]')) {
+        saveTablesScroll();
+      }
+      if (!form.dataset.panelFetch) {
+        return;
+      }
+      if ((form.method || "get").toUpperCase() !== "GET") {
+        return;
+      }
+      event.preventDefault();
+      refreshPanelFromResponse(form, event.submitter || null);
     });
-    choicePickers.forEach((picker) => {
-      picker.addEventListener("toggle", () => {
-        if (!picker.open) {
-          return;
+    document.addEventListener("change", (event) => {
+      const selectEl = event.target;
+      if (!(selectEl instanceof HTMLSelectElement)) {
+        return;
+      }
+      if (selectEl.matches("[data-origin-select='1']")) {
+        const val = selectEl.value;
+        if (val) {
+          localStorage.setItem("dtwin_origin_id", val);
+        } else {
+          localStorage.removeItem("dtwin_origin_id");
         }
-        closeAllCustomPickers(picker);
-      });
+      }
     });
     document.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) {
+        return;
+      }
+      const tab = target.closest(".tab");
+      if (tab) {
+        const previous = document.querySelector(".tab.active");
+        postUsage("tab_switch", {
+          from: previous ? previous.dataset.tab : null,
+          to: tab.dataset.tab
+        });
+        if (tab.dataset.tab === selectedPanel) {
+          if (tab.dataset.tab === "tables") {
+            restoreTablesScroll();
+          }
+          return;
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.set("panel", tab.dataset.tab);
+        window.location.assign(url.toString());
+        return;
+      }
+      const samplingSubtab = target.closest("[data-subtab]");
+      if (samplingSubtab) {
+        setSamplingTab(samplingSubtab.dataset.subtab);
+        return;
+      }
+      const surrogateSubtab = target.closest("[data-surrogate-subtab]");
+      if (surrogateSubtab) {
+        setSurrogateTab(surrogateSubtab.dataset.surrogateSubtab);
+        return;
+      }
+      const hpcSubtab = target.closest("[data-hpc-subtab]");
+      if (hpcSubtab) {
+        setHpcTab(hpcSubtab.dataset.hpcSubtab);
+        return;
+      }
+      const originButton = target.closest("[data-origin-submit='1']");
+      if (originButton) {
+        const val = originButton.dataset.originValue;
+        const label = originButton.dataset.originLabel || "";
+        const color = originButton.dataset.originColor || "";
+        const form = originButton.closest("form");
+        const picker = originButton.closest("[data-origin-picker='1']");
+        const hiddenInput = form ? form.querySelector("[data-origin-hidden='1']") : null;
+        const summaryLabel = picker ? picker.querySelector("[data-origin-summary-label='1']") : null;
+        const summarySwatch = picker ? picker.querySelector("[data-origin-summary-swatch='1']") : null;
+        if (val) {
+          localStorage.setItem("dtwin_origin_id", val);
+        } else {
+          localStorage.removeItem("dtwin_origin_id");
+        }
+        if (hiddenInput) {
+          hiddenInput.value = val || "";
+        }
+        if (summaryLabel && label) {
+          summaryLabel.textContent = label;
+        }
+        if (summarySwatch && color) {
+          summarySwatch.dataset.color = color;
+          summarySwatch.style.background = color;
+        }
+        if (picker) {
+          picker.querySelectorAll("[data-origin-submit='1']").forEach((option) => {
+            option.classList.toggle("active", option === originButton);
+          });
+          picker.open = false;
+        }
+        if (form) {
+          window.setTimeout(() => {
+            requestSubmitCompat(form);
+          }, 60);
+        }
+        return;
+      }
+      const choiceButton = target.closest("[data-choice-submit='1']");
+      if (choiceButton) {
+        const val = choiceButton.dataset.choiceValue || "";
+        const label = choiceButton.dataset.choiceLabel || "";
+        const form = choiceButton.closest("form");
+        const wrapper = choiceButton.closest(".choice-picker-wrap");
+        const picker = choiceButton.closest("[data-choice-picker='1']");
+        const hiddenInput = wrapper ? wrapper.querySelector("[data-choice-hidden='1']") : null;
+        const summaryLabel = wrapper ? wrapper.querySelector("[data-choice-summary-label='1']") : null;
+        if (hiddenInput) {
+          hiddenInput.value = val;
+        }
+        if (summaryLabel && label) {
+          summaryLabel.textContent = label;
+        }
+        if (picker) {
+          picker.querySelectorAll("[data-choice-submit='1']").forEach((option) => {
+            option.classList.toggle("active", option === choiceButton);
+          });
+          picker.open = false;
+        }
+        if (form) {
+          window.setTimeout(() => {
+            requestSubmitCompat(form);
+          }, 60);
+        }
+        return;
+      }
+      const originRow = target.closest(".equilibria-origin-row");
+      if (originRow && !target.closest("button, form, a, input, select, label, summary, details")) {
+        const equilibriaOriginForm = document.getElementById("equilibria-origin-row-form");
+        const equilibriaOriginInput = document.getElementById("equilibria-origin-row-input");
+        const originId = originRow.dataset.equilibriaOriginId;
+        if (equilibriaOriginForm && equilibriaOriginInput && originId) {
+          equilibriaOriginInput.value = originId;
+          localStorage.setItem("dtwin_origin_id", originId);
+          requestSubmitCompat(equilibriaOriginForm);
+        }
+        return;
+      }
+      const surrogateRow = target.closest(".surrogate-model-row");
+      if (surrogateRow && !target.closest("button, form, a, input, select, label")) {
+        const surrogateRowForm = document.getElementById("surrogate-row-select-form");
+        const surrogateRowInput = document.getElementById("surrogate-row-select-input");
+        const surrogateId = surrogateRow.dataset.surrogateId;
+        if (surrogateRowForm && surrogateRowInput && surrogateId) {
+          surrogateRowInput.value = surrogateId;
+          requestSubmitCompat(surrogateRowForm);
+        }
+        return;
+      }
       document.querySelectorAll("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1']").forEach((picker) => {
-        if (picker.open && !picker.contains(event.target)) {
+        if (picker.open && !picker.contains(target)) {
           picker.open = false;
         }
       });
     });
     document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") {
+      if (event.key === "Escape") {
+        document.querySelectorAll("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1']").forEach((picker) => {
+          picker.open = false;
+        });
         return;
       }
-      document.querySelectorAll("[data-origin-picker='1'], [data-choice-picker='1'], [data-select-picker='1']").forEach((picker) => {
-        picker.open = false;
-      });
-    });
-    const equilibriaOriginForm = document.getElementById("equilibria-origin-row-form");
-    const equilibriaOriginInput = document.getElementById("equilibria-origin-row-input");
-    if (equilibriaOriginForm && equilibriaOriginInput) {
-      document.querySelectorAll(".equilibria-origin-row").forEach((row) => {
-        const submitOriginRow = () => {
-          const originId = row.dataset.equilibriaOriginId;
-          if (!originId) {
-            return;
-          }
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) {
+        return;
+      }
+      const originRow = target.closest(".equilibria-origin-row");
+      if (originRow && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        const equilibriaOriginForm = document.getElementById("equilibria-origin-row-form");
+        const equilibriaOriginInput = document.getElementById("equilibria-origin-row-input");
+        const originId = originRow.dataset.equilibriaOriginId;
+        if (equilibriaOriginForm && equilibriaOriginInput && originId) {
           equilibriaOriginInput.value = originId;
           localStorage.setItem("dtwin_origin_id", originId);
-          equilibriaOriginForm.submit();
-        };
-        row.addEventListener("click", submitOriginRow);
-        row.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            submitOriginRow();
-          }
-        });
-      });
-    }
+          requestSubmitCompat(equilibriaOriginForm);
+        }
+        return;
+      }
+      const surrogateRow = target.closest(".surrogate-model-row");
+      if (surrogateRow && (event.key === "Enter" || event.key === " ")) {
+        event.preventDefault();
+        const surrogateRowForm = document.getElementById("surrogate-row-select-form");
+        const surrogateRowInput = document.getElementById("surrogate-row-select-input");
+        const surrogateId = surrogateRow.dataset.surrogateId;
+        if (surrogateRowForm && surrogateRowInput && surrogateId) {
+          surrogateRowInput.value = surrogateId;
+          requestSubmitCompat(surrogateRowForm);
+        }
+      }
+    });
   </script>
 </html>

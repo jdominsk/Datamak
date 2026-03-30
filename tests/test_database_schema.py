@@ -290,6 +290,103 @@ class DatabaseSchemaTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_create_schema_restores_new_status_in_gk_input_constraint(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(
+                """
+                CREATE TABLE gk_study (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data_equil_id INTEGER NOT NULL,
+                    gk_code_id INTEGER NOT NULL,
+                    comment TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE gk_model (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gk_code_id INTEGER NOT NULL,
+                    is_linear INTEGER NOT NULL DEFAULT 1,
+                    is_adiabatic INTEGER NOT NULL DEFAULT 0,
+                    is_electrostatic INTEGER NOT NULL DEFAULT 0,
+                    input_template TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE gk_input (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gk_study_id INTEGER NOT NULL,
+                    gk_model_id INTEGER NOT NULL,
+                    file_name TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    psin REAL NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS', 'ERROR')),
+                    comment TEXT NOT NULL DEFAULT '',
+                    geo_option TEXT,
+                    rhoc REAL,
+                    Rmaj REAL,
+                    R_geo REAL,
+                    qinp REAL,
+                    shat REAL,
+                    shift REAL,
+                    akappa REAL,
+                    akappri REAL,
+                    tri REAL,
+                    tripri REAL,
+                    betaprim REAL,
+                    beta REAL,
+                    electron_z REAL,
+                    electron_mass REAL,
+                    electron_dens REAL,
+                    electron_temp REAL,
+                    electron_temp_ev REAL,
+                    electron_tprim REAL,
+                    electron_fprim REAL,
+                    electron_vnewk REAL,
+                    ion_z REAL,
+                    ion_mass REAL,
+                    ion_dens REAL,
+                    ion_temp REAL,
+                    ion_temp_ev REAL,
+                    ion_tprim REAL,
+                    ion_fprim REAL,
+                    ion_vnewk REAL,
+                    creation_date TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO gk_input (
+                    gk_study_id, gk_model_id, file_name, file_path, content, psin, status, comment
+                )
+                VALUES (1, 1, 'input.in', '/tmp/input.in', 'content', 0.5, 'WAIT', '')
+                """
+            )
+
+            create_schema(conn)
+
+            table_sql = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gk_input'"
+            ).fetchone()
+            self.assertIsNotNone(table_sql)
+            self.assertIn(
+                "status TEXT NOT NULL CHECK (status IN ('NEW', 'WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS', 'ERROR'))",
+                str(table_sql[0]),
+            )
+            row = conn.execute(
+                "SELECT status, file_name, psin FROM gk_input WHERE id = 1"
+            ).fetchone()
+            self.assertEqual((str(row[0]), str(row[1]), float(row[2])), ("WAIT", "input.in", 0.5))
+        finally:
+            conn.close()
+
     def test_seed_scripts_populate_code_and_model_tables(self) -> None:
         conn = sqlite3.connect(":memory:")
         try:

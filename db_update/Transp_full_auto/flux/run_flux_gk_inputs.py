@@ -5,7 +5,6 @@ import os
 import random
 import re
 import sqlite3
-import sys
 import tempfile
 import time
 import warnings
@@ -15,14 +14,21 @@ from typing import Dict, List, Optional, Tuple
 
 import pyrokinetics as pk
 
-ROOT_DIR = os.environ.get(
-    "DTWIN_ROOT",
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+ROOT_DIR = str(
+    Path(
+        os.environ.get("DTWIN_ROOT") or Path(__file__).resolve().parents[1]
+    ).resolve()
 )
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
 
-from dtwin_config import resolve_flux_profile  # noqa: E402
+
+def resolve_runtime_flux_base_dir() -> str:
+    base_dir = str(os.environ.get("DTWIN_FLUX_BASE_DIR") or "").strip()
+    if base_dir:
+        return base_dir
+    dtwin_root = str(os.environ.get("DTWIN_ROOT") or "").strip()
+    if dtwin_root:
+        return dtwin_root
+    return ROOT_DIR
 
 
 def _default_tmp_dir(base_dir: str) -> str:
@@ -291,6 +297,26 @@ def claim_equilibrium_rows(
     return dict(equil), [dict(row) for row in rows]
 
 
+def release_claimed_rows(
+    conn: sqlite3.Connection,
+    rows: List[Dict[str, object]],
+) -> None:
+    row_ids = [int(row["id"]) for row in rows]
+    if not row_ids:
+        return
+    conn.executemany(
+        """
+        UPDATE gk_input
+        SET status = 'NEW'
+        WHERE id = ?
+          AND status = 'WAIT'
+          AND (content IS NULL OR content = '')
+        """,
+        [(row_id,) for row_id in row_ids],
+    )
+    commit_with_retry(conn)
+
+
 def read_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as handle:
         return handle.read()
@@ -483,8 +509,7 @@ def process_rows(
 
 def main() -> None:
     args = parse_args()
-    flux = resolve_flux_profile()
-    flux_base_dir = str(flux.get("base_dir") or "").strip()
+    flux_base_dir = resolve_runtime_flux_base_dir()
     args.db = (args.db or "").strip() or os.path.join(flux_base_dir, "flux_equil_inputs.db")
     args.tmp_dir = (args.tmp_dir or "").strip() or _default_tmp_dir(flux_base_dir)
     if not args.db:
@@ -525,11 +550,20 @@ def main() -> None:
                     break
                 batch_target = args.batch_size
                 batch_done = 0
+                stop_early = False
                 while batch_done < batch_target and processed_rows < max_rows:
                     equil, rows = claim_equilibrium_rows(conn, args.randomize)
                     if not rows:
                         print("No NEW gk_input rows found.")
                         return
+                    if processed_rows > 0 and processed_rows + len(rows) > max_rows:
+                        release_claimed_rows(conn, rows)
+                        print(
+                            "Stopping before next equilibrium batch: "
+                            f"{len(rows)} more rows would exceed max_rows={max_rows}."
+                        )
+                        stop_early = True
+                        break
                     if equil:
                         print(
                             "Selected equil: "
@@ -573,6 +607,13 @@ def main() -> None:
                 if not rows:
                     print("No NEW gk_input rows found.")
                     return
+                if processed_rows > 0 and processed_rows + len(rows) > max_rows:
+                    release_claimed_rows(conn, rows)
+                    print(
+                        "Stopping before next equilibrium batch: "
+                        f"{len(rows)} more rows would exceed max_rows={max_rows}."
+                    )
+                    break
                 if equil:
                     print(
                         "Selected equil: "

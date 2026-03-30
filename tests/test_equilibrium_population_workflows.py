@@ -19,8 +19,14 @@ from db_update.populate_data_equil_from_Mate_KinEFIT import (
 )
 from db_update.populate_data_equil_from_Mate_KinEFIT import insert_pairs
 from db_update.Transp_full_auto.build_flux_equil_inputs import (
+    canonicalize_flux_gk_models,
+    create_gk_inputs,
     populate_equil_and_timeseries,
 )
+from db_update.Transp_full_auto.sync_flux_equil_inputs_to_main import (
+    build_flux_to_main_gk_model_id_map,
+)
+from database.create_gyrokinetic_db import ensure_gk_input_status_allows_new
 
 
 def _create_min_equil_schema(conn: sqlite3.Connection) -> None:
@@ -57,6 +63,260 @@ def _create_min_equil_schema(conn: sqlite3.Connection) -> None:
 
 
 class EquilibriumPopulationWorkflowTests(unittest.TestCase):
+    def test_flux_gk_model_duplicates_are_canonicalized(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute(
+                """
+                CREATE TABLE gk_model (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gk_code_id INTEGER NOT NULL,
+                    is_linear INTEGER NOT NULL DEFAULT 1,
+                    is_adiabatic INTEGER NOT NULL DEFAULT 0,
+                    is_electrostatic INTEGER NOT NULL DEFAULT 0,
+                    input_template TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE gk_input (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gk_study_id INTEGER NOT NULL,
+                    gk_model_id INTEGER NOT NULL,
+                    file_name TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    psin REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    comment TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO gk_model (
+                    id, gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template, active
+                ) VALUES
+                    (1, 1, 1, 1, 1, 'gx_template_miller_linear_adiabe.in', 1),
+                    (6, 1, 1, 1, 1, 'gx_template_miller_linear_adiabe.in', 1)
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO gk_input (
+                    id, gk_study_id, gk_model_id, file_name, file_path, content, psin, status, comment
+                ) VALUES
+                    (10, 20, 1, '', '', '', 0.5, 'NEW', ''),
+                    (11, 20, 6, 'gx.in', '/tmp/gx.in', 'content', 0.5, 'WAIT', 'done')
+                """
+            )
+            conn.commit()
+
+            remapped = canonicalize_flux_gk_models(conn)
+            conn.commit()
+
+            self.assertEqual(remapped, 1)
+            model_ids = [
+                int(row[0]) for row in conn.execute("SELECT id FROM gk_model ORDER BY id").fetchall()
+            ]
+            self.assertEqual(model_ids, [1])
+            rows = conn.execute(
+                """
+                SELECT gk_model_id, file_name, file_path, content, status, comment
+                FROM gk_input
+                ORDER BY id
+                """
+            ).fetchall()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(
+                (
+                    int(rows[0][0]),
+                    str(rows[0][1]),
+                    str(rows[0][2]),
+                    str(rows[0][3]),
+                    str(rows[0][4]),
+                    str(rows[0][5]),
+                ),
+                (1, "gx.in", "/tmp/gx.in", "content", "WAIT", "done"),
+            )
+        finally:
+            conn.close()
+
+    def test_sync_maps_flux_gk_model_ids_by_signature(self) -> None:
+        flux = sqlite3.connect(":memory:")
+        main = sqlite3.connect(":memory:")
+        try:
+            for conn in (flux, main):
+                conn.execute(
+                    """
+                    CREATE TABLE gk_model (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        gk_code_id INTEGER NOT NULL,
+                        is_linear INTEGER NOT NULL DEFAULT 1,
+                        is_adiabatic INTEGER NOT NULL DEFAULT 0,
+                        is_electrostatic INTEGER NOT NULL DEFAULT 0,
+                        input_template TEXT NOT NULL,
+                        active INTEGER NOT NULL DEFAULT 1
+                    )
+                    """
+                )
+            main.execute(
+                """
+                INSERT INTO gk_model (
+                    id, gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template, active
+                ) VALUES (1, 1, 1, 1, 1, 'gx_template_miller_linear_adiabe.in', 1)
+                """
+            )
+            flux.execute(
+                """
+                INSERT INTO gk_model (
+                    id, gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template, active
+                ) VALUES (6, 1, 1, 1, 1, 'gx_template_miller_linear_adiabe.in', 1)
+                """
+            )
+            flux.commit()
+            main.commit()
+
+            mapping = build_flux_to_main_gk_model_id_map(flux, main)
+
+            self.assertEqual(mapping, {6: 1})
+        finally:
+            flux.close()
+            main.close()
+
+    def test_flux_create_gk_inputs_repairs_legacy_status_constraint(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(
+                """
+                CREATE TABLE data_origin (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    origin TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE data_equil (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data_origin_id INTEGER NOT NULL,
+                    folder_path TEXT,
+                    transpfile TEXT,
+                    shot_time REAL,
+                    active INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE gk_code (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE gk_model (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gk_code_id INTEGER NOT NULL,
+                    is_linear INTEGER NOT NULL DEFAULT 1,
+                    is_adiabatic INTEGER NOT NULL DEFAULT 0,
+                    is_electrostatic INTEGER NOT NULL DEFAULT 0,
+                    input_template TEXT NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE gk_study (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data_equil_id INTEGER NOT NULL,
+                    gk_code_id INTEGER NOT NULL,
+                    comment TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE gk_input (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    gk_study_id INTEGER NOT NULL,
+                    gk_model_id INTEGER NOT NULL,
+                    file_name TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    psin REAL NOT NULL,
+                    status TEXT NOT NULL CHECK (status IN ('WAIT', 'TORUN', 'BATCH', 'CRASHED', 'SUCCESS', 'ERROR')),
+                    comment TEXT NOT NULL DEFAULT '',
+                    geo_option TEXT,
+                    rhoc REAL,
+                    Rmaj REAL,
+                    R_geo REAL,
+                    qinp REAL,
+                    shat REAL,
+                    shift REAL,
+                    akappa REAL,
+                    akappri REAL,
+                    tri REAL,
+                    tripri REAL,
+                    betaprim REAL,
+                    beta REAL,
+                    electron_z REAL,
+                    electron_mass REAL,
+                    electron_dens REAL,
+                    electron_temp REAL,
+                    electron_temp_ev REAL,
+                    electron_tprim REAL,
+                    electron_fprim REAL,
+                    electron_vnewk REAL,
+                    ion_z REAL,
+                    ion_mass REAL,
+                    ion_dens REAL,
+                    ion_temp REAL,
+                    ion_temp_ev REAL,
+                    ion_tprim REAL,
+                    ion_fprim REAL,
+                    ion_vnewk REAL,
+                    creation_date TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO data_origin (id, name, origin) VALUES (4, 'Transp 10 (full-auto)', '/remote/transp')"
+            )
+            conn.execute(
+                "INSERT INTO data_equil (id, data_origin_id, folder_path, transpfile, shot_time, active) VALUES (10, 4, '/remote/transp', '123456A01.CDF', 1.2, 1)"
+            )
+            conn.execute("INSERT INTO gk_code (id, name) VALUES (1, 'GX')")
+            conn.execute(
+                """
+                INSERT INTO gk_model (
+                    id, gk_code_id, is_linear, is_adiabatic, is_electrostatic, input_template, active
+                )
+                VALUES (1, 1, 1, 1, 1, 'gx_template.in', 1)
+                """
+            )
+            conn.execute(
+                "INSERT INTO gk_study (id, data_equil_id, gk_code_id, comment) VALUES (20, 10, 1, 'demo')"
+            )
+
+            ensure_gk_input_status_allows_new(conn)
+            created = create_gk_inputs(conn, 4, [0.5], "NEW")
+
+            self.assertEqual(created, 1)
+            row = conn.execute(
+                "SELECT gk_study_id, gk_model_id, psin, status FROM gk_input"
+            ).fetchone()
+            self.assertEqual((int(row[0]), int(row[1]), float(row[2]), str(row[3])), (20, 1, 0.5, "NEW"))
+        finally:
+            conn.close()
+
     def test_flux_populate_skips_unreadable_cdf_and_continues(self) -> None:
         conn = sqlite3.connect(":memory:")
         try:

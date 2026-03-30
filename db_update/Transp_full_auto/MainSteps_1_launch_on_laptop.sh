@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DTWIN_ROOT="${DTWIN_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
-LOCAL_DIR="${DTWIN_ROOT}/transp_full_auto"
+LOCAL_DIR="${DTWIN_ROOT}/tmp/transp_full_auto"
 MAIN_DB="${DTWIN_ROOT}/gyrokinetic_simulations.db"
 ORIGIN_ID="${ORIGIN_ID:-}"
 ORIGIN_NAME="${ORIGIN_NAME:-Transp 09 (full-auto)}"

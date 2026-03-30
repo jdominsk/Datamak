@@ -291,6 +291,9 @@ def _build_common_redirect_params(form_data: Any) -> Dict[str, object]:
         redirect_params["origin_id"] = origin_id
     if _get_value(form_data, "equilibria_valid_only").strip().lower() in _TRUTHY_EQUIVALENTS:
         redirect_params["equilibria_valid_only"] = "1"
+    surrogate_tab = _get_value(form_data, "surrogate_tab").strip().lower()
+    if surrogate_tab in {"models", "train"}:
+        redirect_params["surrogate_tab"] = surrogate_tab
     return redirect_params
 
 

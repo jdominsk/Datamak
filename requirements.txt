@@ -1,3 +1,8 @@
 Flask==3.0.3
 numpy
 scikit-learn
+netCDF4
+matplotlib
+
+# Pyrokinetics is required for full GK-input generation workflows,
+# but it is installed separately from a user checkout or shared environment.

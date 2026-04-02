@@ -1,7 +1,0 @@
-DATAMAK is an automated system for creating and maintaining fusion plasma databases. It maps relationships between equilibrium data, gyrokinetic studies, simulation inputs, and simulation outputs. It records both workflow metadata and scientific results. It can easily be extended for including other physics studies in the workflow, including MHD, fast ions, and atomic physics studies. The platform automates key workflow stages while keeping a deliberate human-in-the-loop control gate (for example, promoting inputs to run status), ensuring operational oversight and data quality, and supporting future policy-driven decision algorithms. By organizing data in a consistent, traceable structure, DATAMAK also provides a strong foundation for training and validating surrogate models for fusion physics. The tool is built around a GUI-based workflow console to facilitate user experience for monitoring, launching, and maintaining the pipeline.
-
-
-
-Create a virtual environement and then 
-python -m pip install -e /Users/jdominsk/Documents/Codes/pyrokinetics/pyrokinetics
-....

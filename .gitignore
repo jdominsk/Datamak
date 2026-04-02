@@ -17,6 +17,7 @@ tests/__init__.py
 presentation/~$Datamak_2slides.pptx
 DatamakAndCo.code-workspace
 *.md
+!/README.md
 .vscode
 *.json
 *.log
@@ -40,7 +41,6 @@ db_surrogate/models_OLD
 ai_feedback.json
 docs
 Tasks
-*.md
 .playwright-cli
 datamak_runtime.env
 backup

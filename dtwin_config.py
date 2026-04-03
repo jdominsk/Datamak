@@ -157,6 +157,10 @@ def _first_letter(user: str) -> str:
     return user[:1].lower() if user else ""
 
 
+def _default_ssh_identity() -> str:
+    return str(Path.home() / ".ssh" / "nersc")
+
+
 def compose_remote_host(user: str, host: str) -> str:
     host = (host or "").strip()
     user = (user or "").strip()
@@ -186,7 +190,7 @@ def _derived_perlmutter(user: str, host: str) -> Dict[str, Any]:
         "user": user,
         "host": host or "perlmutter.nersc.gov",
         "remote": compose_remote_host(user, host or "perlmutter.nersc.gov"),
-        "identity": "",
+        "identity": _default_ssh_identity(),
         "control_path": "/tmp/datamak_ssh_%r@%h_%p",
         "control_persist": "10m",
         "connect_timeout": 10,

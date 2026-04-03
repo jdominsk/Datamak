@@ -1083,6 +1083,15 @@
           <div class="row">
             <label for="db">DB path</label>
             <input id="db" name="db" type="text" size="60" value="{{ db_path }}" />
+            <input type="hidden" name="panel" value="tables" />
+            <button type="submit">Open</button>
+            <button
+              type="submit"
+              formaction="{{ url_for('browse_database') }}"
+              formmethod="post"
+            >
+              Browse...
+            </button>
           </div>
         </form>
         {% if db_recovery_message %}

@@ -71,12 +71,21 @@
 </div>
 {% if monitor_payload and monitor_payload.batches %}
   <div class="chart-wrap{% if monitor_form_panel|default('monitor') == 'equilibria' %} borderless{% endif %}">
+    {% if monitor_payload.source_note %}
+      <div class="panel-note" style="margin-bottom:8px;">
+        {{ monitor_payload.source_note }}
+      </div>
+    {% endif %}
     <div class="panel-note">
-      Report generated:
-      <span class="monitor-generated-at" data-utc="{{ monitor_payload.generated_at }}">
-        {{ monitor_payload.generated_at }}
-      </span>
-      | db: {{ monitor_payload.db_path }}
+      {% if monitor_payload.generated_at %}
+        Report generated:
+        <span class="monitor-generated-at" data-utc="{{ monitor_payload.generated_at }}">
+          {{ monitor_payload.generated_at }}
+        </span>
+        | db: {{ monitor_payload.db_path }}
+      {% else %}
+        Local DB snapshot | db: {{ monitor_payload.db_path }}
+      {% endif %}
     </div>
     {% if monitor_payload.errors and monitor_payload.errors|length > 0 %}
       <div class="error">

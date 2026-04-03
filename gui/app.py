@@ -1531,6 +1531,385 @@ def filter_monitor_report_for_origin(
     return filtered_report
 
 
+def _normalize_monitor_db_path(path: object) -> str:
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    try:
+        return str(Path(text).expanduser().resolve(strict=False))
+    except Exception:
+        return str(Path(text).expanduser())
+
+
+def _monitor_report_matches_db(
+    report: Optional[Dict[str, object]], db_path: str
+) -> bool:
+    if not report:
+        return False
+    report_path = _normalize_monitor_db_path(report.get("db_path"))
+    target_path = _normalize_monitor_db_path(db_path)
+    return bool(report_path and target_path and report_path == target_path)
+
+
+def _parse_monitor_batch_remote(
+    remote_folder: object, remote_host: object
+) -> tuple[str, str]:
+    folder = str(remote_folder or "").strip()
+    host = str(remote_host or "").strip()
+    if ":" in folder:
+        parsed_host, parsed_folder = folder.split(":", 1)
+        if not host:
+            host = parsed_host.strip()
+        folder = parsed_folder.strip()
+    return host, folder
+
+
+def _summarize_monitor_values(values: List[float]) -> Dict[str, object]:
+    if not values:
+        return {}
+    values = sorted(values)
+    return {
+        "count": len(values),
+        "min": values[0],
+        "median": values[len(values) // 2],
+        "max": values[-1],
+    }
+
+
+def _normalize_monitor_batch(batch: Dict[str, object]) -> Dict[str, object]:
+    normalized = dict(batch)
+    normalized["batch"] = str(normalized.get("batch") or "").strip()
+    normalized["remote_host"] = str(normalized.get("remote_host") or "").strip()
+    normalized["base_dir"] = str(normalized.get("base_dir") or "").strip()
+    if not isinstance(normalized.get("origin_names"), list):
+        normalized["origin_names"] = []
+    if not isinstance(normalized.get("status_counts"), dict):
+        normalized["status_counts"] = {}
+    if not isinstance(normalized.get("jobs"), list):
+        normalized["jobs"] = []
+    if not isinstance(normalized.get("suggestions"), list):
+        normalized["suggestions"] = []
+    if not isinstance(normalized.get("pending_analysis"), list):
+        normalized["pending_analysis"] = []
+    if not isinstance(normalized.get("failures"), list):
+        normalized["failures"] = []
+    if not isinstance(normalized.get("running_logs"), list):
+        normalized["running_logs"] = []
+    normalized["unsynced_count"] = int(normalized.get("unsynced_count") or 0)
+    normalized["running_without_job"] = bool(normalized.get("running_without_job"))
+    normalized["running_log_missing"] = int(normalized.get("running_log_missing") or 0)
+    normalized["can_launch_job"] = bool(normalized.get("can_launch_job"))
+    return normalized
+
+
+def _monitor_batch_key(batch: Dict[str, object]) -> str:
+    name = str(batch.get("batch") or "").strip()
+    if name:
+        return f"name:{name}"
+    batch_id = str(batch.get("batch_id") or "").strip()
+    if batch_id:
+        return f"id:{batch_id}"
+    return ""
+
+
+def build_monitor_report_from_db(
+    conn: sqlite3.Connection, db_path: str
+) -> Dict[str, object]:
+    report: Dict[str, object] = {
+        "generated_at": "",
+        "db_path": db_path,
+        "batches": [],
+        "errors": [],
+        "jobs": [],
+        "jobs_debug": [],
+        "source": "database",
+        "source_note": "",
+    }
+    tables = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    if "gk_batch" not in tables:
+        return report
+
+    batch_rows = conn.execute(
+        """
+        SELECT id, batch_database_name, remote_folder, remote_host, status
+        FROM gk_batch
+        ORDER BY id DESC
+        """
+    ).fetchall()
+    if not batch_rows:
+        return report
+
+    gk_run_columns = get_table_columns(conn, "gk_run") if "gk_run" in tables else set()
+    gk_input_columns = get_table_columns(conn, "gk_input") if "gk_input" in tables else set()
+    conv_columns = (
+        get_table_columns(conn, "gk_convergence_timeseries")
+        if "gk_convergence_timeseries" in tables
+        else set()
+    )
+
+    origin_map: Dict[int, List[str]] = {}
+    required_tables = {"gk_run", "gk_input", "gk_study", "data_equil", "data_origin"}
+    if required_tables.issubset(tables) and {"gk_batch_id", "gk_input_id"}.issubset(gk_run_columns) and "gk_study_id" in gk_input_columns:
+        origin_rows = conn.execute(
+            """
+            SELECT gk_batch.id AS batch_id, data_origin.name AS origin_name
+            FROM gk_batch
+            JOIN gk_run ON gk_run.gk_batch_id = gk_batch.id
+            JOIN gk_input ON gk_input.id = gk_run.gk_input_id
+            JOIN gk_study ON gk_study.id = gk_input.gk_study_id
+            JOIN data_equil ON data_equil.id = gk_study.data_equil_id
+            JOIN data_origin ON data_origin.id = data_equil.data_origin_id
+            GROUP BY gk_batch.id, data_origin.name
+            """
+        ).fetchall()
+        for row in origin_rows:
+            batch_id = int(row["batch_id"])
+            name = str(row["origin_name"] or "").strip()
+            if not name:
+                continue
+            origin_map.setdefault(batch_id, []).append(name)
+        for batch_id, names in origin_map.items():
+            origin_map[batch_id] = sorted(set(names))
+
+    status_counts_by_batch: Dict[int, Dict[str, int]] = {}
+    if {"gk_batch_id", "status"}.issubset(gk_run_columns):
+        rows = conn.execute(
+            """
+            SELECT gk_batch_id, status, COUNT(*)
+            FROM gk_run
+            GROUP BY gk_batch_id, status
+            """
+        ).fetchall()
+        for batch_id_raw, status_raw, count_raw in rows:
+            if batch_id_raw is None:
+                continue
+            batch_id = int(batch_id_raw)
+            status = str(status_raw or "")
+            count = int(count_raw or 0)
+            status_counts_by_batch.setdefault(batch_id, {})[status] = count
+
+    unsynced_by_batch: Dict[int, int] = {}
+    if {"gk_batch_id", "synced"}.issubset(gk_run_columns):
+        rows = conn.execute(
+            """
+            SELECT gk_batch_id, COUNT(*)
+            FROM gk_run
+            WHERE synced = 0
+            GROUP BY gk_batch_id
+            """
+        ).fetchall()
+        for batch_id_raw, count_raw in rows:
+            if batch_id_raw is None:
+                continue
+            unsynced_by_batch[int(batch_id_raw)] = int(count_raw or 0)
+
+    pending_analysis_by_batch: Dict[int, List[int]] = {}
+    if {"gk_batch_id", "status", "gamma_max", "id"}.issubset(gk_run_columns):
+        rows = conn.execute(
+            """
+            SELECT gk_batch_id, id
+            FROM gk_run
+            WHERE status = 'SUCCESS' AND gamma_max IS NULL
+            """
+        ).fetchall()
+        for batch_id_raw, run_id_raw in rows:
+            if batch_id_raw is None or run_id_raw is None:
+                continue
+            pending_analysis_by_batch.setdefault(int(batch_id_raw), []).append(int(run_id_raw))
+
+    failures_by_batch: Dict[int, List[Dict[str, object]]] = {}
+    if {"gk_batch_id", "status", "id"}.issubset(gk_run_columns):
+        rows = conn.execute(
+            """
+            SELECT gk_batch_id, id, status
+            FROM gk_run
+            WHERE status IN ('CRASHED', 'ERROR', 'INTERRUPTED')
+            ORDER BY id
+            """
+        ).fetchall()
+        for batch_id_raw, run_id_raw, status_raw in rows:
+            if batch_id_raw is None or run_id_raw is None:
+                continue
+            failures_by_batch.setdefault(int(batch_id_raw), []).append(
+                {
+                    "run_id": int(run_id_raw),
+                    "status": str(status_raw or ""),
+                    "error_type": "",
+                    "tail": [],
+                }
+            )
+
+    gamma_values_by_batch: Dict[int, List[float]] = {}
+    if {"gk_batch_id", "gamma_max"}.issubset(gk_run_columns):
+        rows = conn.execute(
+            """
+            SELECT gk_batch_id, gamma_max
+            FROM gk_run
+            WHERE gamma_max IS NOT NULL
+            """
+        ).fetchall()
+        for batch_id_raw, gamma_raw in rows:
+            if batch_id_raw is None or gamma_raw is None:
+                continue
+            try:
+                gamma_values_by_batch.setdefault(int(batch_id_raw), []).append(float(gamma_raw))
+            except (TypeError, ValueError):
+                continue
+
+    gamma_mean_values_by_batch: Dict[int, List[float]] = {}
+    if "gk_run" in tables and {"gk_batch_id", "id"}.issubset(gk_run_columns) and {"gk_run_id", "gamma_mean"}.issubset(conv_columns):
+        rows = conn.execute(
+            """
+            SELECT gk_run.gk_batch_id, gk_convergence_timeseries.gamma_mean
+            FROM gk_convergence_timeseries
+            JOIN gk_run ON gk_run.id = gk_convergence_timeseries.gk_run_id
+            WHERE gk_convergence_timeseries.gamma_mean IS NOT NULL
+            """
+        ).fetchall()
+        for batch_id_raw, gamma_mean_raw in rows:
+            if batch_id_raw is None or gamma_mean_raw is None:
+                continue
+            try:
+                gamma_mean_values_by_batch.setdefault(int(batch_id_raw), []).append(float(gamma_mean_raw))
+            except (TypeError, ValueError):
+                continue
+
+    batches: List[Dict[str, object]] = []
+    for row in batch_rows:
+        batch_id = int(row["id"])
+        remote_host, base_dir = _parse_monitor_batch_remote(
+            row["remote_folder"], row["remote_host"]
+        )
+        status_counts = dict(status_counts_by_batch.get(batch_id, {}))
+        pending_analysis = list(pending_analysis_by_batch.get(batch_id, []))
+        failures = list(failures_by_batch.get(batch_id, []))
+        suggestions: List[str] = []
+        torun_count = int(status_counts.get("TORUN", 0))
+        restart_count = int(status_counts.get("RESTART", 0))
+        if unsynced_by_batch.get(batch_id, 0) > 0:
+            suggestions.append("Sync remote batch DB to local.")
+        if pending_analysis:
+            suggestions.append(
+                f"Run gx_analyze on {len(pending_analysis)} SUCCESS runs missing gamma_max."
+            )
+        if torun_count > 0 or restart_count > 0:
+            parts: List[str] = []
+            if torun_count > 0:
+                parts.append(f"{torun_count} TORUN")
+            if restart_count > 0:
+                parts.append(f"{restart_count} RESTART")
+            suggestions.append(f"Launch SLURM job for {', '.join(parts)} runs.")
+        if failures:
+            suggestions.append("Inspect failures")
+
+        batch: Dict[str, object] = {
+            "batch_id": batch_id,
+            "batch": str(row["batch_database_name"] or ""),
+            "origin_names": list(origin_map.get(batch_id, [])),
+            "remote_host": remote_host,
+            "base_dir": base_dir,
+            "status_counts": status_counts,
+            "jobs": [],
+            "suggestions": suggestions,
+            "can_launch_job": torun_count > 0 or restart_count > 0,
+            "pending_analysis": pending_analysis,
+            "unsynced_count": int(unsynced_by_batch.get(batch_id, 0)),
+            "running_without_job": False,
+            "running_log_missing": 0,
+            "failures": failures,
+            "running_logs": [],
+        }
+        gamma_summary = _summarize_monitor_values(gamma_values_by_batch.get(batch_id, []))
+        if gamma_summary:
+            batch["gamma_max_summary"] = gamma_summary
+        gamma_mean_summary = _summarize_monitor_values(
+            gamma_mean_values_by_batch.get(batch_id, [])
+        )
+        if gamma_mean_summary:
+            batch["gamma_mean_summary"] = gamma_mean_summary
+        batches.append(_normalize_monitor_batch(batch))
+
+    report["batches"] = batches
+    return report
+
+
+def build_merged_monitor_report(
+    conn: sqlite3.Connection,
+    db_path: str,
+    live_report: Optional[Dict[str, object]],
+) -> Dict[str, object]:
+    base_report = build_monitor_report_from_db(conn, db_path)
+    if not live_report:
+        if base_report.get("batches"):
+            base_report["source_note"] = (
+                "Using local database history only. Live monitor details are "
+                "not available for this database yet."
+            )
+        return base_report
+
+    if not _monitor_report_matches_db(live_report, db_path):
+        if base_report.get("batches"):
+            base_report["source_note"] = (
+                "Using local database history only. The cached live monitor "
+                "report belongs to a different database and was ignored."
+            )
+        return base_report
+
+    base_batches = [
+        _normalize_monitor_batch(batch)
+        for batch in list(base_report.get("batches") or [])
+        if isinstance(batch, dict)
+    ]
+    live_batches = [
+        _normalize_monitor_batch(batch)
+        for batch in list(live_report.get("batches") or [])
+        if isinstance(batch, dict)
+    ]
+    live_by_key = {
+        key: batch
+        for batch in live_batches
+        if (key := _monitor_batch_key(batch))
+    }
+    merged_batches: List[Dict[str, object]] = []
+    seen_keys: set[str] = set()
+    for batch in base_batches:
+        key = _monitor_batch_key(batch)
+        live_batch = live_by_key.get(key)
+        if live_batch is None:
+            merged_batches.append(batch)
+            continue
+        merged = dict(batch)
+        merged.update(live_batch)
+        if "origin_names" not in live_batch:
+            merged["origin_names"] = batch.get("origin_names", [])
+        merged_batches.append(_normalize_monitor_batch(merged))
+        if key:
+            seen_keys.add(key)
+    for batch in live_batches:
+        key = _monitor_batch_key(batch)
+        if key and key in seen_keys:
+            continue
+        merged_batches.append(batch)
+
+    merged_report = dict(base_report)
+    merged_report["generated_at"] = str(live_report.get("generated_at") or "")
+    merged_report["db_path"] = db_path
+    merged_report["batches"] = merged_batches
+    merged_report["errors"] = list(live_report.get("errors") or [])
+    merged_report["jobs"] = list(live_report.get("jobs") or [])
+    merged_report["jobs_debug"] = list(live_report.get("jobs_debug") or [])
+    merged_report["source"] = "merged"
+    merged_report["source_note"] = (
+        "Using local database history enriched with the latest live monitor snapshot."
+    )
+    return merged_report
+
+
 def _load_usage_log() -> Dict[str, object]:
     if not os.path.exists(USAGE_LOG_PATH):
         return {"events": []}
@@ -4584,6 +4963,85 @@ def _redirect_to_index(**kwargs):
     return redirect(url_for("index", **kwargs))
 
 
+def _database_browse_initial_dir(current_db: str) -> Path:
+    candidate = Path(str(current_db or "").strip()).expanduser()
+    if candidate.is_file():
+        return candidate.parent
+    if candidate.is_dir():
+        return candidate
+    return Path(PROJECT_DIR)
+
+
+def _browse_database_with_tkinter(initial_dir: Path) -> Optional[str]:
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except Exception:
+        pass
+    try:
+        root.update()
+        selected = filedialog.askopenfilename(
+            title="Select SQLite database",
+            initialdir=str(initial_dir),
+            filetypes=[
+                ("SQLite databases", "*.db *.sqlite *.sqlite3"),
+                ("All files", "*"),
+            ],
+        )
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+    selected = str(selected or "").strip()
+    return selected or None
+
+
+def _browse_database_with_osascript(initial_dir: Path) -> Optional[str]:
+    initial_dir = initial_dir.expanduser().resolve()
+    applescript_lines = [
+        'set defaultLocation to POSIX file "{}"'.format(
+            str(initial_dir).replace("\\", "\\\\").replace('"', '\\"')
+        ),
+        'set chosenFile to choose file with prompt "Select SQLite database" default location defaultLocation',
+        "return POSIX path of chosenFile",
+    ]
+    result = subprocess.run(
+        ["osascript", "-e", "\n".join(applescript_lines)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr_text = str(result.stderr or "").strip().lower()
+        if "user canceled" in stderr_text or "user cancelled" in stderr_text:
+            return None
+        raise RuntimeError(str(result.stderr or result.stdout or "osascript failed").strip())
+    selected = str(result.stdout or "").strip()
+    return selected or None
+
+
+def browse_local_database_file(current_db: str) -> tuple[Optional[str], Optional[str]]:
+    initial_dir = _database_browse_initial_dir(current_db)
+    try:
+        selected = _browse_database_with_tkinter(initial_dir)
+        return selected, None
+    except Exception as exc:
+        tkinter_error = exc
+    if sys.platform == "darwin" and shutil.which("osascript"):
+        try:
+            selected = _browse_database_with_osascript(initial_dir)
+            return selected, None
+        except Exception as exc:
+            return None, str(exc)
+    return None, str(tkinter_error)
+
+
 def _support_bundle_redirect_kwargs(form_data: object) -> Dict[str, object]:
     kwargs: Dict[str, object] = {
         "panel": request.form.get("panel", "action"),
@@ -4651,6 +5109,26 @@ def copy_demo_database():
         db=str(target),
         panel="tables",
         db_recovery_message=f"Using copied demo database: {target}",
+    )
+
+
+@app.route("/browse_database", methods=["POST"])
+def browse_database():
+    current_db = request.form.get("db", DEFAULT_DB)
+    panel = (request.form.get("panel") or "tables").strip() or "tables"
+    selected_path, error = browse_local_database_file(current_db)
+    if error:
+        return _redirect_to_index(
+            db=current_db,
+            panel=panel,
+            db_recovery_error=f"Could not open local database picker: {error}",
+        )
+    if not selected_path:
+        return _redirect_to_index(db=current_db, panel=panel)
+    return _redirect_to_index(
+        db=selected_path,
+        panel=panel,
+        db_recovery_message=f"Selected database: {selected_path}",
     )
 
 
@@ -5248,7 +5726,8 @@ def index():
     sampling_batch_detail: Optional[Dict[str, object]] = None
     sampling_batch_detail_error: Optional[str] = None
     sampling_batch_columns = MHD_COLUMNS
-    monitor_report = load_monitor_report(MONITOR_REPORT_PATH)
+    loaded_monitor_report = load_monitor_report(MONITOR_REPORT_PATH)
+    monitor_report: Optional[Dict[str, object]] = None
     hpc_config = load_hpc_config()
     hpc_test_result = load_hpc_test_result()
     action_state = get_action_state()
@@ -5496,6 +5975,12 @@ def index():
             tables = list_tables(conn)
         except sqlite3.Error:
             pass
+        monitor_report = build_merged_monitor_report(
+            conn,
+            db_path,
+            loaded_monitor_report,
+        )
+        equilibria_monitor_report = monitor_report
         ai_feedback = load_ai_feedback()
         ai_suggestions = get_ai_suggestions(conn, ai_feedback)
         table_total_count = None

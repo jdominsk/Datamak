@@ -27,6 +27,9 @@ class DtwinConfigTests(unittest.TestCase):
             ), mock.patch(
                 "dtwin_config.get_legacy_config_path",
                 return_value=missing_legacy,
+            ), mock.patch(
+                "pathlib.Path.home",
+                return_value=Path("/Users/alice"),
             ):
                 perlmutter = resolve_perlmutter_profile()
                 flux = resolve_flux_profile()
@@ -34,6 +37,7 @@ class DtwinConfigTests(unittest.TestCase):
             self.assertEqual(perlmutter["user"], "alice")
             self.assertEqual(perlmutter["host"], "perlmutter.nersc.gov")
             self.assertEqual(perlmutter["remote"], "alice@perlmutter.nersc.gov")
+            self.assertEqual(perlmutter["identity"], "/Users/alice/.ssh/nersc")
             self.assertEqual(perlmutter["base_dir"], "/pscratch/sd/a/alice/DTwin")
             self.assertEqual(perlmutter["batch_dir"], "/pscratch/sd/a/alice/DTwin/newbatch")
             self.assertEqual(perlmutter["gx_path"], "/global/homes/a/alice/GX/gx_next6")

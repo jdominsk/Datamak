@@ -746,6 +746,52 @@ class GuiWorkflowTests(unittest.TestCase):
         self.assertIn("panel=tables", response.headers["Location"])
         self.assertIn(copied_db.name, response.headers["Location"])
 
+    def test_browse_database_redirects_to_selected_path(self) -> None:
+        selected = Path(self.tmpdir.name) / "picked.db"
+        with mock.patch(
+            "gui.app.browse_local_database_file",
+            return_value=(str(selected), None),
+        ):
+            response = self.client.post(
+                "/browse_database",
+                data={"db": str(self.db_path), "panel": "tables"},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"],
+            f"/?db={selected}&panel=tables&db_recovery_message=Selected+database:+{selected}",
+        )
+
+    def test_browse_database_cancel_keeps_current_db(self) -> None:
+        with mock.patch(
+            "gui.app.browse_local_database_file",
+            return_value=(None, None),
+        ):
+            response = self.client.post(
+                "/browse_database",
+                data={"db": str(self.db_path), "panel": "tables"},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"],
+            f"/?db={self.db_path}&panel=tables",
+        )
+
+    def test_browse_database_error_surfaces_recovery_error(self) -> None:
+        with mock.patch(
+            "gui.app.browse_local_database_file",
+            return_value=(None, "picker failed"),
+        ):
+            response = self.client.post(
+                "/browse_database",
+                data={"db": str(self.db_path), "panel": "tables"},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers["Location"],
+            f"/?db={self.db_path}&panel=tables&db_recovery_error=Could+not+open+local+database+picker:+picker+failed",
+        )
+
     def test_hpc_drawer_renders_perlmutter_and_flux_tabs(self) -> None:
         response = self.client.get(f"/?db={self.db_path}&panel=equilibria&hpc=1")
         self.assertEqual(response.status_code, 200)
@@ -1008,6 +1054,194 @@ class GuiWorkflowTests(unittest.TestCase):
             "Flux sync completed, but this origin still has no gk_study rows in the main DB.",
             body,
         )
+
+    def test_equilibria_batch_monitor_falls_back_to_local_db_history(self) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executescript(
+                """
+                CREATE TABLE data_origin (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    file_type TEXT,
+                    tokamak TEXT,
+                    origin TEXT,
+                    color TEXT
+                );
+                CREATE TABLE data_equil (
+                    id INTEGER PRIMARY KEY,
+                    data_origin_id INTEGER NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE gk_study (
+                    id INTEGER PRIMARY KEY,
+                    data_equil_id INTEGER NOT NULL
+                );
+                CREATE TABLE gk_batch (
+                    id INTEGER PRIMARY KEY,
+                    batch_database_name TEXT NOT NULL,
+                    remote_folder TEXT NOT NULL,
+                    remote_host TEXT,
+                    status TEXT NOT NULL
+                );
+                CREATE TABLE gk_run (
+                    id INTEGER PRIMARY KEY,
+                    gk_input_id INTEGER,
+                    gk_batch_id INTEGER,
+                    input_name TEXT,
+                    status TEXT,
+                    gamma_max REAL,
+                    synced INTEGER NOT NULL DEFAULT 1
+                );
+                """
+            )
+            conn.execute("ALTER TABLE gk_input ADD COLUMN gk_study_id INTEGER")
+            conn.execute(
+                """
+                INSERT INTO data_origin (id, name, file_type, tokamak, origin, color)
+                VALUES (4, 'Transp 10 (full-auto)', 'TRANSP', 'NSTX', '/p/transparch/result/NSTX/10', '#ff7f0e')
+                """
+            )
+            conn.execute(
+                "INSERT INTO data_equil (id, data_origin_id, active) VALUES (1, 4, 1)"
+            )
+            conn.execute(
+                "INSERT INTO gk_study (id, data_equil_id) VALUES (1, 1)"
+            )
+            conn.execute(
+                "UPDATE gk_input SET gk_study_id = 1 WHERE id = 1"
+            )
+            conn.execute(
+                """
+                INSERT INTO gk_batch (id, batch_database_name, remote_folder, remote_host, status)
+                VALUES (7, 'batch_database_demo.db', '/remote/batch7', 'alice@perlmutter', 'SYNCED')
+                """
+            )
+            conn.executemany(
+                """
+                INSERT INTO gk_run (id, gk_input_id, gk_batch_id, input_name, status, gamma_max, synced)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (1, 1, 7, "run_1.in", "SUCCESS", 0.42, 1),
+                    (2, 1, 7, "run_2.in", "CRASHED", None, 1),
+                ],
+            )
+            conn.commit()
+
+        with mock.patch("gui.app.load_monitor_report", return_value=None):
+            response = self.client.get(
+                f"/?db={self.db_path}&panel=equilibria&origin_id=4"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("batch_database_demo.db", body)
+        self.assertIn("Using local database history only.", body)
+        self.assertNotIn("No batch-monitor entries found yet for this origin.", body)
+
+    def test_equilibria_batch_monitor_ignores_cached_report_from_other_db(self) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.executescript(
+                """
+                CREATE TABLE data_origin (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    file_type TEXT,
+                    tokamak TEXT,
+                    origin TEXT,
+                    color TEXT
+                );
+                CREATE TABLE data_equil (
+                    id INTEGER PRIMARY KEY,
+                    data_origin_id INTEGER NOT NULL,
+                    active INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE gk_study (
+                    id INTEGER PRIMARY KEY,
+                    data_equil_id INTEGER NOT NULL
+                );
+                CREATE TABLE gk_batch (
+                    id INTEGER PRIMARY KEY,
+                    batch_database_name TEXT NOT NULL,
+                    remote_folder TEXT NOT NULL,
+                    remote_host TEXT,
+                    status TEXT NOT NULL
+                );
+                CREATE TABLE gk_run (
+                    id INTEGER PRIMARY KEY,
+                    gk_input_id INTEGER,
+                    gk_batch_id INTEGER,
+                    input_name TEXT,
+                    status TEXT,
+                    gamma_max REAL,
+                    synced INTEGER NOT NULL DEFAULT 1
+                );
+                """
+            )
+            conn.execute("ALTER TABLE gk_input ADD COLUMN gk_study_id INTEGER")
+            conn.execute(
+                """
+                INSERT INTO data_origin (id, name, file_type, tokamak, origin, color)
+                VALUES (4, 'Transp 10 (full-auto)', 'TRANSP', 'NSTX', '/p/transparch/result/NSTX/10', '#ff7f0e')
+                """
+            )
+            conn.execute(
+                "INSERT INTO data_equil (id, data_origin_id, active) VALUES (1, 4, 1)"
+            )
+            conn.execute(
+                "INSERT INTO gk_study (id, data_equil_id) VALUES (1, 1)"
+            )
+            conn.execute(
+                "UPDATE gk_input SET gk_study_id = 1 WHERE id = 1"
+            )
+            conn.execute(
+                """
+                INSERT INTO gk_batch (id, batch_database_name, remote_folder, remote_host, status)
+                VALUES (7, 'batch_database_demo.db', '/remote/batch7', 'alice@perlmutter', 'SYNCED')
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO gk_run (id, gk_input_id, gk_batch_id, input_name, status, gamma_max, synced)
+                VALUES (1, 1, 7, 'run_1.in', 'SUCCESS', 0.42, 1)
+                """
+            )
+            conn.commit()
+
+        mismatched_report = {
+            "generated_at": "2026-04-03T14:30:00Z",
+            "db_path": str(Path(self.tmpdir.name) / "other.db"),
+            "errors": [],
+            "batches": [
+                {
+                    "batch_id": 99,
+                    "batch": "batch_database_other.db",
+                    "origin_names": ["Transp 10 (full-auto)"],
+                    "remote_host": "bob@perlmutter",
+                    "base_dir": "/remote/other",
+                    "status_counts": {"RUNNING": 1},
+                    "jobs": [],
+                    "suggestions": [],
+                    "can_launch_job": False,
+                    "pending_analysis": [],
+                    "unsynced_count": 0,
+                    "running_without_job": False,
+                    "running_log_missing": 0,
+                    "failures": [],
+                    "running_logs": [],
+                }
+            ],
+        }
+        with mock.patch("gui.app.load_monitor_report", return_value=mismatched_report):
+            response = self.client.get(
+                f"/?db={self.db_path}&panel=equilibria&origin_id=4"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_data(as_text=True)
+        self.assertIn("batch_database_demo.db", body)
+        self.assertNotIn("batch_database_other.db", body)
+        self.assertIn("belongs to a different database and was ignored", body)
 
     def test_save_hpc_config_writes_user_local_config(self) -> None:
         with tempfile.TemporaryDirectory() as cfgdir:

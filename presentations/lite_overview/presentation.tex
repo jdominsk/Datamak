@@ -1,0 +1,379 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usetheme{default}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{headline}{}
+\setbeamersize{text margin left=0.85cm,text margin right=0.85cm}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[scaled=0.95]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{tikz}
+
+\definecolor{datamakOrange}{HTML}{EA7B17}
+\definecolor{datamakCharcoal}{HTML}{222222}
+\definecolor{datamakGray}{HTML}{5A5A5A}
+\definecolor{datamakLight}{HTML}{F5F7FA}
+\definecolor{datamakBorder}{HTML}{D9E2EC}
+\definecolor{datamakBlue}{HTML}{0B3D91}
+\definecolor{datamakGreen}{HTML}{2B6E46}
+\definecolor{datamakRed}{HTML}{B42318}
+
+\setbeamercolor{normal text}{fg=datamakCharcoal,bg=white}
+\setbeamercolor{structure}{fg=datamakOrange}
+\setbeamercolor{block title}{fg=datamakCharcoal,bg=datamakBorder}
+\setbeamercolor{block body}{fg=datamakCharcoal,bg=datamakLight}
+\setbeamercolor{itemize item}{fg=datamakOrange}
+\setbeamercolor{itemize subitem}{fg=datamakOrange}
+\setbeamercolor{enumerate item}{fg=datamakOrange}
+\setbeamerfont{title}{size=\LARGE,series=\bfseries}
+\setbeamerfont{subtitle}{size=\large,series=\bfseries}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{block title}{size=\normalsize,series=\bfseries}
+\setbeamerfont{footline}{size=\scriptsize}
+
+\setbeamertemplate{blocks}[default]
+\setbeamertemplate{itemize item}{\color{datamakOrange}$\blacktriangleright$}
+\setbeamertemplate{itemize subitem}{\color{datamakOrange}\scalebox{0.8}{$\blacktriangleright$}}
+
+\makeatletter
+\setbeamertemplate{frametitle}{%
+  \nointerlineskip
+  \begin{tikzpicture}[remember picture,overlay]
+    \fill[datamakOrange] (current page.north west) rectangle ([yshift=-1.02cm]current page.north east);
+    \node[
+      anchor=north,
+      text=white,
+      font=\usebeamerfont{frametitle},
+      yshift=-0.18cm
+    ] at (current page.north) {\strut\insertframetitle};
+  \end{tikzpicture}%
+  \vspace*{0.88cm}
+  \vspace{0.18cm}
+}
+\makeatother
+
+\setbeamertemplate{footline}{%
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[
+      anchor=south east,
+      text=datamakGray,
+      font=\usebeamerfont{footline}
+    ] at ([xshift=-0.22cm,yshift=0.10cm]current page.south east) {\insertframenumber};
+  \end{tikzpicture}%
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\lite}{Datamak Lite}
+\newcommand{\relation}[1]{\textcolor{datamakBlue}{\texttt{#1}}}
+
+\title{\lite}
+\subtitle{A lightweight campaign-visibility layer for scientific simulations}
+\author{}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}[plain]
+  \vspace*{0.55cm}
+  \begin{center}
+    \begin{tikzpicture}
+      \node[
+        fill=datamakOrange,
+        draw=datamakCharcoal!45,
+        line width=0.6pt,
+        text=white,
+        minimum width=0.96\textwidth,
+        minimum height=2.35cm,
+        text width=0.82\textwidth,
+        align=center,
+        inner xsep=0.6cm,
+        inner ysep=0.45cm
+      ] {\bfseries\fontsize{27}{32}\selectfont \inserttitle};
+    \end{tikzpicture}
+  \end{center}
+  \vspace{0.8cm}
+  \begin{center}
+    {\usebeamerfont{subtitle}\insertsubtitle\par}
+    \vspace{0.4cm}
+    {\large Generic campaign visibility and provenance model\par}
+  \end{center}
+\end{frame}
+
+\begin{frame}{Why Lite Exists}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \begin{block}{The problem}
+      \small
+      A campaign quickly becomes a graph, not a list:
+      \begin{itemize}
+        \item simulations produce reusable datasets;
+        \item pools, restarts, and analyses reuse or compare against them;
+        \item figures mix old and new results;
+        \item decisions evolve as bugs and assumptions are found.
+      \end{itemize}
+    \end{block}
+
+    \column{0.48\textwidth}
+    \begin{block}{The goal}
+      \small
+      Lite should answer practical questions:
+      \begin{itemize}
+        \item What produced this figure?
+        \item Which input dataset did this pool use?
+        \item Which result is the current reference?
+        \item What is running, pending, partial, or suspect?
+        \item Why did we make this choice?
+      \end{itemize}
+    \end{block}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Core Data Model}
+  \begin{block}{Five generic objects}
+    \small
+    \begin{tabular}{>{\bfseries}p{0.18\linewidth}p{0.72\linewidth}}
+      \toprule
+      Entity & Simulation, pool, history file, restart file, analysis, figure, slide, paper result, campaign. \\
+      Relation & Directed link: \relation{uses\_history}, \relation{restart\_from}, \relation{produces}, \relation{plots}, \relation{compares\_to}, \relation{supersedes}. \\
+      Artifact & Concrete file or directory path attached to an entity. \\
+      Metric & Compact scalar result or parameter, such as \code{D}, \code{PF}, \code{dt}, \code{time\_end}, or \code{effective\_stride}. \\
+      Note & Markdown comment, warning, todo, or scientific decision. \\
+      \bottomrule
+    \end{tabular}
+  \end{block}
+
+  \begin{block}{Status separation}
+    \small
+    Operational status says whether the work ran.  Scientific status says
+    whether the result should be trusted, used, superseded, or treated as
+    suspect.
+  \end{block}
+\end{frame}
+
+\begin{frame}{The Sidecar Contract}
+  \begin{columns}[T]
+    \column{0.45\textwidth}
+    \begin{block}{Local provenance receipt}
+      \small
+      Every important object should leave:
+      \begin{center}
+        \code{run\_or\_pool/datamak\_lite.json}
+      \end{center}
+      The sidecar records paths, relations, compact metrics, and notes.
+    \end{block}
+
+    \column{0.51\textwidth}
+    \begin{block}{Why this matters}
+      \small
+      \begin{itemize}
+        \item It is visible next to the simulation.
+        \item It is editable by a human or an agent.
+        \item It can rebuild the SQLite campaign view.
+        \item It avoids copying large history, restart, or NetCDF files.
+      \end{itemize}
+    \end{block}
+  \end{columns}
+
+  \begin{block}{Minimal workflow}
+    \small
+    Prepare object $\rightarrow$ write sidecar $\rightarrow$ import SQLite
+    registry $\rightarrow$ inspect report or GUI $\rightarrow$ add decisions.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Human And Agent Workflow}
+  \begin{block}{During normal campaign work}
+    \small
+    When a simulation pool, restart chain, analysis, or figure is prepared, the
+    agent should also create or update the Lite metadata.  This is not a
+    separate bookkeeping session; it is part of the workflow.
+  \end{block}
+
+  \begin{block}{Example command for a generic pool}
+    \scriptsize
+    \code{python3 -m datamak\_lite.cli create-pool-packet POOL\_ROOT
+    --campaign-uid CAMPAIGN\_UID
+    --uses-dataset-uid DATASET\_UID
+    --dataset-path /path/to/input\_dataset
+    --import-db /path/to/campaign.sqlite
+    --report}
+  \end{block}
+
+  \begin{block}{Remote rule}
+    \small
+    For Perlmutter, copy or sync only the small sidecar metadata.  Do not copy
+    large simulation data merely to update Lite.
+  \end{block}
+\end{frame}
+
+\begin{frame}{What The GUI Should Show}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \begin{block}{First useful GUI}
+      \small
+      \begin{itemize}
+        \item campaign object list;
+        \item selected entity details;
+        \item ``Depends On'' and ``Used By'' panels;
+        \item artifacts, metrics, notes, and warnings;
+        \item compact status chips.
+      \end{itemize}
+    \end{block}
+
+    \column{0.48\textwidth}
+    \begin{block}{Design constraint}
+      \small
+      The GUI is a frontend only.  The same SQLite database and core API must
+      be usable from CLI scripts and agents.
+    \end{block}
+
+    \begin{block}{Visual identity}
+      \small
+      Reuse Datamak's compact interface: Helvetica/Arial, restrained
+      orange/gray accents, white panels, dense tables, and calm status colors.
+    \end{block}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Relationship With Datamak}
+  \begin{block}{Datamak}
+    \small
+    Datamak is a workflow system: database-backed input generation, batch
+    creation, remote launch and monitoring, result sync, and surrogate-model
+    workflows for simulation and analysis studies.
+  \end{block}
+
+  \begin{block}{Lite}
+    \small
+    Lite is a campaign visibility system: provenance, relation graph, figure
+    links, scientific notes, decisions, and operational/scientific status across
+    multiple codes.
+  \end{block}
+
+  \begin{block}{Complementarity}
+    \small
+    Datamak-style pools can own execution state.  Lite records how those pools
+    connect to histories, restarts, analyses, figures, and decisions.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Relationship With ORNL Campaign Tools}
+  \begin{block}{Campaign management direction}
+    \small
+    ORNL's Workflow Systems group frames campaign management as coordinated
+    planning, collection, processing, storage, and analysis of scientific data.
+    Lite is aligned with that direction, but starts with the local campaign
+    graph and day-to-day scientific decisions.
+  \end{block}
+
+  \begin{block}{Complementary tools}
+    \small
+    \begin{tabular}{>{\bfseries}p{0.20\linewidth}p{0.69\linewidth}}
+      \toprule
+      DataFed & Open-source, domain-agnostic scientific data federation for managing, sharing, and discovering working data across facilities. \\
+      ADIOS2/HPC Campaign & Toolkit for `.ACA' campaign archives with metadata for ADIOS2/HDF5 outputs, images, and text files. \\
+      Lite & Local, lightweight campaign brain: graph, sidecars, notes, decisions, figures, and code-agnostic status. \\
+      \bottomrule
+    \end{tabular}
+  \end{block}
+\end{frame}
+
+\begin{frame}{CMSD, DataFed, And ADIOS2/HPC Campaign}
+  \begin{block}{Positioning}
+    \small
+    CMSD is not a single obvious competitor to Lite.  It is better understood
+    as a broader ORNL/DOE concept and tool family around campaign-scale
+    scientific data management.  ORNL lists CMSD alongside tools such as ADIOS,
+    MGARD, SimGrid, and EFFIS in its Workflow Systems work.
+  \end{block}
+
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \begin{block}{ADIOS2 / HPC Campaign}
+      \scriptsize
+      Creates small `.ACA' campaign archives pointing to large ADIOS2/HDF5,
+      image, and text datasets, with metadata and file locations.  This is
+      close to Lite's sidecar idea, but is more data-file and remote-access
+      oriented.  The ADIOS2 documentation notes that campaign management is
+      still fairly new and expected to evolve.
+    \end{block}
+
+    \column{0.48\textwidth}
+    \begin{block}{DataFed}
+      \scriptsize
+      Open-source ORNL scientific data federation.  It is more ambitious than
+      Lite: records, metadata, relationships, services, web portal, CLI,
+      Globus-based data movement, and cross-facility access.  Lite should be
+      able to store DataFed record or collection IDs later.
+    \end{block}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Interoperability Roadmap}
+  \begin{block}{Do not pivot yet}
+    \small
+    The first version should not depend on DataFed, ADIOS2 campaign archives,
+    Globus, or a facility service.  The immediate value is the local
+    agent-maintained campaign graph.
+  \end{block}
+
+  \begin{block}{Keep external hooks}
+    \small
+    Later, Lite can store external references as artifacts or metadata:
+    \begin{itemize}
+      \item DataFed record or collection id;
+      \item Globus endpoint and path;
+      \item ADIOS2/HPC Campaign `.ACA' path;
+      \item DOI or publication archive id;
+      \item external workflow-system run id.
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+\begin{frame}{Implementation Roadmap}
+  \begin{block}{Current stage}
+    \small
+    \begin{itemize}
+      \item generic SQLite schema;
+      \item packet import and remote sidecar sync;
+      \item registry, folder-inventory, and figure-audit adapters;
+      \item first read-only GUI.
+    \end{itemize}
+  \end{block}
+
+  \begin{block}{Next useful steps}
+    \small
+    \begin{enumerate}
+      \item Import figure JSON metadata so figures become first-class graph nodes.
+      \item Improve the GUI around figure-driven questions.
+      \item Add code-specific sidecar creators only after one real object proves the need.
+      \item Add external archive/catalog fields when the local workflow is stable.
+    \end{enumerate}
+  \end{block}
+\end{frame}
+
+\begin{frame}{References}
+  \small
+  \begin{itemize}
+    \item ORNL Workflow Systems group:
+      \url{https://www.ornl.gov/group/workflow-systems}
+    \item DataFed introduction:
+      \url{https://ornl.github.io/DataFed/system/introduction.html}
+    \item DataFed system overview:
+      \url{https://ornl.github.io/DataFed/system/overview.html}
+    \item ADIOS2/HPC Campaign Management:
+      \url{https://adios2.readthedocs.io/en/latest/advanced/campaign_management.html}
+    \item HPC Campaign documentation:
+      \url{https://hpc-campaign.readthedocs.io}
+    \item DataFed GitHub:
+      \url{https://github.com/ORNL/DataFed}
+  \end{itemize}
+\end{frame}
+
+\end{document}

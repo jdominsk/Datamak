@@ -1,14 +1,37 @@
-# Datamak Lite
+# Datamak
 
-Datamak Lite is a lightweight campaign-monitoring layer for simulation and
-analysis work.  It tracks how runs, pools, datasets, analyses, figures, and
-notes are connected without owning the full execution workflow.
+Datamak is a Python/SQLite workflow system for fusion-plasma gyrokinetic
+studies. It stores source equilibria, generated gyrokinetic inputs, remote
+batch-execution state, simulation results, and surrogate-model outputs in one
+database-backed workflow.
 
-The tool is deliberately code-agnostic.  Project-specific names, physics
+The repository now contains two related layers:
+
+- **Datamak**: the full workflow system, with CLI scripts and a Flask GUI for
+  source ingestion, input generation, batch creation, remote execution, result
+  syncing, and surrogate workflows.
+- **Datamak Lite**: a lightweight campaign-monitoring layer for simulation and
+  analysis work. It tracks how runs, pools, datasets, analyses, figures, and
+  notes are connected without owning the full execution workflow.
+
+Datamak Lite is deliberately code-agnostic. Project-specific names, physics
 context, machine names, and campaign identifiers belong in sidecar metadata or
 SQLite databases, not in the generic Lite code or documentation.
 
 ## Start Here
+
+For the full Datamak workflow, start with:
+
+- `database/create_gyrokinetic_db.py`: database bootstrap and schema evolution.
+- `gui/app.py`: Flask entry point for the operator GUI.
+- `batch/`: batch DB creation, remote deployment, sync, and monitoring
+  utilities.
+- `db_update/`: source-ingestion and GK-input creation workflows.
+- `db_surrogate/`: surrogate-model training, prediction, estimation, and
+  cleanup tools.
+- `tests/run_tests.py`: main full-Datamak test runner.
+
+For Datamak Lite, start with:
 
 - `design/design_plan.md`: product direction and data model.
 - `design/sidecar_packet_v1.md`: `datamak_lite.json` sidecar format.
@@ -21,9 +44,30 @@ SQLite databases, not in the generic Lite code or documentation.
   importable metadata.
 - `docs/new_code_onboarding.md`: how to integrate another simulation or
   analysis code.
-- `presentations/lite_overview/presentation.tex`: overview slide deck.
+- `presentations/lite_overview/presentation.tex`: Lite overview slide deck.
 
-## Core Concepts
+## Full Datamak Commands
+
+Create or refresh the main Datamak database:
+
+```bash
+.venv/bin/python database/create_gyrokinetic_db.py --db gyrokinetic_simulations.db
+```
+
+Start the full Datamak Flask GUI:
+
+```bash
+export DTWIN_ROOT="$(pwd)"
+.venv/bin/python gui/app.py
+```
+
+Run the full Datamak test suite:
+
+```bash
+.venv/bin/python tests/run_tests.py
+```
+
+## Datamak Lite Core Concepts
 
 Lite stores five generic object types in SQLite:
 

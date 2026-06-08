@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "campaign_uid": "campaign_example",
+  "campaign_name": "Example campaign",
+  "database": "campaign.sqlite",
+  "packet_roots": [
+    "runs"
+  ],
+  "packets": [
+    "manual/datamak_lite.json"
+  ],
+  "remote_packets": [
+    "user@host:/remote/run/datamak_lite.json"
+  ],
+  "registries": [
+    "registries/campaign_registry.db"
+  ],
+  "folder_inventories": [
+    "inventories/folders.txt"
+  ],
+  "figure_audit_roots": [
+    "figures"
+  ]
+}

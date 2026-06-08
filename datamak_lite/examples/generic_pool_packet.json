@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "root_uid": "pool_demo_replay",
+  "entities": [
+    {
+      "uid": "campaign_demo",
+      "type": "campaign",
+      "name": "Demo simulation campaign",
+      "status": "active",
+      "scientific_status": "candidate",
+      "description": "Domain-neutral campaign used to demonstrate Datamak Lite.",
+      "metadata": {}
+    },
+    {
+      "uid": "dataset_demo_history",
+      "type": "dataset",
+      "name": "Demo input dataset",
+      "path": "/example/project/runs/source_simulation/history_0001.h5",
+      "status": "available",
+      "scientific_status": "candidate",
+      "description": "Dataset used by the demo pool.",
+      "metadata": {
+        "time_start": 0,
+        "time_end": 100,
+        "saved_stride": 1
+      }
+    },
+    {
+      "uid": "pool_demo_replay",
+      "type": "pool",
+      "name": "Demo replay pool",
+      "path": "/example/project/runs/replay_pool",
+      "status": "prepared",
+      "scientific_status": "candidate",
+      "description": "Pool that reuses an upstream dataset.",
+      "metadata": {
+        "effective_stride": 4
+      }
+    }
+  ],
+  "relations": [
+    {
+      "source_uid": "dataset_demo_history",
+      "relation_type": "member_of",
+      "target_uid": "campaign_demo"
+    },
+    {
+      "source_uid": "pool_demo_replay",
+      "relation_type": "member_of",
+      "target_uid": "campaign_demo"
+    },
+    {
+      "source_uid": "pool_demo_replay",
+      "relation_type": "uses_input",
+      "target_uid": "dataset_demo_history",
+      "note": "Input dataset for the demo pool."
+    }
+  ],
+  "artifacts": [
+    {
+      "entity_uid": "pool_demo_replay",
+      "kind": "run_root",
+      "path": "/example/project/runs/replay_pool",
+      "description": "Pool root."
+    },
+    {
+      "entity_uid": "dataset_demo_history",
+      "kind": "input_dataset",
+      "path": "/example/project/runs/source_simulation/history_0001.h5",
+      "format": "hdf5",
+      "description": "Input dataset."
+    }
+  ],
+  "metrics": [
+    {
+      "entity_uid": "dataset_demo_history",
+      "name": "time_start",
+      "value": 0,
+      "unit": "time"
+    },
+    {
+      "entity_uid": "dataset_demo_history",
+      "name": "time_end",
+      "value": 100,
+      "unit": "time"
+    },
+    {
+      "entity_uid": "pool_demo_replay",
+      "name": "effective_stride",
+      "value": 4,
+      "unit": "step"
+    }
+  ],
+  "notes": [
+    {
+      "entity_uid": "pool_demo_replay",
+      "note_type": "decision",
+      "markdown_text": "This packet demonstrates Lite sidecar metadata for a generic pool and upstream dataset."
+    }
+  ]
+}

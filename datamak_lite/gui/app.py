@@ -3,8 +3,11 @@ from __future__ import annotations
 import html
 import json
 import mimetypes
+import os
 import re
 import sqlite3
+import subprocess
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -78,6 +81,12 @@ def _make_handler(db_path: Path, *, profile_path: Path | None = None) -> type[Ba
                 artifact_id = (query.get("id") or [None])[0]
                 self._send_artifact(artifact_id)
                 return
+            if parsed.path == "/remote-status":
+                query = parse_qs(parsed.query)
+                entity_uid = (query.get("uid") or [None])[0]
+                payload = _check_remote_status(db_path, entity_uid)
+                self._send_json(payload)
+                return
             if parsed.path == "/health":
                 self._send_text("ok\n", "text/plain; charset=utf-8")
                 return
@@ -95,6 +104,14 @@ def _make_handler(db_path: Path, *, profile_path: Path | None = None) -> type[Ba
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+
+        def _send_json(self, payload: dict[str, object]) -> None:
+            data = json.dumps(payload, sort_keys=True).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
 
         def _send_artifact(self, artifact_id: str | None) -> None:
             try:
@@ -407,6 +424,7 @@ def _render_lineage(
     sort_mode: str | None = None,
 ) -> str:
     sort_mode = "latest" if sort_mode == "latest" else "default"
+    headers = _lineage_header_labels(campaign_type)
     entity_by_uid = {str(entity["uid"]): entity for entity in entities}
     main_uids = {
         uid
@@ -487,15 +505,15 @@ def _render_lineage(
         unplaced_leaf_rows.append(_render_lineage_row(entity_by_uid[uid], campaign_type, level=0, role="leaf"))
 
     tree_content = (
-        """
+        f"""
         <div class="lineage-header">
-          <span>Simulation / study</span>
-          <span>Setup</span>
-          <span>Short identity</span>
-          <span>Impurities</span>
-          <span>e-/field</span>
-          <span>Resolution</span>
-          <span>History</span>
+          <span>{_e(headers[0])}</span>
+          <span>{_e(headers[1])}</span>
+          <span>{_e(headers[2])}</span>
+          <span>{_e(headers[3])}</span>
+          <span>{_e(headers[4])}</span>
+          <span>{_e(headers[5])}</span>
+          <span>{_e(headers[6])}</span>
           <span></span>
         </div>
         """
@@ -517,11 +535,7 @@ def _render_lineage(
     <main class="overview-page lineage-page">
       <section class="focus-panel lineage-panel">
         <h2>Simulations</h2>
-        <p class="panel-help">
-          Roots are main-plasma simulations. Continuations keep the same setup; branches change plasma
-          or numerical parameters. Saved histories are summarized in the history column, and GX-R/KTM/tracer
-          studies appear as leaves below the turbulence that they use.
-        </p>
+        <p class="panel-help">{_e(_lineage_help_text(campaign_type))}</p>
         {_render_lineage_sort_controls(sort_mode)}
         <div class="lineage-tree">{tree_content}</div>
       </section>
@@ -529,6 +543,42 @@ def _render_lineage(
       {unplaced_leaves}
     </main>
     """
+
+
+def _lineage_header_labels(campaign_type: str | None) -> list[str]:
+    if campaign_type == "xgc_west_edge_campaign":
+        return [
+            "XGC simulation / study",
+            "Machine / status",
+            "Scan identity",
+            "Species / profiles",
+            "Physics switches",
+            "Resolution / progress",
+            "History",
+        ]
+    return [
+        "Simulation / study",
+        "Setup",
+        "Short identity",
+        "Impurities",
+        "e-/field",
+        "Resolution",
+        "History",
+    ]
+
+
+def _lineage_help_text(campaign_type: str | None) -> str:
+    if campaign_type == "xgc_west_edge_campaign":
+        return (
+            "Rows are XGC simulations. The columns highlight practical WEST57929 comparison axes: "
+            "machine/status, density and temperature profile family, species, physics switches, "
+            "grid/nphi/node/timestep choices, and latest local catalog progress."
+        )
+    return (
+        "Roots are main-plasma simulations. Continuations keep the same setup; branches change plasma "
+        "or numerical parameters. Saved histories are summarized in the history column, and GX-R/KTM/tracer "
+        "studies appear as leaves below the turbulence that they use."
+    )
 
 
 def _render_lineage_main_node(
@@ -668,6 +718,7 @@ def _render_lineage_row(
         <div class="lineage-title-line">
           {badge}
           {_lineage_alias_badge(entity)}
+          {_lineage_remote_status_badge(entity)}
           {title_text}
         </div>
       </div>
@@ -683,6 +734,22 @@ def _lineage_alias_badge(entity: sqlite3.Row) -> str:
     if not isinstance(alias, str) or not alias.strip():
         return ""
     return f'<span class="lineage-alias-text">#{_e(alias.strip())}</span>'
+
+
+def _lineage_remote_status_badge(entity: sqlite3.Row) -> str:
+    hint = _remote_status_hint(entity)
+    if not hint["available"]:
+        return ""
+    state = _cached_remote_state(entity, hint)
+    if state == "hidden":
+        return ""
+    label = _remote_status_short_label(state)
+    title = _remote_status_title_for_hint(hint, state)
+    return (
+        f'<button type="button" class="remote-status-badge remote-status-{_class_token(state)}" '
+        f'data-remote-status-uid="{_e(entity["uid"])}" title="{_e(title)}" '
+        f'aria-label="{_e(title)}" onclick="event.stopPropagation()">{_e(label)}</button>'
+    )
 
 
 def _lineage_leaf_summary_cell(entity: sqlite3.Row, title: str, role: str) -> str:
@@ -706,6 +773,15 @@ def _lineage_overview2_columns(entity: sqlite3.Row, campaign_type: str | None, r
     if role not in {"main", "continuation", "branch", "restart"}:
         return "".join('<span class="lineage-data-cell"></span>' for _ in range(5))
     metadata = metadata_from_json(entity["metadata_json"])
+    if campaign_type == "xgc_west_edge_campaign":
+        values = [
+            metadata.get("lineage_setup", ""),
+            metadata.get("lineage_short_identity", ""),
+            metadata.get("lineage_species_profiles", ""),
+            metadata.get("lineage_physics", ""),
+            metadata.get("lineage_numerics", ""),
+        ]
+        return "".join(f'<span class="lineage-data-cell">{_e(_overview2_format(value))}</span>' for value in values)
     display = _display_title_for_row(entity, campaign_type)
     row = _Overview2Row(
         number=0,
@@ -731,7 +807,7 @@ def _lineage_overview2_columns(entity: sqlite3.Row, campaign_type: str | None, r
 
 def _lineage_role_badge(role: str, entity: sqlite3.Row, campaign_type: str | None) -> str:
     labels = {
-        "main": "GX",
+        "main": "XGC" if campaign_type == "xgc_west_edge_campaign" else "GX",
         "continuation": "continuation",
         "branch": "branch",
         "restart": "branch",
@@ -1503,6 +1579,8 @@ def _overview_kind_for_object(
         return "Kinetic Trace Model"
     if label == "Main plasma GX":
         return "Main Plasma GX"
+    if label == "Main plasma XGC":
+        return "Main Plasma XGC"
     return ""
 
 
@@ -2193,6 +2271,7 @@ def _page(title: str, body: str) -> str:
   </head>
   <body>
     {body}
+    <script>{LITE_JS}</script>
   </body>
 </html>
 """
@@ -2222,6 +2301,303 @@ def _artifact_location_label(path: str, exists_on_disk: bool) -> str:
     if path.startswith(("/pscratch/", "/global/", "/grand/", "/flare/", "/eagle/", "/lus/")):
         return "remote path"
     return "not found locally"
+
+
+def _remote_status_hint(entity: sqlite3.Row) -> dict[str, object]:
+    metadata = metadata_from_json(entity["metadata_json"])
+    path = _first_nonempty(
+        entity["path"],
+        _metadata_value(metadata, "remote_path", "run_root", "run_dir", "pool_root", "input_path", "output_path", "path"),
+    )
+    host_text = str(_metadata_value(metadata, "remote_host", "host", "hpc_host", "machine", "cluster") or "").lower()
+    path_text = str(path or "")
+    is_perlmutter = "perlmutter" in host_text or path_text.startswith(("/pscratch/", "/global/", "/global/homes/"))
+    job_id = _metadata_value(metadata, "slurm_job_id", "slurm_id", "job_id", "jobid", "scheduler_job_id", "batch_job_id")
+    job_name = _metadata_value(metadata, "slurm_job_name", "job_name", "batch_job_name", "scheduler_job_name")
+    return {
+        "available": bool(is_perlmutter or job_id or job_name),
+        "host": "perlmutter" if is_perlmutter or "perlmutter" in host_text else str(host_text or ""),
+        "path": str(path or ""),
+        "job_id": _scalar_text(job_id),
+        "job_name": _scalar_text(job_name),
+        "metadata": metadata,
+    }
+
+
+def _metadata_value(metadata: dict[str, object], *keys: str) -> object:
+    for key in keys:
+        value = metadata.get(key)
+        if value not in (None, "", []):
+            return value
+    return None
+
+
+def _first_nonempty(*values: object) -> object:
+    for value in values:
+        if value not in (None, "", []):
+            return value
+    return None
+
+
+def _scalar_text(value: object) -> str:
+    if value in (None, "", []):
+        return ""
+    if isinstance(value, (list, tuple)):
+        return _scalar_text(value[0]) if value else ""
+    return str(value).strip()
+
+
+def _cached_remote_state(entity: sqlite3.Row, hint: dict[str, object]) -> str:
+    metadata = hint.get("metadata") if isinstance(hint.get("metadata"), dict) else {}
+    texts = [
+        entity["status"],
+        _metadata_value(
+            metadata,
+            "slurm_state",
+            "job_state",
+            "scheduler_state",
+            "queue_state",
+            "remote_status",
+            "operational_status",
+        ),
+    ]
+    for text in texts:
+        state = _normalize_remote_state(str(text or ""))
+        if state in {"running", "pending", "complete", "failed"}:
+            return state
+    status_counts = metadata.get("status_counts")
+    if isinstance(status_counts, dict):
+        if _count_status(status_counts, "RUNNING", "R") > 0:
+            return "running"
+        if _count_status(status_counts, "PENDING", "PD", "QUEUED", "TORUN", "WAIT") > 0:
+            return "pending"
+    if hint.get("job_id") or hint.get("job_name") or hint.get("path"):
+        return "remote"
+    return "hidden"
+
+
+def _count_status(status_counts: dict[object, object], *keys: str) -> float:
+    total = 0.0
+    for key, value in status_counts.items():
+        if str(key).upper() not in keys:
+            continue
+        try:
+            total += float(value)
+        except (TypeError, ValueError):
+            pass
+    return total
+
+
+def _normalize_remote_state(value: str) -> str:
+    text = value.strip().lower()
+    if text in {"r", "run", "running", "active"} or "running" in text:
+        return "running"
+    if text in {"pd", "pending", "queued", "queue", "submitted", "torun", "wait"} or "pending" in text:
+        return "pending"
+    if text in {"success", "complete", "completed", "done"} or "completed" in text:
+        return "complete"
+    if text in {"failed", "error", "crashed", "timeout", "cancelled", "canceled"}:
+        return "failed"
+    if text in {"not_found", "not found", "not-in-queue"}:
+        return "not-found"
+    return "unknown"
+
+
+def _remote_status_short_label(state: str) -> str:
+    return {
+        "running": "R",
+        "pending": "P",
+        "complete": "OK",
+        "failed": "!",
+        "remote": "?",
+        "checking": "...",
+        "not-found": "-",
+        "unavailable": "-",
+        "error": "!",
+    }.get(state, "?")
+
+
+def _remote_status_title_for_hint(hint: dict[str, object], state: str) -> str:
+    parts = ["Click to check Perlmutter Slurm status"]
+    if state in {"running", "pending"}:
+        parts.append(f"cached={state}")
+    if hint.get("job_id"):
+        parts.append(f"job={hint['job_id']}")
+    if hint.get("job_name"):
+        parts.append(f"name={hint['job_name']}")
+    if hint.get("path"):
+        parts.append(f"path={hint['path']}")
+    return "; ".join(parts)
+
+
+def _check_remote_status(db_path: Path, uid: str | None) -> dict[str, object]:
+    if not uid:
+        return _remote_status_payload("error", "Missing object uid.")
+    try:
+        with LiteRepository(db_path) as repo:
+            entity = repo.get_entity(uid)
+    except KeyError:
+        return _remote_status_payload("error", f"Unknown object: {uid}")
+    hint = _remote_status_hint(entity)
+    if not hint["available"]:
+        return _remote_status_payload("unavailable", "No remote scheduler metadata is recorded for this object.")
+    if hint.get("host") != "perlmutter":
+        return _remote_status_payload("unavailable", f"Live checks are only implemented for Perlmutter; host={hint.get('host') or 'unknown'}.")
+    return _check_perlmutter_slurm_status(str(uid), hint)
+
+
+def _check_perlmutter_slurm_status(uid: str, hint: dict[str, object]) -> dict[str, object]:
+    command = (
+        'squeue -u "$USER" -h -o "%i" 2>/dev/null | '
+        'while read jid; do '
+        'scontrol show job "$jid" 2>/dev/null | tr "\\n" " "; printf "\\n"; '
+        'done'
+    )
+    result = _run_perlmutter_command(command)
+    if result["returncode"] != 0:
+        stderr = str(result.get("stderr") or "").strip()
+        message = stderr or "Perlmutter Slurm status check failed."
+        return _remote_status_payload("error", message, source="perlmutter:ssh", uid=uid)
+    jobs = _parse_scontrol_jobs(str(result.get("stdout") or ""))
+    if not jobs:
+        return _remote_status_payload("not-found", "No Slurm jobs are currently listed for this Perlmutter user.", source="perlmutter:squeue", uid=uid)
+    match = _match_remote_job(jobs, hint)
+    if match is None:
+        return _remote_status_payload(
+            "not-found",
+            f"No matching Slurm job found for this object. Checked {len(jobs)} current user job(s).",
+            source="perlmutter:squeue+scontrol",
+            uid=uid,
+            checked_jobs=len(jobs),
+        )
+    state = _normalize_remote_state(str(match.get("JobState") or match.get("State") or ""))
+    if state == "unknown":
+        state = "remote"
+    job_id = match.get("JobId") or match.get("ArrayJobId") or ""
+    name = match.get("JobName") or ""
+    runtime = match.get("RunTime") or match.get("Elapsed") or ""
+    reason = match.get("Reason") or match.get("NodeList") or ""
+    workdir = match.get("WorkDir") or ""
+    message_parts = [f"Perlmutter {str(match.get('JobState') or state).upper()}"]
+    if job_id:
+        message_parts.append(f"job {job_id}")
+    if name:
+        message_parts.append(str(name))
+    if runtime:
+        message_parts.append(f"runtime {runtime}")
+    if reason and reason != "None":
+        message_parts.append(str(reason))
+    return _remote_status_payload(
+        state,
+        "; ".join(message_parts),
+        source="perlmutter:squeue+scontrol",
+        uid=uid,
+        job_id=str(job_id),
+        job_name=str(name),
+        runtime=str(runtime),
+        reason=str(reason),
+        workdir=str(workdir),
+        checked_jobs=len(jobs),
+    )
+
+
+def _run_perlmutter_command(command: str) -> dict[str, object]:
+    target = os.environ.get("DATAMAK_LITE_PERLMUTTER_TARGET")
+    if not target:
+        user = os.environ.get("DATAMAK_LITE_PERLMUTTER_USER") or os.environ.get("USER") or ""
+        target = f"{user}@perlmutter.nersc.gov" if user else "perlmutter.nersc.gov"
+    ssh_command = [
+        "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=20",
+    ]
+    key_path = Path.home() / ".ssh" / "nersc"
+    cert_path = Path.home() / ".ssh" / "nersc-cert.pub"
+    if key_path.exists() and cert_path.exists():
+        ssh_command.extend(
+            [
+                "-F",
+                "/dev/null",
+                "-i",
+                str(key_path),
+                "-o",
+                f"CertificateFile={cert_path}",
+                "-o",
+                "IdentitiesOnly=yes",
+                "-o",
+                "PreferredAuthentications=publickey",
+            ]
+        )
+    ssh_command.extend([target, command])
+    try:
+        completed = subprocess.run(
+            ssh_command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"returncode": 124, "stdout": "", "stderr": str(exc)}
+    return {"returncode": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr}
+
+
+def _parse_scontrol_jobs(output: str) -> list[dict[str, str]]:
+    jobs = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        fields = dict(re.findall(r"([A-Za-z][A-Za-z0-9_]*)=([^ ]*)", line))
+        if fields:
+            jobs.append(fields)
+    return jobs
+
+
+def _match_remote_job(jobs: list[dict[str, str]], hint: dict[str, object]) -> dict[str, str] | None:
+    job_id = str(hint.get("job_id") or "")
+    if job_id:
+        for job in jobs:
+            job_ids = {str(job.get("JobId") or ""), str(job.get("ArrayJobId") or "")}
+            if job_id in job_ids:
+                return job
+    job_name = str(hint.get("job_name") or "")
+    if job_name:
+        for job in jobs:
+            if job_name == str(job.get("JobName") or ""):
+                return job
+    remote_path = str(hint.get("path") or "")
+    if remote_path:
+        for job in jobs:
+            if _remote_path_matches_job(remote_path, job):
+                return job
+    return None
+
+
+def _remote_path_matches_job(remote_path: str, job: dict[str, str]) -> bool:
+    path = remote_path.rstrip("/")
+    if not path:
+        return False
+    for key in ("WorkDir", "Command", "StdOut", "StdErr"):
+        value = str(job.get(key) or "").rstrip("/")
+        if not value:
+            continue
+        if value == path or value.startswith(path + "/") or path.startswith(value + "/"):
+            return True
+    return False
+
+
+def _remote_status_payload(state: str, message: str, **extra: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "state": state,
+        "short_label": _remote_status_short_label(state),
+        "message": message,
+        "checked_at": int(time.time()),
+    }
+    payload.update(extra)
+    return payload
 
 
 def _load_artifact_for_preview(db_path: Path, artifact_id: str | None) -> sqlite3.Row:
@@ -2283,6 +2659,47 @@ def _class_token(value: object) -> str:
 
 def _e(value: object) -> str:
     return html.escape("" if value is None else str(value), quote=True)
+
+
+LITE_JS = """
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-remote-status-uid]");
+  if (!button) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  const uid = button.getAttribute("data-remote-status-uid");
+  if (!uid) {
+    return;
+  }
+  const originalText = button.textContent;
+  button.textContent = "...";
+  button.classList.add("remote-status-checking");
+  button.disabled = true;
+  try {
+    const response = await fetch("/remote-status?uid=" + encodeURIComponent(uid), {
+      headers: {"Accept": "application/json"},
+    });
+    const payload = await response.json();
+    const state = String(payload.state || "unknown").replace(/[^A-Za-z0-9_-]/g, "-").toLowerCase();
+    button.className = "remote-status-badge remote-status-" + state;
+    button.textContent = payload.short_label || "?";
+    button.title = payload.message || "Remote status checked.";
+    button.setAttribute("aria-label", button.title);
+  } catch (error) {
+    button.className = "remote-status-badge remote-status-error";
+    button.textContent = "!";
+    button.title = "Remote status check failed: " + error;
+    button.setAttribute("aria-label", button.title);
+  } finally {
+    button.disabled = false;
+    if (!button.textContent) {
+      button.textContent = originalText || "?";
+    }
+  }
+});
+"""
 
 
 LITE_CSS = """
@@ -2924,6 +3341,73 @@ h4 {
   font-size: 10px;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.remote-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--gui-border);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: var(--gui-text-muted);
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.remote-status-badge:hover {
+  background: var(--gui-surface-hover);
+  border-color: var(--gui-border-active);
+}
+
+.remote-status-badge:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+
+.remote-status-running {
+  border-color: #86efac;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.remote-status-pending {
+  border-color: #fde68a;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.remote-status-complete {
+  border-color: var(--gui-border);
+  background: #f0f4f8;
+  color: #334e68;
+  font-size: 8px;
+}
+
+.remote-status-not-found,
+.remote-status-unavailable {
+  border-color: var(--gui-border);
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.remote-status-error,
+.remote-status-failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.remote-status-checking {
+  border-color: var(--gui-border-active);
+  background: var(--gui-surface-active);
+  color: var(--gui-accent);
 }
 
 .standalone-simulation-list {

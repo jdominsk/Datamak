@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -20,6 +21,13 @@ from datamak_lite.core.packet import import_packet
 from datamak_lite.core.report import render_entity_report
 from datamak_lite.core.repository import LiteRepository
 from datamak_lite.core.sync import PacketSyncError, PacketValidationError, sync_and_import_packet
+from datamak_lite.core.user_config import (
+    format_campaigns,
+    list_registered_campaigns,
+    register_campaign_profile,
+    resolve_registered_campaign,
+    user_index_path,
+)
 from datamak_lite.core.validate import format_issues, has_errors, issues_as_json, validate_packet
 from datamak_lite.examples.demo_seed import FIGURE_UID, seed as seed_demo
 from datamak_lite.gui.app import DEFAULT_HOST, DEFAULT_PORT, serve
@@ -223,6 +231,13 @@ def cmd_refresh_campaign(args: argparse.Namespace) -> None:
     print(format_refresh_summary(summary, dry_run=args.dry_run), end="")
     if summary.errors:
         raise SystemExit(1)
+    if not args.dry_run and not args.no_register:
+        try:
+            entry = register_campaign_profile(args.profile, set_default=args.set_default)
+        except ValueError as exc:
+            print(f"WARNING: campaign refresh succeeded but registration failed: {exc}", file=sys.stderr)
+        else:
+            print(f"Registered Datamak campaign: {entry['uid']} in {user_index_path()}")
 
 
 def cmd_campaign_status(args: argparse.Namespace) -> None:
@@ -258,6 +273,51 @@ def cmd_report(args: argparse.Namespace) -> None:
 def cmd_serve(args: argparse.Namespace) -> None:
     serve(args.db, host=args.host, port=args.port)
 
+
+
+def cmd_register_campaign(args: argparse.Namespace) -> None:
+    try:
+        entry = register_campaign_profile(
+            args.profile,
+            config_dir=args.config_dir,
+            workspace=args.workspace,
+            set_default=args.set_default,
+            note=args.note or "",
+        )
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+    if args.json:
+        print(json.dumps(entry, indent=2, sort_keys=True))
+        return
+    print(f"Registered Datamak campaign: {entry['uid']} ({entry['name']})")
+    print(f"Campaign index: {user_index_path(args.config_dir)}")
+    print(f"Profile: {entry['profile']}")
+    print(f"Database: {entry['database']}")
+
+
+def cmd_list_campaigns(args: argparse.Namespace) -> None:
+    try:
+        campaigns = list_registered_campaigns(config_dir=args.config_dir)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+    if args.json:
+        print(json.dumps(campaigns, indent=2, sort_keys=True))
+        return
+    print(format_campaigns(campaigns), end="")
+
+
+def cmd_resolve_campaign(args: argparse.Namespace) -> None:
+    try:
+        entry = resolve_registered_campaign(args.campaign, config_dir=args.config_dir)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
+    if args.json or args.field == "all":
+        print(json.dumps(entry, indent=2, sort_keys=True))
+        return
+    print(entry.get(args.field, ""))
 
 def _validate_packet_or_exit(packet: Path) -> None:
     issues = validate_packet(packet)
@@ -405,7 +465,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_refresh.add_argument("profile", type=Path)
     p_refresh.add_argument("--dry-run", action="store_true", help="Count configured sources without importing.")
+    p_refresh.add_argument("--no-register", action="store_true", help="Do not update ~/.datamak/campaigns.json after a successful refresh.")
+    p_refresh.add_argument("--set-default", action="store_true", help="Make this the default campaign in the user registry.")
     p_refresh.set_defaults(func=cmd_refresh_campaign)
+
+    p_register = sub.add_parser(
+        "register-campaign",
+        help="Register a campaign profile in the user-level ~/.datamak campaign index.",
+    )
+    p_register.add_argument("profile", type=Path)
+    p_register.add_argument("--config-dir", type=Path, help="Datamak user config directory. Defaults to $DATAMAK_HOME or ~/.datamak.")
+    p_register.add_argument("--workspace", type=Path, help="Workspace root to store in the campaign index.")
+    p_register.add_argument("--set-default", action="store_true", help="Make this the default campaign.")
+    p_register.add_argument("--note", help="Optional note to store with the campaign entry.")
+    p_register.add_argument("--json", action="store_true", help="Print the registered entry as JSON.")
+    p_register.set_defaults(func=cmd_register_campaign)
+
+    p_campaigns = sub.add_parser("list-campaigns", help="List campaigns registered in the user-level Datamak index.")
+    p_campaigns.add_argument("--config-dir", type=Path, help="Datamak user config directory. Defaults to $DATAMAK_HOME or ~/.datamak.")
+    p_campaigns.add_argument("--json", action="store_true", help="Print JSON instead of a text table.")
+    p_campaigns.set_defaults(func=cmd_list_campaigns)
+
+    p_resolve = sub.add_parser("resolve-campaign", help="Resolve a registered campaign by uid, name, profile stem, or default.")
+    p_resolve.add_argument("campaign", nargs="?", help="Campaign uid, exact name, or profile stem. Defaults to the configured default campaign.")
+    p_resolve.add_argument("--config-dir", type=Path, help="Datamak user config directory. Defaults to $DATAMAK_HOME or ~/.datamak.")
+    p_resolve.add_argument("--field", choices=["all", "uid", "name", "profile", "database", "workspace"], default="profile")
+    p_resolve.add_argument("--json", action="store_true", help="Print the full campaign entry as JSON.")
+    p_resolve.set_defaults(func=cmd_resolve_campaign)
 
     p_status = sub.add_parser(
         "campaign-status",

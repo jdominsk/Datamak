@@ -228,6 +228,29 @@ This command copies only the small sidecar JSON into a local `packets/` cache
 next to the SQLite database, then imports it.  Do not copy large output,
 history, restart, or diagnostic files merely to update the registry.
 
+## Scheduler Metadata For Live Status
+
+The GUI can show a small remote-status marker next to an object's Lite alias
+and, when clicked, query the scheduler on the remote machine.  Agents should
+record enough metadata for that live check to be precise.
+
+For runs or pools on a scheduler-backed remote system, include at least one of:
+
+- `slurm_job_id`, `job_id`, or `scheduler_job_id`;
+- `slurm_job_name` or `job_name`;
+- a remote `path`, `run_root`, `run_dir`, or `pool_root` that matches the
+  scheduler working directory or command path;
+- `remote_host`, `host`, `hpc_host`, `machine`, or `cluster`.
+
+For Perlmutter objects, paths under `/pscratch/` or `/global/` are enough for
+Lite to offer a live check button, but a Slurm job id is more reliable.  The
+sidecar should also preserve cached operational status when known, for example
+`pending`, `running`, `success`, or a compact `status_counts` dictionary for a
+pool.
+
+The live query is inspection only.  It must not submit, cancel, restart, or
+otherwise mutate scheduler state.
+
 ## Notes And Live Document
 
 Comments are first-class data.

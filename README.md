@@ -138,6 +138,27 @@ Import figure audit metadata:
 python3 -m datamak_lite.cli import-figure-audits campaign.sqlite path/to/figure_directory
 ```
 
+## User-Level Campaign Index
+
+Datamak Lite keeps the campaign databases inside their project workspaces, but
+it can register their locations in a user-level index:
+
+```text
+~/.datamak/campaigns.json
+```
+
+Set `DATAMAK_HOME` or pass `--config-dir` to use a different config directory.
+Register a campaign profile explicitly:
+
+```bash
+python3 -m datamak_lite.cli register-campaign path/to/campaign_profile.json --set-default
+python3 -m datamak_lite.cli list-campaigns
+python3 -m datamak_lite.cli resolve-campaign campaign_west57929 --field database
+```
+
+`refresh-campaign` updates this index automatically after a successful
+non-dry-run refresh. Use `--no-register` to suppress that side effect.
+
 ## Metadata Policy
 
 Every important run, pool, analysis, and generated figure should leave a small

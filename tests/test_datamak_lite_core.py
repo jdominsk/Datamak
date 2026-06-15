@@ -20,9 +20,15 @@ from datamak_lite.core.packet import import_packet
 from datamak_lite.core.report import render_entity_report
 from datamak_lite.core.repository import LiteRepository
 from datamak_lite.core.sync import cached_packet_path, is_remote_packet_spec, sync_and_import_packet
+from datamak_lite.core.user_config import (
+    list_registered_campaigns,
+    register_campaign_profile,
+    resolve_registered_campaign,
+    user_index_path,
+)
 from datamak_lite.core.validate import has_errors, validate_packet_data
 from datamak_lite.examples.demo_seed import FIGURE_UID, seed as seed_demo
-from datamak_lite.gui.app import _resolve_existing_artifact_path, render_index
+from datamak_lite.gui.app import _match_remote_job, _parse_scontrol_jobs, _resolve_existing_artifact_path, render_index
 
 
 class DatamakLiteCoreTest(unittest.TestCase):
@@ -289,6 +295,46 @@ class DatamakLiteCoreTest(unittest.TestCase):
             status = build_campaign_status_from_path(profile)
 
             self.assertEqual(status.campaign.uid, "campaign_profile")
+
+
+    def test_user_campaign_registry_registers_and_resolves_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / "workspace"
+            profile_dir = workspace / ".datamak_lite" / "campaigns"
+            profile_dir.mkdir(parents=True)
+            profile = profile_dir / "west57929.json"
+            profile.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "campaign_uid": "campaign_west57929",
+                        "campaign_name": "WEST 57929 XGC campaign",
+                        "campaign_type": "xgc_west_edge_campaign",
+                        "database": "../west57929.sqlite",
+                        "packet_roots": ["../packets"],
+                        "source_catalogs": ["../../simulations_on_polaris.json"],
+                        "local_only": True,
+                    }
+                )
+            )
+            config_dir = root / "home_datamak"
+
+            entry = register_campaign_profile(profile, config_dir=config_dir, set_default=True)
+            repeated = register_campaign_profile(profile, config_dir=config_dir)
+            campaigns = list_registered_campaigns(config_dir=config_dir)
+            resolved_by_uid = resolve_registered_campaign("campaign_west57929", config_dir=config_dir)
+            resolved_default = resolve_registered_campaign(config_dir=config_dir)
+
+            self.assertEqual(user_index_path(config_dir), config_dir / "campaigns.json")
+            self.assertEqual(len(campaigns), 1)
+            self.assertEqual(entry["uid"], "campaign_west57929")
+            self.assertEqual(repeated["registered_at"], entry["registered_at"])
+            self.assertEqual(Path(entry["workspace"]), workspace.resolve())
+            self.assertEqual(Path(entry["database"]), (workspace / ".datamak_lite" / "west57929.sqlite").resolve())
+            self.assertEqual(Path(entry["packet_roots"][0]), (workspace / ".datamak_lite" / "packets").resolve())
+            self.assertEqual(resolved_by_uid["profile"], str(profile.resolve()))
+            self.assertEqual(resolved_default["uid"], "campaign_west57929")
 
     def test_gui_index_renders_campaign_health(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -641,6 +687,40 @@ class DatamakLiteCoreTest(unittest.TestCase):
             self.assertIn("entity=sim_mid_root_20250501", default_html)
             self.assertIn("entity=sim_old_root_20200101", default_html)
             self.assertLess(latest_html.index("entity=sim_old_root_20200101"), latest_html.index("entity=sim_mid_root_20250501"))
+
+    def test_gui_lineage_renders_perlmutter_status_badge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "datamak_lite.sqlite"
+            init_db(db_path)
+            with LiteRepository(db_path) as repo:
+                repo.upsert_entity(uid="campaign_test", type="campaign", name="Test campaign", status="active")
+                repo.upsert_entity(
+                    uid="sim_remote",
+                    type="simulation",
+                    name="Remote running simulation",
+                    path="/pscratch/sd/u/user/example_pool/case",
+                    status="running",
+                    metadata={"lite_alias": "G7", "electron_model": "kinetic e-", "field_model": "full-EM"},
+                )
+
+            html = render_index(db_path, view="lineage")
+
+            self.assertIn("#G7", html)
+            self.assertIn('data-remote-status-uid="sim_remote"', html)
+            self.assertIn("remote-status-running", html)
+
+    def test_perlmutter_scontrol_parser_matches_workdir(self) -> None:
+        output = (
+            "JobId=123456 JobName=example JobState=RUNNING RunTime=00:12:00 "
+            "WorkDir=/pscratch/sd/u/user/example_pool Command=/pscratch/sd/u/user/example_pool/run.sh\n"
+        )
+
+        jobs = _parse_scontrol_jobs(output)
+        match = _match_remote_job(jobs, {"path": "/pscratch/sd/u/user/example_pool/case", "job_id": "", "job_name": ""})
+
+        self.assertEqual(len(jobs), 1)
+        self.assertIsNotNone(match)
+        self.assertEqual(match["JobId"], "123456")
 
     def test_gui_overview2_renders_main_plasma_input_tables(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

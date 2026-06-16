@@ -125,6 +125,20 @@ python3 -m datamak_lite.cli create-pool-packet POOL_ROOT \
 `create-pool-marker` writes `README.md` and `datamak_pool.json` so future
 humans and agents can recognize the directory as a Datamak-style pool.
 
+Run the machine-level acceptance checks before trusting Datamak-style worker
+pools on a new HPC system or after changing the scheduler/runtime wrapper:
+
+```bash
+python3 tools/datamak_hpc_acceptance.py run \
+  --machine MACHINE_NAME \
+  --scheduler pbs \
+  --datamak-root "$(pwd)" \
+  --require-allocation
+```
+
+The report is stored under `~/.datamak/hpc_acceptance/MACHINE_NAME/`, with a
+machine-specific profile at `~/.datamak/machine_profile_MACHINE_NAME.json`.
+
 Import an existing campaign registry or folder inventory:
 
 ```bash
@@ -180,4 +194,5 @@ it can be rebuilt by running `refresh-campaign` on the campaign profile.
 
 ```bash
 python3 -m unittest discover -s tests -p 'test_datamak_lite_core.py'
+python3 -m unittest discover -s tests -p 'test_datamak_hpc_acceptance.py' -v
 ```

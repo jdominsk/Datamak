@@ -251,6 +251,30 @@ pool.
 The live query is inspection only.  It must not submit, cancel, restart, or
 otherwise mutate scheduler state.
 
+## HPC Pool Acceptance
+
+Before trusting Datamak-style SQLite worker pools on a new HPC system, or after
+changing the runtime/module wrapper, run:
+
+```bash
+python3 tools/datamak_hpc_acceptance.py run --machine MACHINE --scheduler pbs
+```
+
+Add `--require-allocation` and explicit smoke commands only when the user has
+already provided an interactive allocation or directly asked for that test.
+The acceptance tool is stdlib-only and writes compact traces under
+`~/.datamak/hpc_acceptance/MACHINE/` plus
+`~/.datamak/machine_profile_MACHINE.json`, so Polaris and Aurora can share a
+home filesystem without overwriting each other.
+
+Required pool reliability contract:
+
+- dependency and restart-file gating must happen before a row is claimed;
+- a pre-claim failure must leave rows unclaimed and write a driver log;
+- a post-claim failure must be recorded in the pool database as `CRASHED`;
+- generated shell wrappers should pass `bash -n` before consuming allocation
+  time.
+
 ## Notes And Live Document
 
 Comments are first-class data.

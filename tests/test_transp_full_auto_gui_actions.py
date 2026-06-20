@@ -31,7 +31,7 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
             os.environ,
             {
                 "DTWIN_FLUX_BASE_DIR": "/u/bob/DTwin/transp_full_auto",
-                "DTWIN_ROOT": "/u/bob/DTwin/transp_full_auto",
+                "DATAMAK_ROOT": "/u/bob/DTwin/transp_full_auto",
             },
             clear=False,
         ):
@@ -43,13 +43,24 @@ class TranspFullAutoGuiActionTests(unittest.TestCase):
 
         with mock.patch.dict(
             os.environ,
-            {"DTWIN_ROOT": "/u/staged/transp_full_auto"},
+            {"DATAMAK_ROOT": "/u/staged/transp_full_auto"},
             clear=True,
         ):
             module = load_module("run_flux_gk_inputs_module_root", script_path)
             self.assertEqual(
                 module.resolve_runtime_flux_base_dir(),
                 "/u/staged/transp_full_auto",
+            )
+
+        with mock.patch.dict(
+            os.environ,
+            {"DTWIN_ROOT": "/u/compat/transp_full_auto"},
+            clear=True,
+        ):
+            module = load_module("run_flux_gk_inputs_module_compat_root", script_path)
+            self.assertEqual(
+                module.resolve_runtime_flux_base_dir(),
+                "/u/compat/transp_full_auto",
             )
 
     def test_run_flux_gk_inputs_can_release_claimed_rows_back_to_new(self) -> None:

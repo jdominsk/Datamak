@@ -4,7 +4,11 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
+ROOT_DIR = Path(
+    os.environ.get("DATAMAK_ROOT")
+    or os.environ.get("DTWIN_ROOT")
+    or Path(__file__).resolve().parents[1]
+).resolve()
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 

@@ -1,0 +1,412 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{array}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{Datamak Workflow: From Equilibrium Ingestion to Surrogate Training}
+\author{}
+\date{Updated: 2026-03-26}
+
+\begin{document}
+
+\sloppy
+\maketitle
+\tableofcontents
+
+\section{Purpose}
+
+This document describes the main Datamak workflow from equilibrium ingestion to
+surrogate-model training. It is intended as a bridge between the high-level
+architecture notes and the concrete scripts used in daily operation.
+
+The scope is the path
+\[
+\code{data\_equil} \rightarrow \code{gk\_study} \rightarrow \code{gk\_input}
+\rightarrow \code{gk\_run} \rightarrow \code{gk\_surrogate}
+\]
+with emphasis on the repository entry points that implement each step.
+
+\section{Central Database and Core Tables}
+
+The main SQLite database is \code{gyrokinetic\_simulations.db} at repository
+root. The baseline schema is created by
+\code{database/create\_gyrokinetic\_db.py}.
+
+\subsection{Key tables}
+
+\begin{longtable}{|>{\raggedright\arraybackslash}p{0.22\textwidth}|>{\raggedright\arraybackslash}p{0.70\textwidth}|}
+\hline
+\textbf{Table} & \textbf{Role} \\
+\hline
+\code{data\_origin} & Metadata describing where equilibria came from. \\
+\hline
+\code{data\_equil} & Raw equilibrium/profile inputs, including stored \code{pfile}, \code{gfile}, or \code{transpfile} references and content. \\
+\hline
+\code{gk\_code} & Gyrokinetic code identity such as GX or CGYRO. \\
+\hline
+\code{gk\_model} & Active input templates and model flags used to generate GK inputs. \\
+\hline
+\code{gk\_study} & A study linking one equilibrium to one gyrokinetic code. \\
+\hline
+\code{gk\_input} & Generated gyrokinetic inputs, their content, radial coordinate, parsed physics columns, and workflow status. \\
+\hline
+\code{gk\_batch} & Metadata for exported remote batch databases. \\
+\hline
+\code{gk\_run} & Remote execution records and output metrics such as \code{gamma\_max}, \code{ky\_abs\_mean}, and \code{diffusion}. \\
+\hline
+\code{gk\_surrogate} & Registry of trained surrogate artifacts and metadata. \\
+\hline
+\code{sg\_estimate} & Surrogate predictions attached to existing \code{gk\_input} rows. \\
+\hline
+\end{longtable}
+
+\subsection{Operational status contracts}
+
+Datamak uses status fields as workflow contracts between CLI scripts, the GUI,
+and remote execution.
+
+\begin{itemize}
+\item \code{gk\_input.status}: typically \code{NEW}, \code{WAIT},
+\code{TORUN}, \code{BATCH}, \code{CRASHED}, \code{SUCCESS}, \code{ERROR}.
+\item \code{gk\_batch.status}: typically \code{CREATED}, \code{SENT},
+\code{LAUNCHED}, \code{SYNCED}.
+\item \code{gk\_run.status}: workflow-dependent, commonly \code{TORUN},
+\code{RUNNING}, \code{SUCCESS}, \code{CONVERGED}, \code{CRASHED}.
+\end{itemize}
+
+\section{Workflow Overview}
+
+\subsection{Step 0: Bootstrap the schema}
+
+The repository bootstrap script
+\code{database/create\_gyrokinetic\_db.py} creates the main schema and applies
+guarded additive upgrades, including:
+
+\begin{itemize}
+\item \code{data\_origin} and \code{data\_equil} for source data,
+\item \code{gk\_study}, \code{gk\_model}, and \code{gk\_input} for GK setup,
+\item \code{gk\_batch} and \code{gk\_run} for execution tracking,
+\item supporting indexes and compatibility \code{ALTER TABLE} logic.
+\end{itemize}
+
+Typical command:
+
+\begin{verbatim}
+python3 database/create_gyrokinetic_db.py --db gyrokinetic_simulations.db
+\end{verbatim}
+
+\subsection{Step 1: Ingest equilibria into \code{data\_equil}}
+
+There are two main ingestion families.
+
+\subsubsection{Mate Kinetic EFIT path}
+
+The script \code{db\_update/populate\_data\_equil\_from\_Mate\_KinEFIT.py}:
+
+\begin{enumerate}
+\item scans a root directory for subfolders,
+\item finds \code{p*} and \code{g*} files,
+\item reads file contents into memory,
+\item creates or reuses a \code{data\_origin} row,
+\item inserts new \code{data\_equil} rows,
+\item runs \code{update\_activate\_Mate\_KinEFIT.sql} to activate selected rows.
+\end{enumerate}
+
+In this path, the database stores both filenames and raw text content of the
+\code{pfile} and \code{gfile}. This makes later GK input generation
+self-contained.
+
+\subsubsection{TRANSP path}
+
+The TRANSP-based workflows populate \code{data\_equil} using CDF metadata
+instead of local \code{pfile}/\code{gfile} pairs.
+
+\begin{itemize}
+\item Semi-automatic path: \code{db\_update/populate\_data\_equil\_from\_Alexei\_Transp\_09.py}
+and related scripts.
+\item Flux full-auto path: \code{db\_update/Transp\_full\_auto/MainSteps\_1\_launch\_on\_laptop.sh},
+\code{MainSteps\_2\_launch\_on\_flux.sh}, and
+\code{MainSteps\_3\_launch\_on\_laptop.sh}.
+\end{itemize}
+
+The Flux full-auto path uses a temporary Flux-local database, populates
+\code{data\_equil} and \code{transp\_timeseries} there, generates inputs
+remotely, then syncs the results back into the main database.
+
+\subsection{Step 2: Create studies that connect equilibria to a GK code}
+
+\code{gk\_study} is the bridge between one equilibrium and one gyrokinetic
+code. The later input-generation scripts assume that:
+
+\begin{itemize}
+\item the relevant \code{data\_equil} rows are active,
+\item the appropriate \code{gk\_code} row exists,
+\item one or more \code{gk\_model} rows are marked active.
+\end{itemize}
+
+In practice, studies may be created by SQL activation scripts or by the
+full-auto TRANSP workflow.
+
+\subsection{Step 3: Generate \code{gk\_input} rows and input content}
+
+The next stage converts equilibrium data plus template settings into explicit
+gyrokinetic inputs.
+
+\subsubsection{Pfile/Gfile-driven input generation}
+
+The script
+\code{db\_update/create\_gk\_input\_from\_pyrokinetic\_with\_pfile\_and\_gfile.py}
+operates on active Mate equilibria. Its main responsibilities are:
+
+\begin{enumerate}
+\item fetch active \code{gk\_study} rows and their stored \code{pfile}/\code{gfile} content,
+\item fetch active \code{gk\_model} template definitions,
+\item sweep over a \code{psin} grid,
+\item call Pyrokinetics with the requested template and local-geometry settings,
+\item insert or update \code{gk\_input} rows with generated input content.
+\end{enumerate}
+
+The inserted rows include:
+
+\begin{itemize}
+\item \code{gk\_study\_id},
+\item \code{gk\_model\_id},
+\item filename and output path,
+\item full input \code{content},
+\item \code{psin},
+\item workflow \code{status}, usually starting at \code{WAIT}.
+\end{itemize}
+
+\subsubsection{TRANSP-driven input generation}
+
+The script
+\code{db\_update/create\_gk\_input\_from\_pyrokinetic\_with\_transpfile.py}
+plays the same role for TRANSP data. Instead of local \code{pfile}/\code{gfile}
+pairs, it loads the TRANSP source, uses Pyrokinetics to evaluate a requested
+time slice, and writes the resulting GX-style input content into
+\code{gk\_input.content}.
+
+The Flux full-auto workflow performs this generation remotely, then syncs the
+resulting rows back into the main database.
+
+\subsection{Step 4: Backfill parsed physics columns from \code{gk\_input.content}}
+
+After input content exists, Datamak extracts structured scalar features from
+that text using \code{db\_update/backfill\_gk\_input\_physics.py}.
+
+This script parses the following sections from each input:
+
+\begin{itemize}
+\item \code{[geometry]} for quantities such as \code{Rmaj}, \code{qinp},
+\code{shat}, \code{akappa}, \code{tri}, and \code{betaprim},
+\item \code{[physics]} for scalar physics settings,
+\item \code{[species]} for electron and main-ion density, temperature, mass,
+charge, gradients, and collisionality.
+\end{itemize}
+
+The extracted values populate columns on \code{gk\_input}. This step is
+important because the surrogate workflow reads engineered features from columns,
+not by reparsing raw input text at training time.
+
+\subsection{Step 5: Promote selected inputs to execution}
+
+Generated inputs do not directly become surrogate-training data. They first
+need simulation output.
+
+The usual progression is:
+
+\begin{enumerate}
+\item create \code{gk\_input} rows with status \code{WAIT},
+\item promote selected rows to \code{TORUN},
+\item export those rows to a batch database,
+\item run them remotely,
+\item sync \code{gk\_run} results back into the main database.
+\end{enumerate}
+
+\subsection{Step 6: Batch export and remote execution}
+
+The execution workflow is centered on the \code{batch/} folder.
+
+\subsubsection{Create a batch database}
+
+\code{batch/create\_batch\_database.py --copy-torun}:
+
+\begin{itemize}
+\item selects \code{gk\_input.status = TORUN},
+\item copies those cases into a timestamped batch database under
+\code{batch/new/},
+\item creates \code{gk\_run} rows in that batch database,
+\item updates source \code{gk\_input.status} to \code{BATCH},
+\item inserts a \code{gk\_batch} row with status \code{CREATED}.
+\end{itemize}
+
+\subsubsection{Deploy and execute remotely}
+
+\code{batch/deploy\_batch\_large.py} transfers non-empty batch databases and
+HPC helper scripts to Perlmutter, updates \code{gk\_batch} status through
+\code{SENT} and \code{LAUNCHED}, and submits remote jobs.
+
+On the remote side, the job scripts consume \code{gk\_run} rows, write input
+files, execute the solver, and update \code{gk\_run.status} together with
+quantities such as \code{gamma\_max}, \code{ky\_abs\_mean}, and
+\code{diffusion}.
+
+\subsubsection{Sync back to the main database}
+
+\code{batch/check\_launched\_batches.py} and
+\code{batch/monitor\_remote\_runs.py} synchronize the remote execution results
+and produce health reports. At this point, the main database contains the
+joined information needed for surrogate training:
+
+\begin{itemize}
+\item input-side features on \code{gk\_input},
+\item target outputs on \code{gk\_run}.
+\end{itemize}
+
+\section{Surrogate Training Workflow}
+
+\subsection{Training data selection}
+
+The surrogate training script is \code{db\_surrogate/train\_gamma\_surrogate.py}.
+It loads rows from a join of \code{gk\_run} and \code{gk\_input}.
+
+By default it keeps only:
+
+\begin{itemize}
+\item rows whose \code{gk\_run.status} is \code{SUCCESS} or \code{CONVERGED},
+\item rows with finite target values,
+\item rows where all required input features can be assembled.
+\end{itemize}
+
+Optional filters exist for \code{data\_origin} name or identifier.
+
+\subsection{Feature construction}
+
+The current feature vector is:
+
+\begin{verbatim}
+temp_ratio, dens_ratio, electron_tprim, electron_fprim, ion_tprim, ion_fprim,
+ion_vnewk, electron_vnewk, mass_ratio, Rmaj, qinp, shat, shift, akappa,
+akappri, tri, tripri, betaprim
+\end{verbatim}
+
+The three ratio features are computed at training time from the stored
+\code{gk\_input} columns:
+
+\begin{itemize}
+\item \code{temp\_ratio = ion\_temp / electron\_temp},
+\item \code{dens\_ratio = ion\_dens / electron\_dens},
+\item \code{mass\_ratio = ion\_mass / (electron\_mass * 1836)}.
+\end{itemize}
+
+\subsection{Target definition}
+
+The default regression target is \code{gk\_run.gamma\_max}. The script can also
+train against other \code{gk\_run.*} quantities through the \code{--mapsto}
+argument, for example \code{gk\_run.ky\_abs\_mean} or \code{gk\_run.diffusion}.
+
+\subsection{Model fitting and artifacts}
+
+The current baseline model is a
+\code{sklearn.ensemble.RandomForestRegressor}. The script supports:
+
+\begin{itemize}
+\item optional train/test splitting,
+\item configurable tree count and leaf size,
+\item optional \code{log1p} transform of the target.
+\end{itemize}
+
+Outputs are written to \code{db\_surrogate/models/} by default:
+
+\begin{itemize}
+\item a pickle payload containing the fitted model and metadata,
+\item a JSON sidecar with non-binary metadata such as feature ranges, metrics,
+status filter, and target mapping.
+\end{itemize}
+
+Representative command:
+
+\begin{verbatim}
+python3 db_surrogate/train_gamma_surrogate.py \
+  --db gyrokinetic_simulations.db \
+  --name gamma_v1
+\end{verbatim}
+
+\subsection{Registering and using a trained surrogate}
+
+Model files alone are sufficient for offline prediction, but Datamak also
+supports database-backed registration through \code{gk\_surrogate}. The GUI code
+contains helper logic to create that table if needed and record metadata for a
+trained model.
+
+Once a \code{gk\_surrogate} row exists, the script
+\code{db\_surrogate/estimate\_gamma\_surrogate.py} can:
+
+\begin{enumerate}
+\item load the registered model,
+\item reconstruct the same feature vector for all complete \code{gk\_input} rows,
+\item predict mean values and an uncertainty proxy,
+\item upsert the results into \code{sg\_estimate}.
+\end{enumerate}
+
+\section{End-to-End Summary}
+
+The complete operational chain is:
+
+\begin{enumerate}
+\item create or refresh the schema,
+\item ingest equilibria into \code{data\_equil},
+\item create active studies and templates,
+\item generate \code{gk\_input.content} with Pyrokinetics,
+\item backfill structured plasma and geometry columns onto \code{gk\_input},
+\item run selected inputs remotely and sync \code{gk\_run} metrics,
+\item train a surrogate from the joined \code{gk\_input} and \code{gk\_run} data,
+\item optionally register the model in \code{gk\_surrogate} and populate
+\code{sg\_estimate}.
+\end{enumerate}
+
+\section{Practical Command Reference}
+
+\begin{verbatim}
+python3 database/create_gyrokinetic_db.py --db gyrokinetic_simulations.db
+
+python3 db_update/populate_data_equil_from_Mate_KinEFIT.py --db gyrokinetic_simulations.db
+
+python3 db_update/create_gk_input_from_pyrokinetic_with_pfile_and_gfile.py \
+  --db gyrokinetic_simulations.db
+
+python3 db_update/backfill_gk_input_physics.py --db gyrokinetic_simulations.db
+
+python3 batch/create_batch_database.py --copy-torun
+
+python3 batch/deploy_batch_large.py
+
+python3 db_surrogate/train_gamma_surrogate.py --db gyrokinetic_simulations.db --name gamma_v1
+
+python3 db_surrogate/estimate_gamma_surrogate.py --db gyrokinetic_simulations.db --surrogate-id 1
+\end{verbatim}
+
+\section{Current Limitations}
+
+\begin{itemize}
+\item The base schema bootstrap does not yet create \code{gk\_surrogate}; that
+table is still created lazily in the GUI path.
+\item The exact entry point for \code{gk\_study} creation depends on which
+ingestion branch is used.
+\item Some Flux full-auto scripts still carry environment assumptions that
+should be documented and validated more explicitly.
+\end{itemize}
+
+\end{document}

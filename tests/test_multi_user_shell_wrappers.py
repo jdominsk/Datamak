@@ -166,7 +166,7 @@ class MultiUserShellWrapperTests(unittest.TestCase):
 
             rsync_log = root / "mock_rsync.log"
             env = os.environ.copy()
-            env["DTWIN_ROOT"] = str(root)
+            env["DATAMAK_ROOT"] = str(root)
             env["PATH"] = f"{bin_dir}:{env['PATH']}"
             env["MOCK_RSYNC_LOG"] = str(rsync_log)
 

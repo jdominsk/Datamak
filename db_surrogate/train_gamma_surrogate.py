@@ -248,7 +248,9 @@ def main() -> None:
     parser.add_argument(
         "--db",
         default=os.path.join(
-            os.environ.get("DTWIN_ROOT", os.path.dirname(os.path.dirname(__file__))),
+            os.environ.get("DATAMAK_ROOT")
+            or os.environ.get("DTWIN_ROOT")
+            or os.path.dirname(os.path.dirname(__file__)),
             "gyrokinetic_simulations.db",
         ),
         help="Path to gyrokinetic_simulations.db",

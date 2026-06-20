@@ -46,6 +46,50 @@ For Datamak Lite, start with:
   analysis code.
 - `presentations/lite_overview/presentation.tex`: Lite overview slide deck.
 
+## Prerequisites
+
+- Python 3
+- A local virtual environment for this repo
+- Python packages from `requirements.txt`
+- `pyrokinetics` installed separately if you need GK-input generation workflows
+- Access to Flux and/or Perlmutter only if you need remote workflow execution
+
+The base Python requirements are:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install -r requirements.txt
+```
+
+`pyrokinetics` is not installed by `requirements.txt`. Install it from your own
+checkout or shared environment if you plan to run input-generation workflows.
+
+## Environment Setup
+
+Datamak expects `DATAMAK_ROOT` to point at the repository root. From the repo
+root:
+
+```bash
+export DATAMAK_ROOT="$(pwd)"
+```
+
+You can also print the command with:
+
+```bash
+bash set_datamak_root.sh
+```
+
+To persist it in your shell profile:
+
+```bash
+echo 'export DATAMAK_ROOT="/absolute/path/to/Datamak"' >> ~/.zshrc
+```
+
+`DTWIN_ROOT` is still accepted as a compatibility fallback, but new setups should
+use `DATAMAK_ROOT`.
+
 ## Full Datamak Commands
 
 Create or refresh the main Datamak database:
@@ -57,8 +101,14 @@ Create or refresh the main Datamak database:
 Start the full Datamak Flask GUI:
 
 ```bash
-export DTWIN_ROOT="$(pwd)"
+export DATAMAK_ROOT="$(pwd)"
 .venv/bin/python gui/app.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:5000/
 ```
 
 Run the full Datamak test suite:
@@ -66,6 +116,37 @@ Run the full Datamak test suite:
 ```bash
 .venv/bin/python tests/run_tests.py
 ```
+
+## First GUI Steps
+
+1. Start the server with `.venv/bin/python gui/app.py`.
+2. Open `http://127.0.0.1:5000/` in your browser.
+3. If you are starting from scratch, make sure `gyrokinetic_simulations.db`
+   exists.
+4. Use the GUI workflow and database panels to inspect rows and run supported
+   actions.
+5. Enter per-user Perlmutter and Flux settings in the GUI only if you need
+   remote workflows.
+
+If the page does not load, check the terminal running Flask first.
+
+## Per-User Runtime Configuration
+
+Datamak stores per-user workflow configuration outside the main database. By
+default the config path is:
+
+```text
+~/.config/datamak/config.json
+```
+
+This path can be overridden with:
+
+- `DTWIN_CONFIG`
+- `XDG_CONFIG_HOME`
+
+The GUI writes Perlmutter and Flux runtime settings there. Source-location
+metadata should not be treated as GUI-local settings; source definitions belong
+in workflow/database state.
 
 ## Datamak Lite Core Concepts
 
@@ -79,12 +160,12 @@ Lite stores five generic object types in SQLite:
 - `metric`: compact scalar metadata or result.
 - `note`: Markdown comment, decision, warning, or todo.
 
-Operational status and scientific status are separate.  A run can finish
+Operational status and scientific status are separate. A run can finish
 successfully while still being a candidate, superseded, or suspect result.
 
-## Minimal Commands
+## Datamak Lite Commands
 
-Run these from the `Datamak_lite` checkout.
+Run these from this checkout:
 
 ```bash
 python3 -m datamak_lite.cli init campaign.sqlite
@@ -100,9 +181,9 @@ python3 -m datamak_lite.cli refresh-campaign path/to/campaign_profile.json
 python3 -m datamak_lite.cli refresh-campaign path/to/campaign_profile.json --dry-run
 ```
 
-A campaign profile centralizes campaign-specific paths outside the generic
-Lite package.  See
-`datamak_lite/examples/generic_campaign_profile.json` for the expected shape.
+A campaign profile centralizes campaign-specific paths outside the generic Lite
+package. See `datamak_lite/examples/generic_campaign_profile.json` for the
+expected shape.
 
 Import a sidecar packet:
 
@@ -154,8 +235,8 @@ python3 -m datamak_lite.cli import-figure-audits campaign.sqlite path/to/figure_
 
 ## User-Level Campaign Index
 
-Datamak Lite keeps the campaign databases inside their project workspaces, but
-it can register their locations in a user-level index:
+Datamak Lite keeps campaign databases inside their project workspaces, but it
+can register their locations in a user-level index:
 
 ```text
 ~/.datamak/campaigns.json
@@ -184,15 +265,29 @@ object_root/
 ```
 
 The sidecar should contain compact metadata only: stable entity IDs, important
-paths, upstream/downstream relations, scalar metrics, and notes.  It should not
+paths, upstream/downstream relations, scalar metrics, and notes. It should not
 copy large simulation or analysis data.
 
-The central SQLite database is a queryable campaign view.  If it becomes stale,
+The central SQLite database is a queryable campaign view. If it becomes stale,
 it can be rebuilt by running `refresh-campaign` on the campaign profile.
+
+## Remote Workflow Notes
+
+Remote execution is not required to start the project locally, but it is
+required for the full batch/HPC workflow.
+
+- Perlmutter is used for batch job launch, execution, and monitoring.
+- Flux is used by the full-auto TRANSP workflow.
+- Those flows depend on site access, SSH, and external runtime tools that are
+  not fully provisioned by this repository alone.
+
+Start with the local Flask server and local database first. Add HPC
+configuration only when the local workflow is working.
 
 ## Tests
 
 ```bash
+.venv/bin/python tests/run_tests.py
 python3 -m unittest discover -s tests -p 'test_datamak_lite_core.py'
 python3 -m unittest discover -s tests -p 'test_datamak_hpc_acceptance.py' -v
 ```

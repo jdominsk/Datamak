@@ -16,12 +16,6 @@ batch/plots/**
 tests/__init__.py
 presentation/~$Datamak_2slides.pptx
 DatamakAndCo.code-workspace
-*.md
-!/README.md
-!design/
-!design/*.md
-!agents/
-!agents/*.md
 .vscode
 *.json
 !datamak_lite/examples/*.json
@@ -52,7 +46,6 @@ backup
 tmp
 transp_full_auto
 node_modules
-docs
 launchd/
 !docs/
 !docs/*.md

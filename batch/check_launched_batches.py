@@ -7,7 +7,11 @@ import os
 import json
 
 
-ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
+ROOT_DIR = Path(
+    os.environ.get("DATAMAK_ROOT")
+    or os.environ.get("DTWIN_ROOT")
+    or Path(__file__).resolve().parents[1]
+).resolve()
 
 
 def parse_remote(remote_folder: str, remote_host: str) -> tuple[str, str]:

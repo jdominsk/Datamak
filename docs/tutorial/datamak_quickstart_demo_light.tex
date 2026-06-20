@@ -1,0 +1,370 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usetheme{default}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{headline}{}
+\setbeamersize{text margin left=0.85cm,text margin right=0.85cm}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[scaled=0.95]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{pdfpages}
+
+\definecolor{ppplOrange}{HTML}{EA7B17}
+\definecolor{ppplCharcoal}{HTML}{222222}
+\definecolor{ppplSlate}{HTML}{333333}
+\definecolor{ppplBorder}{HTML}{C9C9C9}
+\definecolor{ppplMist}{HTML}{FAF7F2}
+\definecolor{ppplGray}{HTML}{5A5A5A}
+\definecolor{ppplPanel}{HTML}{D6D6D6}
+\definecolor{ppplPanelBody}{HTML}{F2F2F2}
+\definecolor{ppplGreen}{HTML}{2B6E46}
+\definecolor{ppplRed}{HTML}{B42318}
+\definecolor{ppplRedBody}{HTML}{FFF3F1}
+\definecolor{ppplBlue}{HTML}{2B74C8}
+
+\setbeamercolor{normal text}{fg=ppplCharcoal,bg=white}
+\setbeamercolor{structure}{fg=ppplOrange}
+\setbeamercolor{block title}{fg=ppplCharcoal,bg=ppplPanel}
+\setbeamercolor{block body}{fg=ppplCharcoal,bg=ppplPanelBody}
+\setbeamercolor{alertblock title}{fg=ppplCharcoal,bg=ppplPanel}
+\setbeamercolor{alertblock body}{fg=ppplCharcoal,bg=ppplPanelBody}
+\setbeamercolor{footline}{fg=ppplGray,bg=white}
+\setbeamercolor{itemize item}{fg=ppplOrange}
+\setbeamercolor{itemize subitem}{fg=ppplOrange}
+\setbeamercolor{enumerate item}{fg=ppplOrange}
+
+\setbeamerfont{title}{size=\LARGE,series=\bfseries}
+\setbeamerfont{subtitle}{size=\large,series=\bfseries}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{block title}{size=\normalsize,series=\bfseries}
+\setbeamerfont{footline}{size=\scriptsize}
+
+\setbeamertemplate{blocks}[default]
+\setbeamertemplate{itemize item}{\color{ppplOrange}$\blacktriangleright$}
+\setbeamertemplate{itemize subitem}{\color{ppplOrange}\scalebox{0.8}{$\blacktriangleright$}}
+\setbeamertemplate{enumerate item}[default]
+\setbeamertemplate{background}{}
+
+\makeatletter
+\setbeamertemplate{frametitle}{%
+  \nointerlineskip
+  \begin{tikzpicture}[remember picture,overlay]
+    \fill[ppplOrange] (current page.north west) rectangle ([yshift=-1.02cm]current page.north east);
+    \node[
+      anchor=north,
+      text=white,
+      font=\usebeamerfont{frametitle},
+      yshift=-0.18cm
+    ] at (current page.north) {\strut\insertframetitle};
+  \end{tikzpicture}%
+  \vspace*{0.88cm}
+  \vspace{0.2cm}
+}
+\makeatother
+
+\setbeamertemplate{title page}{%
+  \vspace*{0.05cm}
+  \includegraphics[height=0.72cm]{../AIMLWorkflowManagement/figures/pppl_logo.jpg}
+  \vspace{0.18cm}
+  \begin{center}
+    \begin{tikzpicture}
+      \node[
+        fill=ppplOrange,
+        draw=ppplSlate!60,
+        line width=0.6pt,
+        text=white,
+        minimum width=0.98\textwidth,
+        minimum height=2.2cm,
+        text width=0.84\textwidth,
+        align=center,
+        inner xsep=0.6cm,
+        inner ysep=0.45cm
+      ] {\bfseries\fontsize{24}{29}\selectfont \inserttitle};
+    \end{tikzpicture}
+  \end{center}
+  \vspace{1.0cm}
+  \begin{center}
+    {\usebeamerfont{subtitle}\insertsubtitle\par}
+    \vspace{0.40cm}
+    {\large\bfseries \insertdate\par}
+  \end{center}
+  \vfill
+}
+
+\setbeamertemplate{footline}{%
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[
+      anchor=south east,
+      text=ppplGray,
+      font=\usebeamerfont{footline}
+    ] at ([xshift=-0.22cm,yshift=0.10cm]current page.south east) {\insertframenumber};
+  \end{tikzpicture}%
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\good}[1]{\textcolor{ppplGreen}{#1}}
+\newcommand{\warn}[1]{\textcolor{ppplOrange}{#1}}
+\newcommand{\bad}[1]{\textcolor{ppplRed}{#1}}
+
+\title[Datamak Quickstart]{Datamak Quickstart\\for the Demo Light Database}
+\subtitle{How to open the demo, read the main screens, and report errors}
+\author{}
+\date[Mar 29, 2026]{March 29, 2026}
+
+\begin{document}
+
+\includepdf[pages=-]{../presentation/Datamak.pdf}
+
+\begin{frame}[plain]
+  \titlepage
+  \vspace{-0.7em}
+  \begin{block}{Goal}
+    This quickstart is for a new user opening the \code{demo\_light} database,
+    browsing the main screens, and knowing how to report a failure clearly.
+  \end{block}
+\end{frame}
+
+\begin{frame}{1. Start Datamak locally}
+  \begin{columns}[T]
+    \column{0.56\textwidth}
+    \begin{block}{1. Get Datamak with Git}
+      \scriptsize
+      \begin{itemize}
+        \item \code{git clone https://github.com/jdominsk/Datamak}
+        \item \code{cd Datamak}
+      \end{itemize}
+    \end{block}
+
+    \begin{block}{2. Set up Python}
+      \scriptsize
+      \begin{itemize}
+        \item \code{python3 -m venv .venv}
+        \item \code{.venv/bin/pip install -r requirements.txt}
+      \end{itemize}
+      If Datamak is already cloned and \code{.venv} exists, reuse them.
+    \end{block}
+
+    \begin{block}{3. Start the Flask server}
+      \scriptsize
+      \begin{itemize}
+        \item Run \code{.venv/bin/python gui/app.py}
+        \item Leave that terminal open while you use Datamak.
+      \end{itemize}
+    \end{block}
+
+    \column{0.40\textwidth}
+    \begin{alertblock}{4. Open it in Firefox}
+      \scriptsize
+      \begin{enumerate}
+        \item Start Firefox.
+        \item Go to \code{http://127.0.0.1:5000/}
+        \item If the page does not load, check the terminal for a Flask error.
+        \item If Firefox is stuck, clear recent history, restart Firefox, and
+        reopen the plain URL.
+        \item If Datamak opens, move to \textbf{Database} only if you still
+        need to load the demo database.
+      \end{enumerate}
+    \end{alertblock}
+  \end{columns}
+
+  \smallskip
+  {\footnotesize\textbf{Beginner rule:} First make the local server work, then
+  load the demo database, and only then start exploring the screens.}
+\end{frame}
+
+\begin{frame}{2. Open the demo\_light database}
+  \begin{columns}[T]
+    \column{0.53\textwidth}
+    \begin{block}{What Datamak does on first run}
+      \small
+      \begin{enumerate}
+        \item Launch Datamak.
+        \item If no valid database is configured, Datamak opens
+        \textbf{Database} automatically.
+        \item It shows \textbf{Database recovery} and scans for local demo DBs.
+        \item Prefer \textbf{Use Detected Demo DB} when a suitable local copy
+        is found.
+        \item Use the browser download only if nothing suitable is detected.
+      \end{enumerate}
+    \end{block}
+
+    \column{0.43\textwidth}
+    \begin{alertblock}{Key facts}
+      \small
+      \begin{itemize}
+        \item Expected file: the \code{demo\_light} SQLite database
+        \item Common locations checked:
+        \begin{itemize}\scriptsize
+          \item \code{\textasciitilde/Downloads}
+          \item \code{\textasciitilde/Desktop}
+          \item Datamak root
+          \item \code{Datamak/demo}
+        \end{itemize}
+        \item The Google Drive link may require a PPPL browser login.
+      \end{itemize}
+    \end{alertblock}
+  \end{columns}
+
+  \smallskip
+  {\footnotesize\textbf{Practical rule:} If Datamak offers a detected local
+  demo database, use that before trying to download another copy.}
+\end{frame}
+
+\begin{frame}{3. Know what each main screen is for}
+  \begin{block}{Fast orientation}
+    \scriptsize
+    \begin{tabular}{>{\raggedright\arraybackslash}p{0.25\linewidth}>{\raggedright\arraybackslash}p{0.68\linewidth}}
+      \toprule
+      \textbf{Screen} & \textbf{What to do there} \\
+      \midrule
+      \textbf{Physics Results} & Inspect run outputs, statuses, and simple variable comparisons. \\
+      \textbf{Surrogate Models} & Review models, compute estimates, and read validation summaries. \\
+      \textbf{Data Statistics} & Explore the input space before or alongside simulation results. \\
+      \textbf{Workflow} & See the selected origin, current stage, and recommended next step. \\
+      \textbf{Database} & Inspect tables, schema details, and recovery options. \\
+      \bottomrule
+    \end{tabular}
+  \end{block}
+
+  \begin{block}{Suggested learning order}
+    \small
+    \begin{enumerate}
+      \item Start in \textbf{Workflow}.
+      \item Move to \textbf{Physics Results}.
+      \item Then inspect \textbf{Data Statistics}.
+      \item Review \textbf{Surrogate Models} after you understand the base data.
+      \item Use \textbf{Database} mainly for recovery or low-level checks.
+    \end{enumerate}
+  \end{block}
+\end{frame}
+
+\begin{frame}{4. Reading the science-facing screens}
+  \footnotesize
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \begin{block}{Physics Results}
+      Good first questions:
+      \begin{itemize}
+        \item Which runs are \code{CONVERGED}, \code{RUNNING}, or
+        \code{CRASHED}?
+        \item How does \code{gamma\_max} vary with a chosen input?
+      \end{itemize}
+      Start by choosing the data origin, then adjust the filter and the x/y axes.
+    \end{block}
+
+    \column{0.48\textwidth}
+    \begin{block}{Data Statistics}
+      Use this screen to understand the \emph{input space}:
+      \begin{itemize}
+        \item choose a data origin
+        \item pick x and y input variables
+        \item look at how cases cover the parameter space
+      \end{itemize}
+      This is often the fastest way to understand the demo database before reading detailed outputs.
+    \end{block}
+  \end{columns}
+
+  \vspace{0.2em}
+  \begin{block}{Useful habit}
+    Stay on one top tab while switching origins. Datamak now avoids heavy work
+    for inactive tabs, so focused browsing is faster.
+  \end{block}
+\end{frame}
+
+\begin{frame}{5. Workflow is the operator's home screen}
+  \begin{columns}[T]
+    \column{0.31\textwidth}
+    \begin{block}{Origin Registry}
+      Select the origin you want to inspect. The selected origin drives the
+      status, advisor text, and batch-monitor content shown on the page.
+    \end{block}
+
+    \column{0.31\textwidth}
+    \begin{block}{AI advisor}
+      Read this first. It summarizes:
+      \begin{itemize}
+        \item current state
+        \item main blocker
+        \item recommended next step
+        \item confidence
+      \end{itemize}
+    \end{block}
+
+    \column{0.31\textwidth}
+    \begin{block}{Batch monitoring}
+      Use it to check simulations, understand status counts, and see whether
+      the next action is generation, launch, sync, or troubleshooting.
+    \end{block}
+  \end{columns}
+
+  \vspace{0.25em}
+  \begin{block}{Best habit}
+    Before launching, syncing, or diagnosing anything, read the \textbf{Workflow}
+    page for the selected origin. It is the safest place to understand what
+    Datamak is already doing.
+  \end{block}
+\end{frame}
+
+\begin{frame}{6. If something fails, send a useful error report}
+  \small
+  \begin{block}{What the user now sees}
+    A failure notice should be \bad{red}, concise, and human-readable. The raw
+    traceback stays hidden under \textbf{Technical details}.
+  \end{block}
+
+  \begin{columns}[T]
+    \column{0.42\textwidth}
+    \begin{alertblock}{Example summary}
+      \small
+      ``Sync Back From Flux could not complete. Datamak could not log into the
+      remote system. Check the saved username, SSH access, and Duo setup, then
+      try again.''
+    \end{alertblock}
+
+    \column{0.54\textwidth}
+    \begin{block}{What to do next}
+      \begin{enumerate}
+        \item Read the plain-language summary.
+        \item If the fix is obvious, try it once.
+        \item Otherwise click \textbf{Send support bundle}.
+        \item Choose \textbf{Gmail} or \textbf{Mail}.
+        \item Send the generated report.
+      \end{enumerate}
+    \end{block}
+  \end{columns}
+
+  \smallskip
+  {\footnotesize\textbf{Support bundle contents:} action context, stderr and
+  traceback excerpts, a redacted configuration summary, recent usage-log
+  context, and lightweight database counts.}
+\end{frame}
+
+\begin{frame}{7. Recommended first 10 minutes}
+  \begin{block}{Quick walkthrough}
+    \footnotesize
+    \begin{enumerate}
+      \item Start the local Flask server and open Datamak in Firefox.
+      \item Load the \code{demo\_light} database.
+      \item In \textbf{Workflow}, select one origin and read the AI advisor.
+      \item In \textbf{Physics Results}, inspect one or two output plots.
+      \item In \textbf{Data Statistics}, switch x and y inputs and inspect
+      coverage.
+      \item Read one surrogate-model validation summary.
+      \item If anything fails, use the red notice and send a support bundle.
+    \end{enumerate}
+  \end{block}
+
+  \begin{alertblock}{Outcome}
+    After this quickstart, a new user should know where to look for workflow
+    status, results, statistics, model validation, and failure reporting.
+  \end{alertblock}
+\end{frame}
+
+\end{document}

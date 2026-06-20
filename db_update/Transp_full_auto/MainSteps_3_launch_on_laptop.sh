@@ -2,10 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DTWIN_ROOT="${DTWIN_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
-MAIN_DB="${DTWIN_ROOT}/gyrokinetic_simulations.db"
-LOCAL_DIR="${DTWIN_ROOT}/tmp/transp_full_auto"
-eval "$(python3 "${DTWIN_ROOT}/tools/resolve_dtwin_env.py" --profile flux --format shell)"
+DATAMAK_ROOT="${DATAMAK_ROOT:-${DTWIN_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}}"
+MAIN_DB="${DATAMAK_ROOT}/gyrokinetic_simulations.db"
+LOCAL_DIR="${DATAMAK_ROOT}/tmp/transp_full_auto"
+eval "$(python3 "${DATAMAK_ROOT}/tools/resolve_dtwin_env.py" --profile flux --format shell)"
 REMOTE_DIR="${DTWIN_FLUX_BASE_DIR:-}"
 REMOTE_HOST="${DTWIN_FLUX_REMOTE:-}"
 if [[ -z "${REMOTE_DIR}" || -z "${REMOTE_HOST}" ]]; then
@@ -79,7 +79,7 @@ RSYNC_SSH_OPTS=(
 RSYNC_SSH="ssh ${RSYNC_SSH_OPTS[*]}"
 
 # Open a control connection so you can complete 2FA once, then reuse it for rsync.
-python3 "${DTWIN_ROOT}/tools/ssh_with_duo.py" \
+python3 "${DATAMAK_ROOT}/tools/ssh_with_duo.py" \
   --duo-option "${DTWIN_FLUX_DUO_OPTION:-}" \
   -- \
   ssh "${RSYNC_SSH_OPTS[@]}" -t "${REMOTE_DB_HOST}" "true"
@@ -89,12 +89,12 @@ else
   rsync -av -e "$RSYNC_SSH" "${REMOTE_DB_HOST}:${REMOTE_DB_DIR}/flux_equil_inputs_"*.db "${LOCAL_DIR}/"
 fi
 
-python3 "${DTWIN_ROOT}/db_update/Transp_full_auto/sync_flux_equil_inputs_to_main.py" \
+python3 "${DATAMAK_ROOT}/db_update/Transp_full_auto/sync_flux_equil_inputs_to_main.py" \
   --main-db "${MAIN_DB}" \
   --flux-db "${FLUX_DB_LOCAL}"
 
-python3 "${DTWIN_ROOT}/db_update/mark_empty_gk_input_error.py" \
+python3 "${DATAMAK_ROOT}/db_update/mark_empty_gk_input_error.py" \
   --db "${MAIN_DB}"
 
-python3 "${DTWIN_ROOT}/db_update/backfill_gk_input_physics.py" \
+python3 "${DATAMAK_ROOT}/db_update/backfill_gk_input_physics.py" \
   --db "${MAIN_DB}"

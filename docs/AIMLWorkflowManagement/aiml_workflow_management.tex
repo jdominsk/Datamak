@@ -1,0 +1,358 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usetheme{default}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{headline}{}
+\setbeamersize{text margin left=0.85cm,text margin right=0.85cm}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[scaled=0.95]{helvet}
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+
+\definecolor{ppplOrange}{HTML}{EA7B17}
+\definecolor{ppplCharcoal}{HTML}{222222}
+\definecolor{ppplSlate}{HTML}{333333}
+\definecolor{ppplBorder}{HTML}{C9C9C9}
+\definecolor{ppplMist}{HTML}{FAF7F2}
+\definecolor{ppplGray}{HTML}{5A5A5A}
+\definecolor{ppplPanel}{HTML}{D6D6D6}
+\definecolor{ppplPanelBody}{HTML}{F2F2F2}
+\definecolor{ppplGreen}{HTML}{2B6E46}
+
+\setbeamercolor{normal text}{fg=ppplCharcoal,bg=white}
+\setbeamercolor{structure}{fg=ppplOrange}
+\setbeamercolor{block title}{fg=ppplCharcoal,bg=ppplPanel}
+\setbeamercolor{block body}{fg=ppplCharcoal,bg=ppplPanelBody}
+\setbeamercolor{alertblock title}{fg=ppplCharcoal,bg=ppplPanel}
+\setbeamercolor{alertblock body}{fg=ppplCharcoal,bg=ppplPanelBody}
+\setbeamercolor{footline}{fg=ppplGray,bg=white}
+\setbeamercolor{itemize item}{fg=ppplOrange}
+\setbeamercolor{itemize subitem}{fg=ppplOrange}
+\setbeamercolor{enumerate item}{fg=ppplOrange}
+
+\setbeamerfont{title}{size=\LARGE,series=\bfseries}
+\setbeamerfont{subtitle}{size=\large,series=\bfseries}
+\setbeamerfont{frametitle}{size=\large,series=\bfseries}
+\setbeamerfont{block title}{size=\normalsize,series=\bfseries}
+\setbeamerfont{footline}{size=\scriptsize}
+
+\setbeamertemplate{blocks}[default]
+\setbeamertemplate{itemize item}{\color{ppplOrange}$\blacktriangleright$}
+\setbeamertemplate{itemize subitem}{\color{ppplOrange}\scalebox{0.8}{$\blacktriangleright$}}
+\setbeamertemplate{enumerate item}[default]
+\setbeamertemplate{background}{}
+
+\makeatletter
+\setbeamertemplate{frametitle}{%
+  \nointerlineskip
+  \begin{tikzpicture}[remember picture,overlay]
+    \fill[ppplOrange] (current page.north west) rectangle ([yshift=-1.02cm]current page.north east);
+    \node[
+      anchor=north,
+      text=white,
+      font=\usebeamerfont{frametitle},
+      yshift=-0.18cm
+    ] at (current page.north) {\strut\insertframetitle};
+  \end{tikzpicture}%
+  \vspace*{0.88cm}
+  \vspace{0.2cm}
+}
+\makeatother
+
+\setbeamertemplate{title page}{%
+  \vspace*{0.05cm}
+  \includegraphics[height=0.72cm]{figures/pppl_logo.jpg}
+  \vspace{0.18cm}
+  \begin{center}
+    \begin{tikzpicture}
+      \node[
+        fill=ppplOrange,
+        draw=ppplSlate!60,
+        line width=0.6pt,
+        text=white,
+        minimum width=0.98\textwidth,
+        minimum height=2.2cm,
+        text width=0.84\textwidth,
+        align=center,
+        inner xsep=0.6cm,
+        inner ysep=0.45cm
+      ] {\bfseries\fontsize{25}{30}\selectfont \inserttitle};
+    \end{tikzpicture}
+  \end{center}
+  \vspace{1.2cm}
+  \begin{center}
+    {\usebeamerfont{subtitle}\insertsubtitle\par}
+    \vspace{0.45cm}
+    {\large\bfseries \insertdate\par}
+  \end{center}
+  \vfill
+}
+
+\setbeamertemplate{footline}{%
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[
+      anchor=south east,
+      text=ppplGray,
+      font=\usebeamerfont{footline}
+    ] at ([xshift=-0.22cm,yshift=0.10cm]current page.south east) {\insertframenumber};
+  \end{tikzpicture}%
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\good}[1]{\textcolor{ppplGreen}{#1}}
+\newcommand{\warn}[1]{\textcolor{ppplOrange}{#1}}
+
+\title[AIML Workflow Management]{AIML Workflow Management\\for Datamak}
+\subtitle{LLM and agent options for supervising the origin-centric workflow}
+\author{}
+\date[Mar 27, 2026]{March 27, 2026}
+
+\begin{document}
+
+\begin{frame}[plain]
+  \titlepage
+  \vspace{-0.8em}
+  \begin{block}{Current starting point}
+    Datamak now has an explicit origin-centric workflow in the GUI, with
+    structured workflow state, action dispatching, and remote status tracking.
+    This makes an AI workflow supervisor feasible.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Why this is now realistic}
+  \begin{itemize}
+    \item The workflow is no longer hidden in scripts only. The main stages are
+    visible in the \code{Workflow} panel.
+    \item Actions are explicit and tool-like in \code{gui/actions.py}.
+    \item Per-origin state is already summarized from
+    \code{data\_equil}, \code{gk\_study}, \code{gk\_input},
+    \code{gk\_batch}, \code{gk\_run}, and \code{flux\_action\_log}.
+    \item Datamak already contains a first rule-based assistant:
+    \code{get\_ai\_suggestions()}.
+  \end{itemize}
+
+  \vspace{0.4em}
+  \begin{block}{Main design consequence}
+    The AI layer should supervise a \emph{known workflow} rather than guess how
+    the workflow works.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Core design principle}
+  \begin{block}{Recommended contract}
+    \textbf{Datamak remains the source of truth and executor.} The model reads a
+    compact workflow-state summary and selects among a small, explicit set of
+    allowed actions.
+  \end{block}
+
+  \begin{itemize}
+    \item \good{Good:} model explains the current state, recommends the next
+    step, or calls a whitelisted action tool.
+    \item \warn{Avoid:} free-form shell generation, free-form SQL mutation, or
+    letting the model infer workflow semantics from logs alone.
+    \item Remote or mutating actions should remain gated by user confirmation in
+    early versions.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Option 1: AI advisor}
+  \begin{block}{Behavior}
+    Read-only assistant attached to the selected \code{data\_origin}. It does
+    not run actions; it diagnoses the workflow and recommends the next step.
+  \end{block}
+
+  \begin{columns}[T]
+    \column{0.47\textwidth}
+    \textbf{Input}
+    \begin{itemize}
+      \item selected origin id
+      \item compact workflow-state JSON
+      \item short policy prompt
+    \end{itemize}
+
+    \column{0.47\textwidth}
+    \textbf{Output}
+    \begin{itemize}
+      \item summary
+      \item risks or blockers
+      \item recommended next action
+      \item short explanation
+      \item confidence
+    \end{itemize}
+  \end{columns}
+
+  \begin{block}{Why start here}
+    Lowest risk, fastest to implement, and immediately useful to operators.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Option 2: Tool-calling workflow supervisor}
+  \begin{block}{Behavior}
+    The model can call Datamak tools, but only through a narrow, typed
+    interface.
+  \end{block}
+
+  \begin{block}{Typical tools}
+    \scriptsize
+    \begin{tabular}{>{\raggedright\arraybackslash}p{0.33\linewidth}>{\raggedright\arraybackslash}p{0.58\linewidth}}
+      \toprule
+      \textbf{Tool} & \textbf{Role} \\
+      \midrule
+      \code{get\_origin\_workflow\_state} & Return compact origin status JSON \\
+      \code{list\_allowed\_actions} & Return only actions valid for the current origin \\
+      \code{check\_flux\_status} & Refresh Flux job state \\
+      \code{run\_on\_flux} & Submit step-2 workflow \\
+      \code{sync\_back\_from\_flux} & Import staged Flux results \\
+      \code{check\_simulations} & Refresh batch and run monitoring \\
+      \bottomrule
+    \end{tabular}
+    \normalsize
+  \end{block}
+
+  \begin{itemize}
+    \item Read-only tools may be autonomous.
+    \item Mutating or remote tools should initially require approval.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Option 3: Async agent}
+  \begin{itemize}
+    \item Useful when the reasoning itself is longer or multi-step:
+    \begin{itemize}
+      \item ``Analyze all origins and propose an execution plan''
+      \item ``Monitor this origin until it is safe to sync''
+      \item ``Read failure logs and prepare a recovery plan''
+    \end{itemize}
+    \item Better fit for a backend service than for a blocking Flask request.
+    \item Can be integrated using OpenAI Responses API background mode and
+    webhooks or polling.
+  \end{itemize}
+
+  \begin{block}{Implication}
+    This is the right architecture for a true supervisor, but not for v1.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Can a small local model on a laptop do this?}
+  \begin{columns}[T]
+    \column{0.5\textwidth}
+    \begin{block}{Yes, for narrow tasks}
+      \begin{itemize}
+        \item summarize workflow state
+        \item rank the next action among a small list
+        \item classify failures or stalled states
+        \item explain logs in plain language
+      \end{itemize}
+    \end{block}
+
+    \column{0.5\textwidth}
+    \begin{block}{No, not reliably for}
+      \begin{itemize}
+        \item unattended orchestration
+        \item ambiguous recovery decisions
+        \item shell or SQL generation
+        \item broad tool calling without strong guardrails
+      \end{itemize}
+    \end{block}
+  \end{columns}
+
+  \vspace{0.4em}
+  \begin{block}{Practical split}
+    Use a local small model for \emph{advisor/explainer} mode, and a stronger
+    cloud reasoning model for \emph{tool-calling supervisor} mode.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Where Codex fits}
+  \begin{block}{Codex is best used as a development agent}
+    Codex is a strong fit for evolving the Datamak repository, not as the
+    primary runtime workflow controller inside the product.
+  \end{block}
+
+  \begin{itemize}
+    \item \good{Use Codex for}
+    \begin{itemize}
+      \item adding workflow tools
+      \item refactoring the GUI and controller
+      \item writing prompts, docs, and tests
+      \item auditing logs and proposing implementation changes
+    \end{itemize}
+    \item \warn{Do not use Codex as the live operator loop}
+    \begin{itemize}
+      \item The runtime product should call Datamak tools directly.
+      \item The workflow agent should consume Datamak state, not repo internals.
+    \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Suggested v1 architecture}
+  \begin{block}{A good first slice}
+    Add an \textbf{AI Workflow Advisor} section to the \code{Workflow} panel.
+  \end{block}
+
+  \begin{enumerate}\footnotesize
+    \item User selects a \code{data\_origin}.
+    \item Backend builds a compact JSON summary of that origin.
+    \item The model returns a short response:
+    \begin{itemize}\itemsep2pt
+      \item workflow summary
+      \item blockers
+      \item recommended next action
+      \item short reasoning
+      \item confidence
+    \end{itemize}
+    \item User decides whether to click the real Datamak action button.
+  \end{enumerate}
+
+  \begin{alertblock}{Why this is the right v1}
+    Immediate value, preserved operator control, and low workflow corruption risk.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Suggested v2 architecture}
+  \begin{block}{Add typed Datamak tools}
+    Promote the advisor to a supervisor with a short tool list and explicit
+    approval gates for mutating actions.
+  \end{block}
+
+  \begin{itemize}\small
+    \item keep action names aligned with \code{gui/actions.py}
+    \item expose only valid actions for the selected origin
+    \item log each AI recommendation and tool invocation
+    \item keep a human-visible execution trace in the GUI
+  \end{itemize}
+
+  \begin{block}{Non-negotiable guardrails}
+    No raw shell access, no free-form SQL, no broad hidden autonomy, and no
+    action execution without origin-aware validation.
+  \end{block}
+\end{frame}
+
+\begin{frame}{Recommended roadmap}
+  \begin{tabular}{>{\raggedright\arraybackslash}p{0.18\linewidth}>{\raggedright\arraybackslash}p{0.72\linewidth}}
+    \toprule
+    \textbf{Stage} & \textbf{Outcome} \\
+    \midrule
+    1 & AI advisor inside the Workflow panel \\
+    2 & Compact origin-state API and eval set for recommendation quality \\
+    3 & Typed Datamak tools for read-only and approved actions \\
+    4 & Tool-calling supervisor with approval gates \\
+    5 & Async backend worker using background responses and webhook or polling \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  \begin{block}{Bottom line}
+    The workflow is now explicit enough that AIML workflow management is worth
+    building. Start with \emph{advisor} mode, then move to \emph{supervisor}
+    mode once the tool contract and evals are stable.
+  \end{block}
+\end{frame}
+
+\end{document}

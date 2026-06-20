@@ -16,7 +16,9 @@ import pyrokinetics as pk
 
 ROOT_DIR = str(
     Path(
-        os.environ.get("DTWIN_ROOT") or Path(__file__).resolve().parents[1]
+        os.environ.get("DATAMAK_ROOT")
+        or os.environ.get("DTWIN_ROOT")
+        or Path(__file__).resolve().parents[1]
     ).resolve()
 )
 
@@ -25,9 +27,11 @@ def resolve_runtime_flux_base_dir() -> str:
     base_dir = str(os.environ.get("DTWIN_FLUX_BASE_DIR") or "").strip()
     if base_dir:
         return base_dir
-    dtwin_root = str(os.environ.get("DTWIN_ROOT") or "").strip()
-    if dtwin_root:
-        return dtwin_root
+    datamak_root = str(
+        os.environ.get("DATAMAK_ROOT") or os.environ.get("DTWIN_ROOT") or ""
+    ).strip()
+    if datamak_root:
+        return datamak_root
     return ROOT_DIR
 
 

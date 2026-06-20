@@ -24,7 +24,11 @@ except ImportError:
     )
 
 
-ROOT_DIR = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parents[1]))
+ROOT_DIR = Path(
+    os.environ.get("DATAMAK_ROOT")
+    or os.environ.get("DTWIN_ROOT")
+    or Path(__file__).resolve().parents[1]
+).resolve()
 SSH_CONNECT_TIMEOUT = 10
 SSH_PREFLIGHT_TIMEOUT = 12
 

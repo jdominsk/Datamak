@@ -9,9 +9,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 ROOT_DIR = os.environ.get(
-    "DTWIN_ROOT",
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-)
+    "DATAMAK_ROOT"
+) or os.environ.get(
+    "DTWIN_ROOT"
+) or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 

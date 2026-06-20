@@ -29,7 +29,11 @@ except Exception:
     HAVE_NUMPY = False
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.environ.get("DTWIN_ROOT", os.path.dirname(APP_DIR))
+PROJECT_DIR = (
+    os.environ.get("DATAMAK_ROOT")
+    or os.environ.get("DTWIN_ROOT")
+    or os.path.dirname(APP_DIR)
+)
 if PROJECT_DIR not in sys.path:
     sys.path.insert(0, PROJECT_DIR)
 

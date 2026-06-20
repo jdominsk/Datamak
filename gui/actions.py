@@ -4,7 +4,11 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.environ.get("DTWIN_ROOT", os.path.dirname(APP_DIR))
+PROJECT_DIR = (
+    os.environ.get("DATAMAK_ROOT")
+    or os.environ.get("DTWIN_ROOT")
+    or os.path.dirname(APP_DIR)
+)
 DB_UPDATE_DIR = os.path.join(PROJECT_DIR, "db_update")
 BATCH_BASE_DIR = os.path.join(PROJECT_DIR, "batch")
 

@@ -21,13 +21,13 @@ This file is the prioritized engineering backlog and working upgrade log for the
 
 ## P0 - High Priority
 
-- [ ] Normalize `DTWIN_ROOT` defaults to this repo (`Datamak`) across all scripts.
+- [ ] Normalize `DATAMAK_ROOT` defaults to this repo (`Datamak`) across all scripts.
   - Why: several scripts still default to `.../Digital_twin`, which can silently point to the wrong workspace.
   - Candidate files: `db_update/Transp_full_auto/MainSteps_1_launch_on_laptop.sh`, `db_update/Transp_full_auto/MainSteps_3_launch_on_laptop.sh`.
   - Acceptance criteria:
-    - All scripts resolve project paths from `DTWIN_ROOT` or script-relative paths.
+    - All scripts resolve project paths from `DATAMAK_ROOT` or script-relative paths.
     - No default points to a different repo.
-    - Full-auto step 1/3 scripts run with only `DTWIN_ROOT` set to this repo root.
+    - Full-auto step 1/3 scripts run with only `DATAMAK_ROOT` set to this repo root.
 
 - [ ] Formalize status transition checks for batch lifecycle.
   - Why: status values are used as contracts between local DB, remote jobs, and GUI actions.

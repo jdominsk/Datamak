@@ -4,7 +4,7 @@ This folder contains scripts to build batch databases, send them to Perlmutter,
 and run GX jobs from the queue.
 
 Environment:
-- Set `DTWIN_ROOT` to the repo root if you run scripts from elsewhere.
+- Set `DATAMAK_ROOT` to the repo root if you run scripts from elsewhere.
 
 ## 1) Create a batch database
 

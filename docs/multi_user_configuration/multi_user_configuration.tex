@@ -1,0 +1,281 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{array}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{Datamak Multi-User Configuration}
+\author{}
+\date{Updated: 2026-03-26}
+
+\begin{document}
+
+\sloppy
+\maketitle
+\tableofcontents
+
+\section{Purpose}
+
+This document describes how Datamak was upgraded from a single-user repository
+layout to a multi-user workflow. It covers both implementation details and the
+operator workflow for configuring the application on a new account.
+
+\section{Design Overview}
+
+The main design goal is to remove assumptions that the active user is a
+specific person or that runtime data always lives in a single personal
+directory tree.
+
+The upgrade introduces one shared configuration resolver in
+\code{dtwin\_config.py} and one shell-oriented helper in
+\code{tools/resolve\_dtwin\_env.py}. Active scripts now resolve settings in the
+same order:
+
+\begin{enumerate}
+\item explicit CLI arguments,
+\item environment variables,
+\item user-local Datamak config,
+\item derived defaults for standard Perlmutter and Flux layouts,
+\item hard failure when a required value still cannot be inferred.
+\end{enumerate}
+
+\section{User-Local Config File}
+
+\subsection{Location}
+
+Datamak reads the user config from:
+
+\begin{enumerate}
+\item \code{DTWIN\_CONFIG}, if set,
+\item \code{\$XDG\_CONFIG\_HOME/datamak/config.json}, if \code{XDG\_CONFIG\_HOME} is set,
+\item \code{\$HOME/.config/datamak/config.json} otherwise.
+\end{enumerate}
+
+This keeps per-user workflow settings outside the repository checkout.
+
+\subsection{Schema}
+
+\begin{verbatim}
+{
+  "version": 1,
+  "perlmutter": {
+    "user": "",
+    "host": "perlmutter.nersc.gov",
+    "identity": "",
+    "control_path": "/tmp/datamak_ssh_%r@%h_%p",
+    "control_persist": "10m",
+    "connect_timeout": 10,
+    "monitor_timeout": 120,
+    "base_dir": "",
+    "batch_dir": "",
+    "gx_path": ""
+  },
+  "flux": {
+    "user": "",
+    "host": "flux",
+    "base_dir": "",
+    "python_bin": ""
+  }
+}
+\end{verbatim}
+
+\section{Resolved Defaults}
+
+\subsection{Perlmutter}
+
+When Perlmutter settings are not explicitly configured, Datamak derives:
+
+\begin{itemize}
+\item user from \code{\$USER},
+\item host as \code{perlmutter.nersc.gov},
+\item base directory as \code{/pscratch/sd/<first-letter>/<user>/DTwin},
+\item batch directory as \code{<base-dir>/newbatch},
+\item GX path as \code{/global/homes/<first-letter>/<user>/GX/gx\_next6}.
+\end{itemize}
+
+\subsection{Flux}
+
+When Flux settings are not explicitly configured, Datamak derives:
+
+\begin{itemize}
+\item user from \code{\$USER},
+\item host as \code{flux},
+\item base directory as \code{/u/<user>/DTwin/transp\_full\_auto},
+\item Flux Python as \code{/u/<user>/pyrokinetics/.venv/bin/python}.
+\end{itemize}
+
+\subsection{Source metadata}
+
+Source definitions such as Mate roots or TRANSP copy locations are not part of
+the GUI-managed multi-user settings contract. They belong to the workflow data
+model and should be represented through database records such as
+\code{data\_origin}. The per-user settings window therefore does not edit them.
+
+\section{Environment Variables}
+
+The main environment variables are:
+
+\begin{itemize}
+\item \code{DTWIN\_CONFIG}
+\item \code{DTWIN\_PERLMUTTER\_USER}, \code{DTWIN\_PERLMUTTER\_HOST},
+\code{DTWIN\_PERLMUTTER\_BASE\_DIR}, \code{DTWIN\_PERLMUTTER\_BATCH\_DIR}
+\item \code{DTWIN\_GX\_PATH}
+\item \code{DTWIN\_FLUX\_USER}, \code{DTWIN\_FLUX\_HOST},
+\code{DTWIN\_FLUX\_BASE\_DIR}, \code{DTWIN\_FLUX\_PYTHON}
+\item existing SSH controls:
+\code{DTWIN\_SSH\_IDENTITY}, \code{DTWIN\_SSH\_CONTROL\_PATH},
+\code{DTWIN\_SSH\_CONTROL\_PERSIST}, \code{DTWIN\_SSH\_CONNECT\_TIMEOUT}
+\end{itemize}
+
+\section{GUI Workflow}
+
+The Flask GUI still uses the route \code{/save\_hpc\_config} for compatibility,
+but the saved data now lands in the user-local config file instead of
+\code{db\_analysis/hpc\_config.json}.
+
+The settings panel now captures:
+
+\begin{itemize}
+\item Perlmutter SSH and monitor settings,
+\item Perlmutter remote base and batch directories,
+\item GX installation path,
+\item Flux SSH user, host, base directory, and Python path.
+\end{itemize}
+
+This means one person can configure the same repository checkout for their own
+accounts without modifying repo-tracked files.
+
+Source locations are intentionally excluded from this panel. Those belong to the
+database workflow metadata rather than to user-local runtime settings.
+
+\section{CLI and Shell Workflow}
+
+\subsection{Python entrypoints}
+
+Active Python entrypoints import \code{dtwin\_config.py} and resolve defaults
+from the user-local config before falling back to derived layout conventions.
+
+Examples include:
+
+\begin{itemize}
+\item Perlmutter batch deployment and transfer scripts in \code{batch/},
+\item ingestion scripts such as
+\code{db\_update/populate\_data\_equil\_from\_Mate\_KinEFIT.py},
+\item the active Flux ingestion path under \code{db\_update/Transp\_full\_auto/}.
+\end{itemize}
+
+\subsection{Shell helper}
+
+The shell helper can export resolved settings:
+
+\begin{verbatim}
+python3 tools/resolve_dtwin_env.py --profile perlmutter --format shell
+python3 tools/resolve_dtwin_env.py --profile flux --format shell
+\end{verbatim}
+
+Typical usage in a shell script is:
+
+\begin{verbatim}
+eval "$(python3 "$DTWIN_ROOT/tools/resolve_dtwin_env.py" --profile flux --format shell)"
+\end{verbatim}
+
+\section{Flux Runtime Hand-Off}
+
+The Flux full-auto wrapper now works in two stages:
+
+\begin{enumerate}
+\item the laptop-side launcher resolves the Flux profile and writes
+\code{datamak\_runtime.env} into the upload bundle,
+\item the Flux-side launcher and helper scripts source that file before running
+Python entrypoints.
+\end{enumerate}
+
+This file contains exported Flux settings such as:
+
+\begin{itemize}
+\item \code{DTWIN\_FLUX\_USER}
+\item \code{DTWIN\_FLUX\_HOST}
+\item \code{DTWIN\_FLUX\_BASE\_DIR}
+\item \code{DTWIN\_FLUX\_PYTHON}
+\end{itemize}
+
+As a result, the active Flux scripts no longer need hardcoded paths like
+\code{/u/someuser/...}.
+
+\section{Perlmutter Runtime Behavior}
+
+Perlmutter batch deployment now resolves remote host, base directory, batch
+directory, SSH controls, and GX path from the shared config layer.
+
+The job submit scripts use:
+
+\begin{verbatim}
+GX_PATH="${DTWIN_GX_PATH:-$HOME/GX/gx_next6}"
+\end{verbatim}
+
+When a custom GX path is configured, the deploy scripts pass it into
+\code{sbatch} through \code{--export=ALL,DTWIN\_GX\_PATH=...}.
+
+\section{Migration from Legacy Repo-Local Config}
+
+Older GUI settings were written to:
+
+\begin{verbatim}
+db_analysis/hpc_config.json
+\end{verbatim}
+
+The new config layer still reads that file as a legacy fallback if the
+user-local config does not yet exist. Once a user saves settings through the
+GUI, the new user-local config becomes the active source of truth.
+
+This migration applies to Perlmutter and Flux runtime settings only. Source
+definitions should remain database-backed rather than being migrated into the
+GUI settings workflow.
+
+\section{Typical Setup for a New User}
+
+\begin{enumerate}
+\item clone the repository,
+\item create a Python environment and install the Datamak dependencies,
+\item install or point to a working \code{pyrokinetics} environment,
+\item open the GUI and save Perlmutter, Flux, and source-root settings,
+\item verify SSH connectivity from the GUI using the test/open actions,
+\item run the workflow scripts normally; they will resolve settings from the
+user-local config.
+\end{enumerate}
+
+\section{Troubleshooting}
+
+\begin{itemize}
+\item If a script says a source root is missing, set the corresponding
+\code{DTWIN\_*} variable or save it in the GUI settings panel.
+\item If Perlmutter commands fail non-interactively, confirm the SSH identity
+and control-path settings and ensure \code{sshproxy} is active if your site
+requires it.
+\item If Flux full-auto scripts cannot find Python, set
+\code{flux.python\_bin} in the user config or export \code{DTWIN\_FLUX\_PYTHON}.
+\item If an old checkout still appears to use repo-local settings, remove or
+rename stale \code{db\_analysis/hpc\_config.json} after migrating to the
+user-local config.
+\end{itemize}
+
+\section{Scope Note}
+
+This upgrade covers the active GUI, Perlmutter batch flow, active ingestion
+scripts, and \code{db\_update/Transp\_full\_auto/}. Older or duplicate trees
+such as the top-level \code{transp\_full\_auto/} directory and
+\code{db\_update/Transp\_full\_auto\_remote/} remain legacy audit targets and
+should be cleaned up in a follow-up pass if they are reactivated.
+
+\end{document}

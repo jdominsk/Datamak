@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
-REPO_ROOT = Path(os.environ.get("DTWIN_ROOT", Path(__file__).resolve().parent))
+REPO_ROOT = Path(
+    os.environ.get("DATAMAK_ROOT")
+    or os.environ.get("DTWIN_ROOT")
+    or Path(__file__).resolve().parent
+)
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "version": 1,

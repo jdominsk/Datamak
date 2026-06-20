@@ -17,7 +17,7 @@ This file defines persistent rules and conventions for AI/code agents working in
 
 ## Repository Conventions
 
-- Use `DTWIN_ROOT` to resolve project-relative paths when possible.
+- Use `DATAMAK_ROOT` to resolve project-relative paths when possible.
 - Treat source-location metadata as database state, not user-local GUI/HPC config.
   For Mate, TRANSP, and future equilibrium origins, the source of truth should live in workflow tables such as `data_origin`.
   Do not add source-root fields to the per-user HPC/settings panel.
@@ -47,6 +47,18 @@ This file defines persistent rules and conventions for AI/code agents working in
   - `batch/deploy_batch*.py`
   - `batch/check_launched_batches.py`
   - `batch/monitor_remote_runs.py`
+
+## Datamak Lite Campaign Discovery
+
+- Before broad filesystem searches for Lite campaign profiles or databases,
+  check `$DATAMAK_HOME/campaigns.json`, or `~/.datamak/campaigns.json` when
+  `DATAMAK_HOME` is unset.
+- Use the Datamak Lite CLI when available:
+  - `python3 -m datamak_lite.cli list-campaigns`
+  - `python3 -m datamak_lite.cli resolve-campaign CAMPAIGN_UID --field database`
+  - `python3 -m datamak_lite.cli register-campaign path/to/campaign_profile.json --set-default`
+- Treat this registry as a machine-level locator only.  Keep campaign DBs and
+  profiles in their project workspaces.
 
 ## Status Semantics (Operational Contract)
 

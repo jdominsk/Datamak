@@ -1,0 +1,42 @@
+\frametitle{1. Start Datamak locally}
+\begin{columns}[T]
+    \column{0.56\textwidth}
+    \begin{block}{One-time Python setup}
+      \small
+      In a terminal:
+\begin{verbatim}
+cd /path/to/Datamak
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+\end{verbatim}
+      If \code{.venv} already exists, you can skip the environment-creation
+      step and just reuse it.
+    \end{block}
+
+    \begin{block}{Start the Flask server}
+\begin{verbatim}
+cd /path/to/Datamak
+.venv/bin/python gui/app.py
+\end{verbatim}
+      Leave that terminal open while you use Datamak.
+    \end{block}
+
+    \column{0.40\textwidth}
+    \begin{alertblock}{Open it in Firefox}
+      \small
+      \begin{enumerate}
+        \item Start Firefox.
+        \item Go to:
+        \code{http://127.0.0.1:5000/}
+        \item If the page does not load, check the terminal for a Flask error.
+        \item Once the page opens, move to the \textbf{Database} tab if you
+        still need to load the demo database.
+      \end{enumerate}
+    \end{alertblock}
+  \end{columns}
+
+  \vspace{0.2em}
+  \begin{block}{Beginner rule}
+    First make the local server work, then load the demo database, and only
+    then start exploring the screens.
+  \end{block}

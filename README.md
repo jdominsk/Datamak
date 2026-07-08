@@ -1,5 +1,13 @@
 # Datamak
 
+## Citation
+
+If you use Datamak, please cite:
+
+Dominski, J., Churchill, R. M., Villar, A. S., & Parra Diaz, F. (2026, March 27).
+*DATAMAK* [Computer software].
+https://doi.org/10.11578/dc.20260327.2
+
 Datamak is a Python/SQLite workflow system for fusion-plasma gyrokinetic
 studies. It stores source equilibria, generated gyrokinetic inputs, remote
 batch-execution state, simulation results, and surrogate-model outputs in one

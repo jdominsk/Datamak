@@ -185,6 +185,28 @@ back into those GUI-oriented statuses. Only one latest tracked Flux job per
   - `db_surrogate/estimate_gamma_surrogate.py --surrogate-id <id>`
   - Upserts into `sg_estimate(gk_surrogate_id, gk_input_id, sg_estimate, sg_quality)`.
 
+### 5.6 Allocation-local SQLite pool runtime
+
+`datamak_lite/core/pool_runtime.py` provides the reusable state-transition
+contract for lightweight worker pools:
+
+- atomically claim `PENDING` and `INTERRUPTED` rows;
+- recover stale `RUNNING` rows as restartable `INTERRUPTED` rows without
+  touching simulation files;
+- classify completion from the launcher exit code and explicit walltime-stop
+  marker only;
+- retain stdout and stderr as diagnostics without parsing their accumulated
+  text into status.
+
+`tools/datamak_pbs_walltime_monitor.py` stops new claims and creates each
+application's clean-stop file before PBS walltime. Application wrappers remain
+responsible for mapping that stop file to a clean restart write.
+
+`tools/datamak_pool_preflight.py` validates the exact shell/Python bundle and
+required runtime files named by a campaign. It performs no scheduler or
+application launch. Versioned launchers must name their matching preflight
+inputs explicitly rather than validating an older script generation.
+
 ## 6) State and Contract Conventions
 
 - `gk_input.status` drives eligibility and lifecycle:

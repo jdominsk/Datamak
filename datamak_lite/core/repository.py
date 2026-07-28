@@ -73,8 +73,69 @@ class LiteRepository:
             raise KeyError(f"Unknown entity: {uid_or_id}")
         return row
 
-    def list_entities(self) -> list[sqlite3.Row]:
-        return list(self.conn.execute("SELECT * FROM entity ORDER BY type, name"))
+    def list_entities(self, *, campaign_uid: str | None = None) -> list[sqlite3.Row]:
+        """List entities, optionally restricted to one campaign profile.
+
+        Campaign membership is intentionally direct rather than recursive.
+        ``member_of`` is also used for pool/case and analysis/figure
+        containment, and mixed-shot pools may contain cases from more than
+        one campaign.  Direct membership lets a shared pool belong to both
+        campaigns while each case remains visible only in its true shot.
+        """
+
+        if campaign_uid is None or not self.uses_campaign_scoping(campaign_uid):
+            return list(self.conn.execute("SELECT * FROM entity ORDER BY type, name"))
+        return list(
+            self.conn.execute(
+                """
+                SELECT e.*
+                FROM entity e
+                WHERE e.uid = ?
+                   OR EXISTS (
+                       SELECT 1
+                       FROM relation r
+                       JOIN entity campaign ON campaign.id = r.target_entity_id
+                       WHERE r.source_entity_id = e.id
+                         AND r.relation_type = 'member_of'
+                         AND campaign.type = 'campaign'
+                         AND campaign.uid = ?
+                   )
+                ORDER BY e.type, e.name
+                """,
+                (campaign_uid, campaign_uid),
+            )
+        )
+
+    def campaign_entity_ids(self, campaign_uid: str) -> set[int]:
+        return {int(row["id"]) for row in self.list_entities(campaign_uid=campaign_uid)}
+
+    def uses_campaign_scoping(self, campaign_uid: str) -> bool:
+        """Return whether a profile should be filtered inside its database.
+
+        Legacy Datamak Lite databases commonly contain one campaign and no
+        explicit campaign membership links.  Preserve their historical
+        all-objects view.  A multi-campaign database, or any database with
+        explicit direct membership for this campaign, uses filtered views.
+        """
+
+        explicit = self.conn.execute(
+            """
+            SELECT 1
+            FROM relation r
+            JOIN entity campaign ON campaign.id=r.target_entity_id
+            WHERE r.relation_type='member_of'
+              AND campaign.type='campaign'
+              AND campaign.uid=?
+            LIMIT 1
+            """,
+            (campaign_uid,),
+        ).fetchone()
+        if explicit is not None:
+            return True
+        campaign_count = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM entity WHERE type='campaign'"
+        ).fetchone()
+        return int(campaign_count["n"]) > 1
 
     def add_relation(
         self,

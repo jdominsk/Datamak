@@ -144,15 +144,17 @@ def render_index(
 ) -> str:
     profile_path = _profile_path_from_source(db_path, profile_path)
     db_path = resolve_database_path(db_path)
+    profile_config = _load_profile_config(profile_path)
+    campaign_uid = _profile_campaign_uid(profile_config)
     with LiteRepository(db_path) as repo:
-        entities = repo.list_entities()
-        status = build_campaign_status(repo)
-        relations = _load_relations(repo)
+        entities = repo.list_entities(campaign_uid=campaign_uid)
+        status = build_campaign_status(repo, campaign_uid=campaign_uid)
+        entity_ids = {int(entity["id"]) for entity in entities}
+        relations = _load_relations(repo, entity_ids=entity_ids)
         if not entities:
             return _page("Datamak Lite", _empty_state(Path(db_path), status))
-        profile_config = _load_profile_config(profile_path)
         campaign_type = _campaign_type(profile_config) or _infer_campaign_type_from_entities(entities)
-        selected = _select_entity(repo, entities, selected_uid)
+        selected = _select_entity(entities, selected_uid, campaign_uid=campaign_uid)
         selected_id = int(selected["id"])
         outgoing = repo.outgoing_relations(selected_id)
         incoming = repo.incoming_relations(selected_id)
@@ -220,20 +222,25 @@ def _render_topbar(db_path: Path, active_view: str) -> str:
     """
 
 
-def _select_entity(repo: LiteRepository, entities: list[sqlite3.Row], selected_uid: str | None) -> sqlite3.Row:
+def _select_entity(
+    entities: list[sqlite3.Row], selected_uid: str | None, *, campaign_uid: str | None = None
+) -> sqlite3.Row:
     if selected_uid:
-        try:
-            return repo.get_entity(selected_uid)
-        except KeyError:
-            pass
+        selected = next((entity for entity in entities if entity["uid"] == selected_uid), None)
+        if selected is not None:
+            return selected
+    if campaign_uid:
+        campaign = next((entity for entity in entities if entity["uid"] == campaign_uid), None)
+        if campaign is not None:
+            return campaign
     for entity in entities:
         if entity["type"] == "campaign":
             return entity
     return entities[0]
 
 
-def _load_relations(repo: LiteRepository) -> list[sqlite3.Row]:
-    return list(
+def _load_relations(repo: LiteRepository, *, entity_ids: set[int] | None = None) -> list[sqlite3.Row]:
+    rows = list(
         repo.conn.execute(
             """
             SELECT
@@ -251,6 +258,13 @@ def _load_relations(repo: LiteRepository) -> list[sqlite3.Row]:
             """
         )
     )
+    if entity_ids is None:
+        return rows
+    return [
+        row
+        for row in rows
+        if int(row["source_entity_id"]) in entity_ids and int(row["target_entity_id"]) in entity_ids
+    ]
 
 
 def _profile_path_from_source(source: str | Path, explicit: str | Path | None) -> Path | None:
@@ -275,6 +289,11 @@ def _load_profile_config(profile_path: Path | None) -> dict[str, object]:
 def _profile_overview(profile_config: dict[str, object]) -> dict[str, object]:
     overview = profile_config.get("overview")
     return overview if isinstance(overview, dict) else {}
+
+
+def _profile_campaign_uid(profile_config: dict[str, object]) -> str | None:
+    value = profile_config.get("campaign_uid")
+    return value if isinstance(value, str) and value else None
 
 
 def _campaign_type(profile_config: dict[str, object]) -> str | None:
@@ -443,7 +462,7 @@ def _render_lineage(
         if relation_type == "restarts_from":
             restart_children.setdefault(target_uid, []).append(source_uid)
             restart_parent_by_child[source_uid] = target_uid
-        elif relation_type == "produces" and target_uid in entity_by_uid:
+        elif relation_type in {"produces", "produced_history"} and target_uid in entity_by_uid:
             produced_histories.setdefault(source_uid, []).append(target_uid)
         elif relation_type == "uses_history" and target_uid in entity_by_uid:
             users_by_history.setdefault(target_uid, []).append(source_uid)
@@ -499,6 +518,7 @@ def _render_lineage(
         uid
         for uid, entity in entity_by_uid.items()
         if str(entity["type"]) in {"pool", "analysis"} and _lineage_is_downstream_study(entity, campaign_type)
+        and not _lineage_is_placeholder_source(entity)
     }
     unplaced_leaf_rows = []
     for uid in sorted(downstream_uids - rendered_leaves, key=lambda item: _lineage_sort_key(entity_by_uid[item], campaign_type)):
@@ -626,6 +646,20 @@ def _render_lineage_main_node(
         )
     leaf_rows = []
     seen_leaf_uids: set[str] = set()
+    for user_uid in users_by_history.get(uid, []):
+        if user_uid not in entity_by_uid or user_uid in seen_leaf_uids:
+            continue
+        seen_leaf_uids.add(user_uid)
+        rendered_leaves.add(user_uid)
+        leaf_rows.append(
+            _render_lineage_row(
+                entity_by_uid[user_uid],
+                campaign_type,
+                level=level + 1,
+                role="leaf",
+                history_text="",
+            )
+        )
     for history_uid in history_uids:
         for user_uid in users_by_history.get(history_uid, []):
             if user_uid not in entity_by_uid or user_uid in seen_leaf_uids:
@@ -695,7 +729,9 @@ def _render_lineage_row(
     href = "/?" + urlencode({"entity": entity["uid"]})
     badge = _lineage_role_badge(role, entity, campaign_type)
     columns = _lineage_overview2_columns(entity, campaign_type, role)
-    title_text = ""
+    title_text = f'<a class="lineage-title-text" href="{href}">{_e(title)}</a>'
+    subtitle = _lineage_subtitle(entity)
+    subtitle_text = f'<span class="lineage-subtitle">{_e(subtitle)}</span>' if subtitle else ""
     history_html = f'<span class="lineage-history">{_e(history_text)}</span>' if history_text else '<span class="lineage-history"></span>'
     toggle = (
         '<span class="lineage-toggle" aria-hidden="true"></span>'
@@ -721,6 +757,7 @@ def _render_lineage_row(
           {_lineage_remote_status_badge(entity)}
           {title_text}
         </div>
+        {subtitle_text}
       </div>
       {data_area}
       <span class="lineage-actions">{detail_link}{toggle}</span>
@@ -852,7 +889,7 @@ def _render_lineage_sort_controls(sort_mode: str) -> str:
 
 
 def _lineage_is_main_plasma(entity: sqlite3.Row, campaign_type: str | None) -> bool:
-    if str(entity["type"]) == "simulation":
+    if str(entity["type"]) in {"simulation", "simulation_pool", "simulation_history_directory"}:
         return True
     if str(entity["type"]) in {"pool", "analysis"}:
         return _overview_kind_for_row(entity, campaign_type) == "Main Plasma GX"
@@ -863,6 +900,13 @@ def _lineage_is_downstream_study(entity: sqlite3.Row, campaign_type: str | None)
     if str(entity["type"]) not in {"pool", "analysis"}:
         return False
     return _overview_kind_for_row(entity, campaign_type) in {"Replay", "Kinetic Trace Model"}
+
+
+def _lineage_is_placeholder_source(entity: sqlite3.Row) -> bool:
+    metadata = metadata_from_json(entity["metadata_json"])
+    source = str(metadata.get("source") or "")
+    category = str(metadata.get("category") or "").lower()
+    return source == "figure_audit_input_path" or category == "metadata-curation"
 
 
 def _lineage_title(entity: sqlite3.Row, display_title: str, campaign_type: str | None) -> str:
@@ -3067,16 +3111,16 @@ h4 {
 .lineage-row {
   display: grid;
   grid-template-columns:
-    minmax(170px, 0.9fr)
-    minmax(130px, 0.8fr)
-    minmax(130px, 0.8fr)
-    minmax(80px, 0.45fr)
-    minmax(105px, 0.55fr)
-    minmax(120px, 0.6fr)
+    minmax(260px, 1.2fr)
     minmax(110px, 0.55fr)
+    minmax(160px, 0.85fr)
+    minmax(85px, 0.45fr)
+    minmax(100px, 0.5fr)
+    minmax(120px, 0.55fr)
+    minmax(110px, 0.5fr)
     50px;
-  gap: 8px;
-  align-items: start;
+  gap: 7px;
+  align-items: center;
 }
 
 .lineage-header {
@@ -3091,7 +3135,8 @@ h4 {
 
 .lineage-row {
   position: relative;
-  padding: 8px 10px;
+  min-height: 32px;
+  padding: 5px 10px;
   border-top: 1px solid var(--gui-border);
   background: #fbfdff;
 }
@@ -3195,15 +3240,23 @@ h4 {
 
 .lineage-title-line {
   display: flex;
-  gap: 7px;
-  align-items: baseline;
+  gap: 6px;
+  align-items: center;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .lineage-title-text {
-  font-weight: 800;
-  overflow-wrap: anywhere;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  color: var(--gui-accent);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lineage-subtitle,
@@ -3212,7 +3265,14 @@ h4 {
   display: block;
   color: var(--gui-text-muted);
   font-size: 11px;
-  overflow-wrap: anywhere;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lineage-subtitle {
+  display: none;
 }
 
 .lineage-data-cell {
@@ -3224,7 +3284,10 @@ h4 {
   display: block;
   color: var(--gui-text-primary);
   font-size: 11px;
-  overflow-wrap: anywhere;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lineage-toggle {

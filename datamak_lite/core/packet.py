@@ -59,12 +59,30 @@ def import_packet(repo: LiteRepository, packet_path: str | Path) -> str:
         raise ValueError(f"root_uid={root_uid!r} is not defined in entities")
 
     for relation in packet.get("relations", []):
+        target_uid = _required(relation, "target_uid", "relation")
+        relation_metadata = relation.get("metadata", {})
+        if target_uid not in entity_uids:
+            target_is_external = bool(
+                isinstance(relation_metadata, dict)
+                and (relation_metadata.get("external_target") or relation_metadata.get("external"))
+            )
+            if not target_is_external:
+                raise ValueError(
+                    f"Relation target_uid={target_uid!r} is not defined in the packet; "
+                    "declare it or set metadata.external_target=true"
+                )
+            try:
+                repo.get_entity(target_uid)
+            except KeyError as exc:
+                raise ValueError(
+                    f"External relation target does not exist in the database: {target_uid}"
+                ) from exc
         relation_id = repo.add_relation(
             source_uid=_required(relation, "source_uid", "relation"),
             relation_type=_required(relation, "relation_type", "relation"),
-            target_uid=_required(relation, "target_uid", "relation"),
+            target_uid=target_uid,
             note=relation.get("note", ""),
-            metadata=relation.get("metadata", {}),
+            metadata=relation_metadata,
         )
         if relation.get("note_markdown"):
             repo.add_note(

@@ -290,9 +290,9 @@ def _species_phrase(text: str, metadata: dict[str, Any]) -> str:
     species = metadata.get("species")
     z = metadata.get("Z")
     if species and z:
-        return f"{species} Z={z}"
+        return f"{_species_label(species)} Z={z}"
     if species:
-        return str(species)
+        return _species_label(species)
     z_values = metadata.get("z_values")
     if isinstance(z_values, list) and z_values:
         prefix = "W" if _looks_like_tungsten(text, metadata) else "impurities"
@@ -431,6 +431,37 @@ def _range_or_list(values: list[Any]) -> str:
     return ", ".join(compact)
 
 
+def _species_label(value: Any) -> str:
+    if isinstance(value, list):
+        labels = [_species_label(item) for item in value]
+        labels = [label for label in labels if label]
+        normalized = {label.lower() for label in labels}
+        if normalized >= {"he", "b", "n", "ne", "ar", "kr", "xe", "w"}:
+            return "fully stripped impurities"
+        if len(labels) > 8:
+            return "/".join(labels[:8]) + "/..."
+        return "/".join(labels)
+    if isinstance(value, dict):
+        short = value.get("short")
+        if short not in (None, "", []):
+            return str(short)
+        label = value.get("label")
+        if label not in (None, "", []):
+            text = str(label)
+            aliases = {
+                "helium": "He",
+                "boron": "B",
+                "nitrogen": "N",
+                "neon": "Ne",
+                "argon": "Ar",
+                "krypton": "Kr",
+                "xenon": "Xe",
+                "tungsten": "W",
+            }
+            return aliases.get(text.lower(), text)
+    return str(value)
+
+
 def _is_zero(value: Any) -> bool:
     try:
         return abs(float(value)) < 1e-15
@@ -440,7 +471,7 @@ def _is_zero(value: Any) -> bool:
 
 def _compact(value: Any, *, max_len: int = 80) -> str:
     if isinstance(value, list):
-        text = ", ".join(str(item) for item in value[:8])
+        text = ", ".join(_species_label(item) if isinstance(item, dict) else str(item) for item in value[:8])
         if len(value) > 8:
             text += ", ..."
     elif isinstance(value, dict):

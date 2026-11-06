@@ -20,6 +20,25 @@ SQLite databases, not in the generic Lite code or documentation.
 
 ## Start Here
 
+### Set up Datamak Lite with an AI assistant
+
+After cloning or downloading this repository, open it with Codex, Claude Code,
+or another coding assistant and ask:
+
+> Read AGENTS.md and agents/setup.md. Set up Datamak Lite for my environment
+> and research workspace, install or adapt its reusable agent skill, and
+> suggest the persistent instructions that will make you use it in future
+> sessions.
+
+The [agent setup guide](agents/setup.md) starts with local Python and existing
+campaign records; it does not require an HPC allocation or the full Datamak
+dependency stack. It includes a portable
+[Datamak Lite skill](skills/datamak-lite/SKILL.md) and the recommended
+"Use Datamak Lite first" instruction. The assistant should adapt paths to your
+machine and propose persistent settings changes for your review.
+
+### Choose a workflow
+
 For the full Datamak workflow, start with:
 
 - `database/create_gyrokinetic_db.py`: database bootstrap and schema evolution.

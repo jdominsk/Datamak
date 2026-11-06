@@ -296,6 +296,69 @@ class DatamakLiteCoreTest(unittest.TestCase):
 
             self.assertEqual(status.campaign.uid, "campaign_profile")
 
+    def test_shared_database_profiles_filter_objects_by_direct_campaign_membership(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "shared.sqlite"
+            init_db(db_path)
+            with LiteRepository(db_path) as repo:
+                repo.upsert_entity(uid="campaign_a", type="campaign", name="WEST A", status="active")
+                repo.upsert_entity(uid="campaign_b", type="campaign", name="WEST B", status="active")
+                repo.upsert_entity(uid="shared_pool", type="pool", name="Shared physical pool")
+                repo.upsert_entity(uid="case_a", type="simulation", name="Shot A case")
+                repo.upsert_entity(uid="case_b", type="simulation", name="Shot B case")
+                repo.add_relation(source_uid="shared_pool", relation_type="member_of", target_uid="campaign_a")
+                repo.add_relation(source_uid="shared_pool", relation_type="member_of", target_uid="campaign_b")
+                repo.add_relation(source_uid="case_a", relation_type="member_of", target_uid="shared_pool")
+                repo.add_relation(source_uid="case_b", relation_type="member_of", target_uid="shared_pool")
+                repo.add_relation(source_uid="case_a", relation_type="member_of", target_uid="campaign_a")
+                repo.add_relation(source_uid="case_b", relation_type="member_of", target_uid="campaign_b")
+
+            profile_a = root / "campaign_a.json"
+            profile_a.write_text(
+                json.dumps({"schema_version": 1, "campaign_uid": "campaign_a", "database": "shared.sqlite"})
+            )
+
+            html = render_index(profile_a, view="objects")
+            status = build_campaign_status_from_path(profile_a)
+
+            self.assertIn("WEST A", html)
+            self.assertIn("Shared physical pool", html)
+            self.assertIn("Shot A case", html)
+            self.assertNotIn("WEST B", html)
+            self.assertNotIn("Shot B case", html)
+            self.assertEqual(status.campaign.uid, "campaign_a")
+            self.assertEqual(status.entity_total, 3)
+
+    def test_packet_import_accepts_declared_external_campaign_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            db_path = root / "shared.sqlite"
+            packet_path = root / "datamak_lite.json"
+            packet = {
+                "schema_version": 1,
+                "root_uid": "remote_case",
+                "entities": [{"uid": "remote_case", "type": "simulation", "name": "Remote case"}],
+                "relations": [
+                    {
+                        "source_uid": "remote_case",
+                        "relation_type": "member_of",
+                        "target_uid": "campaign_test",
+                        "metadata": {"external_target": True},
+                    }
+                ],
+            }
+            packet_path.write_text(json.dumps(packet))
+            self.assertFalse(has_errors(validate_packet_data(packet)))
+
+            init_db(db_path)
+            with LiteRepository(db_path) as repo:
+                repo.upsert_entity(uid="campaign_test", type="campaign", name="Test campaign")
+                import_packet(repo, packet_path)
+                scoped = repo.list_entities(campaign_uid="campaign_test")
+
+            self.assertEqual([row["uid"] for row in scoped], ["campaign_test", "remote_case"])
+
 
     def test_user_campaign_registry_registers_and_resolves_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

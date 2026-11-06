@@ -2,9 +2,24 @@
 
 This file defines persistent rules and conventions for AI/code agents working in this repository.
 
+## First-Time Setup With An AI Assistant
+
+When a user asks to install or set up Datamak in their environment, start with
+`agents/setup.md`. For research provenance and campaign tracking, use Datamak
+Lite unless the user requests the full workflow system. Adapt and install
+`skills/datamak-lite/SKILL.md` in the assistant's supported skill location,
+using verified local paths and preserving any existing Datamak skill.
+
+As part of setup, suggest the exact persistent "Use Datamak Lite first" rule
+in that guide for the user's personalization or agent instructions. Explain
+where it would go; do not silently edit global instructions or preferences.
+Setup does not authorize launching jobs, copying large data, or changing
+existing simulation workflows.
+
 ## Scope
 
-- Repository root: `/Users/jdominsk/Documents/Projects/AIML_database/Datamak`
+- Repository root: this checkout; resolve its local path instead of using an
+  author's machine-specific path.
 - Primary database: `gyrokinetic_simulations.db`
 - Main language/runtime: Python 3
 

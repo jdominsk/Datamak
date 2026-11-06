@@ -61,31 +61,40 @@ def resolve_database_path(path: str | Path) -> Path:
     return (candidate.parent / db_path).resolve()
 
 
-def build_campaign_status(repo: LiteRepository, *, sample_limit: int = 6, recent_limit: int = 8) -> CampaignStatus:
-    campaign = _load_campaign(repo)
-    counts_by_type = _count_by(repo, "type")
-    counts_by_status = _count_by(repo, "status")
-    counts_by_scientific_status = _count_by(repo, "scientific_status")
-    note_counts = _note_counts(repo)
+def build_campaign_status(
+    repo: LiteRepository,
+    *,
+    campaign_uid: str | None = None,
+    sample_limit: int = 6,
+    recent_limit: int = 8,
+) -> CampaignStatus:
+    campaign = _load_campaign(repo, campaign_uid)
+    scope_uid = campaign_uid
+    if campaign_uid and not repo.uses_campaign_scoping(campaign_uid):
+        scope_uid = None
+    counts_by_type = _count_by(repo, "type", scope_uid)
+    counts_by_status = _count_by(repo, "status", scope_uid)
+    counts_by_scientific_status = _count_by(repo, "scientific_status", scope_uid)
+    note_counts = _note_counts(repo, scope_uid)
     entity_total = sum(counts_by_type.values())
 
-    missing_marker_count, missing_marker_entities = _pools_missing_datamak_marker(repo, sample_limit)
-    disconnected_count, disconnected_entities = _disconnected_entities(repo, sample_limit)
-    figure_warning_count, figure_warning_entities = _figures_with_warnings(repo, sample_limit)
-    discovered_count, discovered_entities = _discovered_entities(repo, sample_limit)
+    missing_marker_count, missing_marker_entities = _pools_missing_datamak_marker(repo, sample_limit, scope_uid)
+    disconnected_count, disconnected_entities = _disconnected_entities(repo, sample_limit, scope_uid)
+    figure_warning_count, figure_warning_entities = _figures_with_warnings(repo, sample_limit, scope_uid)
+    discovered_count, discovered_entities = _discovered_entities(repo, sample_limit, scope_uid)
 
     attention = [
         AttentionItem(
             key="warnings",
             label="Warnings to review",
             count=note_counts.get("warning", 0),
-            sample_entities=_entities_with_note_type(repo, "warning", sample_limit),
+            sample_entities=_entities_with_note_type(repo, "warning", sample_limit, scope_uid),
         ),
         AttentionItem(
             key="todos",
             label="Open metadata tasks",
             count=note_counts.get("todo", 0),
-            sample_entities=_entities_with_note_type(repo, "todo", sample_limit),
+            sample_entities=_entities_with_note_type(repo, "todo", sample_limit, scope_uid),
         ),
         AttentionItem(
             key="missing_datamak_marker",
@@ -121,14 +130,20 @@ def build_campaign_status(repo: LiteRepository, *, sample_limit: int = 6, recent
         counts_by_scientific_status=counts_by_scientific_status,
         note_counts=note_counts,
         attention=attention,
-        recent_notes=_recent_notes(repo, recent_limit),
+        recent_notes=_recent_notes(repo, recent_limit, scope_uid),
     )
 
 
 def build_campaign_status_from_path(path: str | Path) -> CampaignStatus:
-    db_path = resolve_database_path(path)
+    source_path = Path(path).expanduser()
+    campaign_uid: str | None = None
+    if source_path.suffix.lower() == ".json":
+        data = json.loads(source_path.read_text())
+        value = data.get("campaign_uid")
+        campaign_uid = value if isinstance(value, str) and value else None
+    db_path = resolve_database_path(source_path)
     with LiteRepository(db_path) as repo:
-        return build_campaign_status(repo)
+        return build_campaign_status(repo, campaign_uid=campaign_uid)
 
 
 def format_campaign_status(status: CampaignStatus) -> str:
@@ -158,46 +173,65 @@ def format_campaign_status(status: CampaignStatus) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _count_by(repo: LiteRepository, column: str) -> dict[str, int]:
+def _count_by(repo: LiteRepository, column: str, campaign_uid: str | None) -> dict[str, int]:
     if column not in {"type", "status", "scientific_status"}:
         raise ValueError(f"Unsupported count column: {column}")
+    scope_sql, scope_params = _campaign_scope_sql(campaign_uid)
     rows = repo.conn.execute(
         f"""
-        SELECT {column} AS key, COUNT(*) AS n
-        FROM entity
-        GROUP BY {column}
-        ORDER BY {column}
-        """
+        SELECT e.{column} AS key, COUNT(*) AS n
+        FROM entity e
+        WHERE 1=1 {scope_sql}
+        GROUP BY e.{column}
+        ORDER BY e.{column}
+        """,
+        scope_params,
     ).fetchall()
     return {str(row["key"]): int(row["n"]) for row in rows}
 
 
-def _note_counts(repo: LiteRepository) -> dict[str, int]:
+def _note_counts(repo: LiteRepository, campaign_uid: str | None) -> dict[str, int]:
+    scope_sql, scope_params = _campaign_scope_sql(campaign_uid)
     rows = repo.conn.execute(
-        """
-        SELECT note_type, COUNT(*) AS n
-        FROM note
-        GROUP BY note_type
-        ORDER BY note_type
-        """
+        f"""
+        SELECT n.note_type, COUNT(*) AS n
+        FROM note n
+        JOIN entity e ON e.id=n.entity_id
+        WHERE 1=1 {scope_sql}
+        GROUP BY n.note_type
+        ORDER BY n.note_type
+        """,
+        scope_params,
     ).fetchall()
     return {str(row["note_type"]): int(row["n"]) for row in rows}
 
 
-def _load_campaign(repo: LiteRepository) -> EntityRef | None:
-    row = repo.conn.execute(
-        """
+def _load_campaign(repo: LiteRepository, campaign_uid: str | None) -> EntityRef | None:
+    if campaign_uid:
+        row = repo.conn.execute(
+            """
+            SELECT uid, name, type, status, scientific_status
+            FROM entity
+            WHERE type='campaign' AND uid=?
+            """,
+            (campaign_uid,),
+        ).fetchone()
+    else:
+        row = repo.conn.execute(
+            """
         SELECT uid, name, type, status, scientific_status
         FROM entity
         WHERE type='campaign'
         ORDER BY name, uid
         LIMIT 1
-        """
-    ).fetchone()
+            """
+        ).fetchone()
     return _entity_ref(row) if row else None
 
 
-def _pools_missing_datamak_marker(repo: LiteRepository, limit: int) -> tuple[int, list[EntityRef]]:
+def _pools_missing_datamak_marker(
+    repo: LiteRepository, limit: int, campaign_uid: str | None
+) -> tuple[int, list[EntityRef]]:
     where = """
         e.type='pool'
         AND NOT EXISTS (
@@ -205,10 +239,12 @@ def _pools_missing_datamak_marker(repo: LiteRepository, limit: int) -> tuple[int
             WHERE a.entity_id=e.id AND a.kind='datamak_pool_marker'
         )
     """
-    return _count_and_sample(repo, where, limit)
+    return _count_and_sample(repo, where, limit, campaign_uid)
 
 
-def _disconnected_entities(repo: LiteRepository, limit: int) -> tuple[int, list[EntityRef]]:
+def _disconnected_entities(
+    repo: LiteRepository, limit: int, campaign_uid: str | None
+) -> tuple[int, list[EntityRef]]:
     where = """
         e.type != 'campaign'
         AND NOT EXISTS (
@@ -216,10 +252,12 @@ def _disconnected_entities(repo: LiteRepository, limit: int) -> tuple[int, list[
             WHERE r.source_entity_id=e.id OR r.target_entity_id=e.id
         )
     """
-    return _count_and_sample(repo, where, limit)
+    return _count_and_sample(repo, where, limit, campaign_uid)
 
 
-def _figures_with_warnings(repo: LiteRepository, limit: int) -> tuple[int, list[EntityRef]]:
+def _figures_with_warnings(
+    repo: LiteRepository, limit: int, campaign_uid: str | None
+) -> tuple[int, list[EntityRef]]:
     where = """
         e.type='figure'
         AND EXISTS (
@@ -227,63 +265,76 @@ def _figures_with_warnings(repo: LiteRepository, limit: int) -> tuple[int, list[
             WHERE n.entity_id=e.id AND n.note_type='warning'
         )
     """
-    return _count_and_sample(repo, where, limit)
+    return _count_and_sample(repo, where, limit, campaign_uid)
 
 
-def _discovered_entities(repo: LiteRepository, limit: int) -> tuple[int, list[EntityRef]]:
-    rows = repo.conn.execute(
-        """
-        SELECT uid, name, type, status, scientific_status
-        FROM entity
-        WHERE metadata_json LIKE '%"discovery_source"%'
-        ORDER BY updated_at DESC, name
-        LIMIT ?
-        """,
-        (limit,),
-    ).fetchall()
-    count_row = repo.conn.execute(
-        """
-        SELECT COUNT(*) AS n
-        FROM entity
-        WHERE metadata_json LIKE '%"discovery_source"%'
-        """
-    ).fetchone()
-    return int(count_row["n"]), [_entity_ref(row) for row in rows]
-
-
-def _entities_with_note_type(repo: LiteRepository, note_type: str, limit: int) -> list[EntityRef]:
-    rows = repo.conn.execute(
-        """
-        SELECT DISTINCT e.uid, e.name, e.type, e.status, e.scientific_status
-        FROM note n
-        JOIN entity e ON e.id=n.entity_id
-        WHERE n.note_type=?
-        ORDER BY e.type, e.name
-        LIMIT ?
-        """,
-        (note_type, limit),
-    ).fetchall()
-    return [_entity_ref(row) for row in rows]
-
-
-def _count_and_sample(repo: LiteRepository, where_sql: str, limit: int) -> tuple[int, list[EntityRef]]:
-    count_row = repo.conn.execute(f"SELECT COUNT(*) AS n FROM entity e WHERE {where_sql}").fetchone()
+def _discovered_entities(
+    repo: LiteRepository, limit: int, campaign_uid: str | None
+) -> tuple[int, list[EntityRef]]:
+    scope_sql, scope_params = _campaign_scope_sql(campaign_uid)
     rows = repo.conn.execute(
         f"""
         SELECT e.uid, e.name, e.type, e.status, e.scientific_status
         FROM entity e
-        WHERE {where_sql}
+        WHERE e.metadata_json LIKE '%"discovery_source"%' {scope_sql}
+        ORDER BY e.updated_at DESC, e.name
+        LIMIT ?
+        """,
+        (*scope_params, limit),
+    ).fetchall()
+    count_row = repo.conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM entity e
+        WHERE e.metadata_json LIKE '%"discovery_source"%' {scope_sql}
+        """,
+        scope_params,
+    ).fetchone()
+    return int(count_row["n"]), [_entity_ref(row) for row in rows]
+
+
+def _entities_with_note_type(
+    repo: LiteRepository, note_type: str, limit: int, campaign_uid: str | None
+) -> list[EntityRef]:
+    scope_sql, scope_params = _campaign_scope_sql(campaign_uid)
+    rows = repo.conn.execute(
+        f"""
+        SELECT DISTINCT e.uid, e.name, e.type, e.status, e.scientific_status
+        FROM note n
+        JOIN entity e ON e.id=n.entity_id
+        WHERE n.note_type=? {scope_sql}
         ORDER BY e.type, e.name
         LIMIT ?
         """,
-        (limit,),
+        (note_type, *scope_params, limit),
+    ).fetchall()
+    return [_entity_ref(row) for row in rows]
+
+
+def _count_and_sample(
+    repo: LiteRepository, where_sql: str, limit: int, campaign_uid: str | None
+) -> tuple[int, list[EntityRef]]:
+    scope_sql, scope_params = _campaign_scope_sql(campaign_uid)
+    count_row = repo.conn.execute(
+        f"SELECT COUNT(*) AS n FROM entity e WHERE {where_sql} {scope_sql}", scope_params
+    ).fetchone()
+    rows = repo.conn.execute(
+        f"""
+        SELECT e.uid, e.name, e.type, e.status, e.scientific_status
+        FROM entity e
+        WHERE {where_sql} {scope_sql}
+        ORDER BY e.type, e.name
+        LIMIT ?
+        """,
+        (*scope_params, limit),
     ).fetchall()
     return int(count_row["n"]), [_entity_ref(row) for row in rows]
 
 
-def _recent_notes(repo: LiteRepository, limit: int) -> list[RecentNote]:
+def _recent_notes(repo: LiteRepository, limit: int, campaign_uid: str | None) -> list[RecentNote]:
+    scope_sql, scope_params = _campaign_scope_sql(campaign_uid)
     rows = repo.conn.execute(
-        """
+        f"""
         SELECT
             n.note_type,
             n.markdown_text,
@@ -295,11 +346,11 @@ def _recent_notes(repo: LiteRepository, limit: int) -> list[RecentNote]:
             e.scientific_status
         FROM note n
         LEFT JOIN entity e ON e.id=n.entity_id
-        WHERE n.note_type IN ('warning', 'todo')
+        WHERE n.note_type IN ('warning', 'todo') {scope_sql}
         ORDER BY n.created_at DESC, n.id DESC
         LIMIT ?
         """,
-        (limit,),
+        (*scope_params, limit),
     ).fetchall()
     notes: list[RecentNote] = []
     for row in rows:
@@ -313,6 +364,28 @@ def _recent_notes(repo: LiteRepository, limit: int) -> list[RecentNote]:
             )
         )
     return notes
+
+
+def _campaign_scope_sql(campaign_uid: str | None, *, entity_alias: str = "e") -> tuple[str, tuple[str, ...]]:
+    if campaign_uid is None:
+        return "", ()
+    return (
+        f"""
+        AND (
+            {entity_alias}.uid = ?
+            OR EXISTS (
+                SELECT 1
+                FROM relation campaign_membership
+                JOIN entity campaign ON campaign.id=campaign_membership.target_entity_id
+                WHERE campaign_membership.source_entity_id={entity_alias}.id
+                  AND campaign_membership.relation_type='member_of'
+                  AND campaign.type='campaign'
+                  AND campaign.uid=?
+            )
+        )
+        """,
+        (campaign_uid, campaign_uid),
+    )
 
 
 def _entity_ref(row: Any) -> EntityRef:

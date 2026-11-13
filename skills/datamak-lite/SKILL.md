@@ -1,6 +1,6 @@
 ---
 name: datamak-lite
-description: Find and maintain simulation and analysis provenance with Datamak Lite, including campaign discovery, run status, input/output and restart/history availability, figure lineage, source-code links, and compact metadata updates. Use for research-record lookup and maintenance, not scientific calculations or interpretation.
+description: Find and maintain simulation and analysis provenance with Datamak Lite, including literature catalogue lookup and registration, campaign discovery, run status, input/output and restart/history availability, figure lineage, source-code links, and compact metadata updates. Use for research-record lookup and maintenance, not scientific calculations or interpretation.
 ---
 
 # Datamak Lite
@@ -81,3 +81,26 @@ instead of claiming it was recorded.
   transport calculations, and scientific interpretation.
 - Setup and provenance maintenance do not authorize job submission, resource
   allocation, simulation changes, or changes to global assistant settings.
+
+## Distributed literature reviews
+
+Use the literature catalogue for “have I reviewed this paper?” and review/PDF
+location questions. It defaults to `$DATAMAK_HOME/literature.sqlite` or
+`~/.datamak/literature.sqlite`; campaign DB placement stays unchanged.
+
+```bash
+python3 -m datamak_lite.cli literature-reviews
+python3 -m datamak_lite.cli literature-find 'title words or DOI' --json
+python3 -m datamak_lite.cli literature-discover /user/supplied/review/root
+python3 -m datamak_lite.cli literature-import /selected/review --dry-run
+python3 -m datamak_lite.cli literature-import /selected/review
+```
+
+Consult existing PDF/note paths before downloading or repeating extraction.
+Register only authorized review folders. Preserve local Markdown as the source
+of scientific claims and user positions; review depth and provisional membership
+belong to each review's use of a paper. Exact identifiers can resolve paper
+identity; title similarity only suggests duplicates. Catalogue-only work does
+not regenerate review reports/slides or alter the selected local corpus. See
+the checkout's README section “Literature Catalogue” for metadata fields and
+`literature-add-paper` enrichment examples.

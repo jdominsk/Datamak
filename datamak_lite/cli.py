@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+from datamak_lite.adapters.literature_cli import add_literature_commands
+
 from datamak_lite.adapters.campaign_registry import import_campaign_registry
 from datamak_lite.adapters.datamak_pool_marker import build_datamak_pool_marker, write_datamak_pool_marker
 from datamak_lite.adapters.figure_audit import discover_figure_audit_files, import_figure_audits
@@ -516,6 +518,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--port", type=int, default=DEFAULT_PORT)
     p_serve.set_defaults(func=cmd_serve)
 
+    add_literature_commands(sub)
     return parser
 
 

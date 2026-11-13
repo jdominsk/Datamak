@@ -281,6 +281,55 @@ python3 -m datamak_lite.cli resolve-campaign campaign_west57929 --field database
 `refresh-campaign` updates this index automatically after a successful
 non-dry-run refresh. Use `--no-register` to suppress that side effect.
 
+## Literature Catalogue
+
+Datamak Lite can keep a shared paper/review metadata catalogue at
+`$DATAMAK_HOME/literature.sqlite` (default `~/.datamak/literature.sqlite`).
+Campaign databases remain in their project workspaces. The literature catalogue
+stores bibliographic identities and references to existing files; review notes,
+PDFs, claims, reports, and slides stay in their current folders.
+
+Discover and register existing reviews from explicitly supplied local roots:
+
+```bash
+python3 -m datamak_lite.cli literature-discover /path/to/Reviewing
+python3 -m datamak_lite.cli literature-import /path/to/Reviewing/topic --dry-run
+python3 -m datamak_lite.cli literature-import /path/to/Reviewing/topic
+python3 -m datamak_lite.cli literature-reviews
+python3 -m datamak_lite.cli literature-find 'title words or DOI'
+python3 -m datamak_lite.cli literature-duplicates
+```
+
+Import indexes structured `paper_notes/` fields and existing `References/` PDF
+paths. Scoped `web_notes/` and `web_pdfs/` remain provisional. It does not move,
+rewrite, download, or delete review files. Legacy reviews can be registered even
+when their paper metadata is incomplete; inspect the import's reported gaps.
+An available PDF is not evidence that the paper has been reviewed.
+
+A paper can belong to multiple reviews, each with its own note paths, review
+depth, and corpus status. Normalized DOI/arXiv identifiers and explicit stable
+paper UIDs identify known papers. Title similarity only suggests possible
+duplicates for inspection; it never merges records. Identical filenames in
+different folders do not establish paper identity.
+
+Register or enrich a paper using the review UID from `literature-reviews`:
+
+```bash
+python3 -m datamak_lite.cli literature-add-paper REVIEW_UID \
+  --title 'Paper title' --doi '10.1234/example' \
+  --pdf /path/to/References/paper.pdf \
+  --note /path/to/paper_notes/paper.md --depth comparative
+```
+
+Use `--uid PAPER_UID` to refine a known incomplete record or link it to another
+review, `--arxiv ID` for an arXiv identifier, and `--corpus-status provisional`
+for unpromoted scoped web material. New or deliberately updated paper notes can
+record `Paper ID`, `Title`, `Authors`, `Year`, `DOI`, `arXiv`, `Local path`, and
+`Review depth` as Markdown fields. The catalogue does not store accepted claims
+or promote interpretations between reviews. All catalogue commands except
+`literature-discover` accept `--db PATH`; lookup/list commands support `--json`
+and do not create a database when none exists.
+
 ## Metadata Policy
 
 Every important run, pool, analysis, and generated figure should leave a small

@@ -60,6 +60,21 @@ This file defines persistent rules and conventions for AI/code agents working in
 - Treat this registry as a machine-level locator only.  Keep campaign DBs and
   profiles in their project workspaces.
 
+## Datamak Lite Agent Integration
+
+- Track Datamak Lite development goals and validation results in [TASKS.md](TASKS.md).
+- Build local apps in Developer mode by default. Keep GitHub app updates
+  within the User role.
+- Keep the installable skill short. Load workflow-specific instructions when
+  the task needs them. Default to compact typed results and offer more rows
+  or bounded log excerpts on request.
+- Keep polling and required provenance writes in local Datamak workflows.
+  Request model analysis when the user asks for it and record each required
+  event or receipt once.
+- Offer the same detail controls across subscription plans. Measure token
+  overhead against the [Datamak Lite agent target](TASKS.md#datamak-lite-agent-integration)
+  before shipping an agent integration.
+
 ## Status Semantics (Operational Contract)
 
 - `gk_input.status` commonly uses: `NEW`, `WAIT`, `TORUN`, `BATCH`, `CRASHED`, `SUCCESS`, `ERROR`

@@ -1,6 +1,6 @@
 # Datamak Task Backlog
 
-Last updated: 2026-03-26
+Last updated: 2026-11-25
 
 This file is the prioritized engineering backlog and working upgrade log for the repository.
 
@@ -18,6 +18,53 @@ This file is the prioritized engineering backlog and working upgrade log for the
   - Candidate files: scripts, tests, and docs likely to change.
   - Workflow impact: note any affected status transitions, schema contracts, GUI actions, or remote steps.
   - Validation: list the tests or manual checks required before completion.
+
+### Datamak Lite agent integration
+
+- [ ] **Keep routine use of the installable Datamak Lite skill within a small token budget.**
+  - **Motivation** Researchers should be able to check campaigns and archive status
+    through an AI agent without quickly using up their model allowance. The
+    local maintainer skill used during development is about 6,500 input
+    tokens when read in full. Measure the distributable skill separately.
+  - **Design** Ship a short entry skill and load archive, restart, or HPC
+    instructions as needed. Return counts, changes, and items needing attention
+    by default. Let users request more rows or bounded log excerpts, independent
+    of their subscription plan. Reasoning effort remains a setting in the host
+    agent where supported.
+  - **Workflow impact** Keep polling, provenance writes, and archive receipts
+    in local Datamak tools. Use compact typed responses for agent requests.
+    Users explicitly request model-assisted summaries or investigation.
+  - **Candidate components** The installable Datamak skill and its references,
+    Datamak Lite CLI and report helpers, and agent tool adapters.
+  - **Target** Aim for about 1,000 Datamak-added input tokens for a routine
+    campaign status check, including skill instructions, tool definitions
+    presented for the task, and tool results. The total request also includes
+    host instructions, conversation history, and the user prompt.
+  - **Validation** Compare the current and compact versions on a routine
+    campaign status check, an archive lookup, and a failed-run investigation.
+    Use the same model, reasoning effort, and data in equivalent sessions.
+    Record Datamak-added input size, total cached and uncached input, output
+    tokens, and model call counts. Verify that both versions preserve the
+    facts and provenance needed for each task.
+
+### Datamak Lite app updates
+
+- [ ] **Deliver GitHub source updates to User builds.**
+  - **Role** Developer is the local launcher default. User is an explicit
+    build role and uses its own app bundle. Update checks belong to the User app.
+  - **Target** Check the published menu-bar source once a day while the User
+    app runs. Stage a newer build in isolation and apply it on relaunch. Keep
+    the project checkouts, campaign data, and archive flags outside the update.
+  - **Status** The updater passed local fixture tests. Live validation needs
+    two published app revisions.
+
+### Datamak Lite storage refresh
+
+- [x] **Refresh storage quotas from each machine card.** Reuse authenticated
+  SSH when available, offer a Terminal connection when sign-in is needed, and
+  retain the last successful quota reading with its scope and timestamp.
+  Polaris passed a live check. Aurora and Perlmutter quota parsing was checked
+  against the facilities’ documented output.
 
 ## P0 - High Priority
 
